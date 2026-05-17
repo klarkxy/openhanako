@@ -178,11 +178,23 @@ function sanitizeAccount(user, { passwordSet }) {
   };
 }
 
+function hasAsciiControlChar(value) {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function hasUsernamePathSeparator(value) {
+  return value.includes("/") || value.includes("\\");
+}
+
 function normalizeUsername(value, fallback) {
   const raw = isNonEmptyString(value) ? value.trim() : fallback;
   if (!isNonEmptyString(raw)) throw new Error("username required");
   if (raw.length > USERNAME_MAX_LENGTH) throw new Error(`username must be at most ${USERNAME_MAX_LENGTH} characters`);
-  if (/[\u0000-\u001f\u007f/\\]/.test(raw)) throw new Error("username contains unsupported characters");
+  if (hasAsciiControlChar(raw) || hasUsernamePathSeparator(raw)) throw new Error("username contains unsupported characters");
   return raw;
 }
 
@@ -192,7 +204,7 @@ function normalizeDisplayName(value, fallback) {
   if (raw.length > DISPLAY_NAME_MAX_LENGTH) {
     throw new Error(`displayName must be at most ${DISPLAY_NAME_MAX_LENGTH} characters`);
   }
-  if (/[\u0000-\u001f\u007f]/.test(raw)) throw new Error("displayName contains unsupported characters");
+  if (hasAsciiControlChar(raw)) throw new Error("displayName contains unsupported characters");
   return raw;
 }
 

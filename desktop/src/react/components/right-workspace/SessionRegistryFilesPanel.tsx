@@ -642,6 +642,7 @@ export function SessionRegistryFilesPanel() {
         disabled: !downloadUrl,
         action: () => {
           if (!downloadUrl) return;
+          // eslint-disable-next-line no-restricted-syntax -- context menu download has no rendered anchor to delegate to
           const a = document.createElement('a');
           a.href = downloadUrl;
           a.download = file.name;

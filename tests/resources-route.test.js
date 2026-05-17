@@ -253,7 +253,7 @@ describe("resources route", () => {
     const disposition = res.headers.get("content-disposition") || "";
     expect(disposition).toContain("filename*=UTF-8''");
     expect(disposition).toContain("%E7%B2%98%E8%B4%B4%E5%9B%BE%E7%89%87");
-    expect(disposition).not.toMatch(/[^\x00-\x7F]/);
+    expect(Array.from(disposition).every((char) => char.charCodeAt(0) <= 0x7f)).toBe(true);
     expect(await res.text()).toBe("png-bytes");
   });
 

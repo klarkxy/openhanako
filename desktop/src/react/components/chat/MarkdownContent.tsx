@@ -64,6 +64,7 @@ function applyTailFade(root: HTMLElement, count: number): void {
     const fragment = document.createDocumentFragment();
     if (before) fragment.appendChild(document.createTextNode(before));
     for (const segment of tail) {
+      // eslint-disable-next-line no-restricted-syntax -- post-render markdown stream tail decoration needs DOM text-node surgery
       const span = document.createElement('span');
       span.className = styles.streamTailChar;
       span.dataset.streamTailChar = 'true';
