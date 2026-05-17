@@ -31,6 +31,7 @@ import { PluginManager } from "./plugin-manager.js";
 import { PluginDevService } from "./plugin-dev-service.js";
 import { createPluginDevTools } from "./plugin-dev-tools.js";
 import { DefaultResourceLoader, SettingsManager } from "../lib/pi-sdk/index.js";
+import { DeferredResultCoordinator } from "../lib/deferred-result-coordinator.js";
 import { loadLocale } from "../server/i18n.js";
 
 /** 已知的外部 AI 工具技能目录（相对 $HOME） */
@@ -368,7 +369,16 @@ export class HanaEngine {
   }
 
   setDeferredResultStore(store) {
+    this._deferredResultCoordinator?.dispose?.();
     this._deferredResultStore = store;
+    this._deferredResultCoordinator = null;
+    if (store) {
+      this._deferredResultCoordinator = new DeferredResultCoordinator({
+        store,
+        sessionCoordinator: this._sessionCoord,
+      });
+      this._deferredResultCoordinator.start();
+    }
   }
 
   get deferredResults() {
@@ -1228,6 +1238,8 @@ export class HanaEngine {
       this._pluginDevEventBusCleanup?.();
       this._pluginDevEventBusCleanup = null;
       this._skills?.unwatch();
+      this._deferredResultCoordinator?.dispose?.();
+      this._deferredResultCoordinator = null;
       await this._agentMgr.disposeAll(this._sessionCoord);
       await this._sessionCoord.cleanupSession();
     } finally {
