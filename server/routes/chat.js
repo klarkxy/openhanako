@@ -64,6 +64,35 @@ function extractText(content) {
     .join("");
 }
 
+function deferredResultFileBlocks(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return [];
+  const sessionFiles = Array.isArray(result.sessionFiles) ? result.sessionFiles : [];
+  return sessionFiles
+    .map(sessionFileToContentBlock)
+    .filter(Boolean);
+}
+
+function sessionFileToContentBlock(file) {
+  if (!file || typeof file !== "object") return null;
+  const filePath = file.filePath || file.realPath || null;
+  if (!filePath) return null;
+  const fileId = file.fileId || file.id || null;
+  const label = file.label || file.displayName || file.filename || path.basename(filePath);
+  const ext = file.ext ?? path.extname(filePath || label).toLowerCase().replace(/^\./, "");
+  return {
+    type: "file",
+    ...(fileId ? { fileId } : {}),
+    filePath,
+    label,
+    ext,
+    ...(file.mime ? { mime: file.mime } : {}),
+    ...(file.kind ? { kind: file.kind } : {}),
+    ...(file.storageKind ? { storageKind: file.storageKind } : {}),
+    ...(file.status ? { status: file.status } : {}),
+    ...(file.missingAt !== undefined ? { missingAt: file.missingAt } : {}),
+  };
+}
+
 export function toCompactionLifecycleWsMessage(event, sessionPath, getSessionByPath) {
   if (!sessionPath) return null;
   if (event.type === "compaction_start") {
@@ -673,6 +702,11 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
         reason: event.reason,
         meta: event.meta,
       });
+      if (event.status === "success") {
+        for (const block of deferredResultFileBlocks(event.result)) {
+          emitStreamEvent(sessionPath, ss, { type: "content_block", block });
+        }
+      }
     }
   });
 

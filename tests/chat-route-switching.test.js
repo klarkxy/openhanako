@@ -110,4 +110,80 @@ describe("chat route model switch guard", () => {
     handlers.onClose({}, hostWs);
     handlers.onClose({}, phoneWs);
   });
+
+  it("emits file content blocks for deferred result session files", () => {
+    let createHandlers;
+    let subscriber;
+    const upgradeWebSocket = vi.fn((factory) => {
+      createHandlers = factory;
+      return () => new Response(null);
+    });
+    const hub = {
+      subscribe: vi.fn((fn) => {
+        subscriber = fn;
+      }),
+      send: vi.fn(async () => {}),
+    };
+    const engine = {
+      agentName: "Hana",
+      abortAllStreaming: vi.fn(async () => {}),
+      getSessionByPath: vi.fn(() => ({ entries: [] })),
+      isSessionStreaming: vi.fn(() => false),
+      isSessionSwitching: vi.fn(() => false),
+      steerSession: vi.fn(() => false),
+      slashDispatcher: null,
+    };
+
+    createChatRoute(engine, hub, { upgradeWebSocket });
+    const handlers = createHandlers({});
+    const ws = { readyState: 1, send: vi.fn() };
+    handlers.onOpen({}, ws);
+
+    subscriber?.({
+      type: "deferred_result",
+      taskId: "img-task-1",
+      status: "success",
+      result: {
+        files: ["abc.png"],
+        sessionFiles: [{
+          fileId: "sf_generated",
+          filePath: "/tmp/generated/abc.png",
+          label: "abc.png",
+          ext: "png",
+          mime: "image/png",
+          kind: "image",
+          storageKind: "plugin_data",
+          status: "available",
+        }],
+      },
+      meta: { type: "image-generation" },
+    }, "/tmp/image-session.jsonl");
+
+    const payloads = ws.send.mock.calls.map(([raw]) => JSON.parse(raw));
+    expect(payloads).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "deferred_result",
+        sessionPath: "/tmp/image-session.jsonl",
+        taskId: "img-task-1",
+        status: "success",
+      }),
+      expect.objectContaining({
+        type: "content_block",
+        sessionPath: "/tmp/image-session.jsonl",
+        block: expect.objectContaining({
+          type: "file",
+          fileId: "sf_generated",
+          filePath: "/tmp/generated/abc.png",
+          label: "abc.png",
+          ext: "png",
+          mime: "image/png",
+          kind: "image",
+          storageKind: "plugin_data",
+          status: "available",
+        }),
+      }),
+    ]));
+
+    handlers.onClose({}, ws);
+  });
 });
