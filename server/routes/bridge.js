@@ -6,6 +6,7 @@
 
 import fs from "fs";
 import path from "path";
+import crypto from "node:crypto";
 import { Hono } from "hono";
 import { safeJson } from "../hono-helpers.js";
 import { debugLog } from "../../lib/debug-log.js";
@@ -138,6 +139,13 @@ export function createBridgeRoute(engine, bridgeManagerRef) {
       wechat: platformStatus("wechat", bridge.wechat, {
         configured: !!bridge.wechat?.botToken,
         token: maskSecretValue(bridge.wechat?.botToken || ""),
+      }),
+      onebot: platformStatus("onebot", bridge.onebot, {
+        configured: !!(bridge.onebot?.apiBase || bridge.onebot?.apiUrl || bridge.onebot?.endpoint),
+        apiBase: bridge.onebot?.apiBase || bridge.onebot?.apiUrl || bridge.onebot?.endpoint || "",
+        accessToken: maskSecretValue(bridge.onebot?.accessToken || ""),
+        secret: maskSecretValue(bridge.onebot?.secret || ""),
+        selfId: bridge.onebot?.selfId || "",
       }),
       readOnly: engine.getBridgeReadOnly(),
       receiptEnabled: engine.getBridgeReceiptEnabled(),
@@ -631,10 +639,82 @@ export function createBridgeRoute(engine, bridgeManagerRef) {
         }
         return c.json({ ok: true, info: { msg: "微信 iLink 连接成功" } });
       }
+      if (platform === "onebot") {
+        const endpoint = String(effectiveCredentials.apiBase || effectiveCredentials.apiUrl || effectiveCredentials.endpoint || "").trim().replace(/\/+$/, "");
+        if (!endpoint) {
+          return c.json({ ok: false, error: "OneBot endpoint required" });
+        }
+        const headers = { "Content-Type": "application/json" };
+        if (effectiveCredentials.accessToken) {
+          headers.Authorization = `Bearer ${effectiveCredentials.accessToken}`;
+        }
+        const resp = await fetch(`${endpoint}/get_login_info`, {
+          method: "POST",
+          headers,
+          body: "{}",
+          signal: AbortSignal.timeout(10_000),
+        });
+        const payload = await resp.json();
+        if (!resp.ok || payload?.status !== "ok" || Number(payload?.retcode ?? 0) !== 0) {
+          return c.json({ ok: false, error: payload?.message || `HTTP ${resp.status}` });
+        }
+        const info = payload?.data || {};
+        return c.json({ ok: true, info: { username: info.user_id || "", name: info.nickname || "OneBot" } });
+      }
       return c.json({ ok: false, error: t("error.platformTestUnsupported") });
     } catch (err) {
       return c.json({ ok: false, error: err.message });
     }
+  });
+
+  /** OneBot 反向 HTTP 事件入口（NapCat/其他 OneBot 实现可直接上报到这里） */
+  route.post("/bridge/onebot/event", async (c) => {
+    const agentId = c.req.query("agentId") || "";
+    if (!agentId) return c.json({ status: "failed", retcode: 1400, message: "agentId required" }, 400);
+
+    const agent = engine.getAgent(agentId);
+    if (!agent) return c.json({ status: "failed", retcode: 1404, message: "agent not found" }, 404);
+
+    const cfg = agent.config?.bridge?.onebot || {};
+    if (!cfg.enabled) return c.json({ status: "failed", retcode: 1503, message: "onebot bridge disabled" }, 503);
+
+    const rawBody = await c.req.text();
+
+    const token = String(cfg.accessToken || "").trim();
+    if (token) {
+      const auth = String(c.req.header("authorization") || "").trim();
+      if (auth !== `Bearer ${token}` && auth !== `Token ${token}`) {
+        return c.json({ status: "failed", retcode: 1403, message: "invalid access token" }, 403);
+      }
+    }
+
+    const secret = String(cfg.secret || "").trim();
+    if (secret) {
+      const signature = String(c.req.header("x-signature") || "").trim();
+      if (!signature || !isValidOnebotSignature(secret, rawBody, signature)) {
+        return c.json({ status: "failed", retcode: 1403, message: "invalid signature" }, 403);
+      }
+    }
+
+    let payload;
+    try {
+      payload = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      return c.json({ status: "failed", retcode: 1400, message: "invalid json" }, 400);
+    }
+
+    const manager = await ensureBridgeManager();
+    if (!manager) return bridgeUnavailable(c, bridgeRef.getState?.() || {});
+
+    if (!manager.getStatus(agentId)?.onebot) {
+      manager.startPlatformFromConfig("onebot", cfg, agentId);
+    }
+
+    const result = manager.ingestPlatformEvent("onebot", payload, agentId);
+    if (!result?.ok) {
+      return c.json({ status: "failed", retcode: 1500, message: result?.error || "ingest failed" }, 500);
+    }
+    return c.json({ status: "ok", retcode: 0, data: null });
   });
 
   /** 获取微信扫码登录二维码 */
@@ -672,9 +752,19 @@ function bridgeSecretKeys(platform) {
     ? ["appSecret"]
     : platform === "qq"
       ? ["appSecret", "token"]
+      : platform === "onebot"
+        ? ["accessToken", "secret"]
       : platform === "wechat"
         ? ["botToken"]
         : ["token"];
+}
+
+function isValidOnebotSignature(secret, rawBody, signature) {
+  const normalized = signature.toLowerCase();
+  const providedHex = normalized.startsWith("sha1=") ? normalized.slice(5) : normalized;
+  const expectedHex = crypto.createHmac("sha1", secret).update(rawBody || "", "utf8").digest("hex");
+  if (!providedHex || providedHex.length !== expectedHex.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(providedHex, "hex"), Buffer.from(expectedHex, "hex"));
 }
 
 function buildBridgeManualSendSessionPath(agentId, platform, chatId) {

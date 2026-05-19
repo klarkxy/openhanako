@@ -33,6 +33,7 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
 
   if (isMobileStaticRoute(verb, routePath)) return PUBLIC;
   if (isWebAuthBootstrapRoute(verb, routePath)) return PUBLIC;
+  if (verb === "POST" && routePath === "/api/bridge/onebot/event") return PUBLIC;
 
   if (routePath === "/api/health") return AUTHENTICATED_ONLY;
   if (routePath === "/api/server/identity") return AUTHENTICATED_ONLY;

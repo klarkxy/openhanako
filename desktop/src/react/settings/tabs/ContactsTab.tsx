@@ -160,11 +160,59 @@ function candidateKey(platform: Platform, user: KnownUser) {
   return `${platform}:${user.userId}`;
 }
 
+function collectCandidateGroups(statuses: BridgeStatus[]) {
+  const ownerKeys = new Set<string>();
+  const grouped = new Map<Platform, Map<string, KnownUser>>();
+
+  for (const status of statuses) {
+    const owner = status?.owner || {};
+    for (const [platform, userId] of Object.entries(owner)) {
+      const normalizedPlatform = platform as Platform;
+      if (!PLATFORM_ORDER.includes(normalizedPlatform)) continue;
+      const normalizedUserId = String(userId || '').trim();
+      if (!normalizedUserId) continue;
+      ownerKeys.add(`${normalizedPlatform}:${normalizedUserId}`);
+    }
+  }
+
+  for (const status of statuses) {
+    const knownUsers = status?.knownUsers || {};
+    for (const platform of PLATFORM_ORDER) {
+      const users = knownUsers[platform] || [];
+      if (!Array.isArray(users) || users.length === 0) continue;
+
+      if (!grouped.has(platform)) {
+        grouped.set(platform, new Map());
+      }
+      const platformGroup = grouped.get(platform)!;
+
+      for (const user of users) {
+        const userId = String(user?.userId || '').trim();
+        if (!userId) continue;
+        const key = `${platform}:${userId}`;
+        if (ownerKeys.has(key)) continue;
+        if (!platformGroup.has(key) || user?.name) {
+          platformGroup.set(key, { userId, name: user?.name || undefined });
+        }
+      }
+    }
+  }
+
+  return PLATFORM_ORDER
+    .map(platform => ({
+      platform,
+      users: [...(grouped.get(platform)?.values() || [])],
+    }))
+    .filter(group => group.users.length > 0);
+}
+
 export function ContactsTab() {
   const currentAgentId = useSettingsStore(s => s.currentAgentId);
+  const agents = useSettingsStore(s => s.agents);
   const showToast = useSettingsStore(s => s.showToast);
   const locale = window.i18n?.locale || 'zh-CN';
   const isZh = locale.startsWith('zh');
+  const agentIds = useMemo(() => [...new Set(agents.map(agent => agent.id).filter(Boolean))], [agents]);
   const copy = useMemo(() => ({
     tabTitle: isZh ? '通讯录' : 'Contacts',
     intro: isZh
@@ -249,6 +297,7 @@ export function ContactsTab() {
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus | null>(null);
+  const [candidateGroups, setCandidateGroups] = useState<Array<{ platform: Platform; users: KnownUser[] }>>([]);
   const [audiencePrompts, setAudiencePrompts] = useState<Record<Relation, string>>(createEmptyAudiencePrompts());
   const [loading, setLoading] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
@@ -280,13 +329,35 @@ export function ContactsTab() {
       setContacts(Array.isArray(contactsData.contacts) ? contactsData.contacts : []);
       const nextSettings = settingsData?.settings || contactsData?.settings || {};
       setAudiencePrompts(normalizeAudiencePrompts(nextSettings.audiencePrompts));
-      setBridgeStatus(statusData && typeof statusData === 'object' ? statusData : null);
+
+      const extraStatusResults = await Promise.allSettled(
+        agentIds
+          .filter(agentId => agentId !== currentAgentId)
+          .map(async (agentId) => {
+            const response = await hanaFetch(`/api/bridge/status?agentId=${encodeURIComponent(agentId)}`);
+            if (!response.ok) {
+              throw new Error(`status ${agentId} failed: ${response.status}`);
+            }
+            return response.json() as Promise<BridgeStatus>;
+          }),
+      );
+
+      const extraStatuses = extraStatusResults.flatMap(result => {
+        if (result.status !== 'fulfilled') return [];
+        const value = result.value;
+        return value && typeof value === 'object' && !Array.isArray(value) ? [value as BridgeStatus] : [];
+      });
+      const currentStatus = statusData && typeof statusData === 'object' && !Array.isArray(statusData)
+        ? statusData
+        : null;
+      setBridgeStatus(currentStatus);
+      setCandidateGroups(collectCandidateGroups([currentStatus, ...extraStatuses].filter(Boolean) as BridgeStatus[]));
     } catch (err) {
       showToast(`${copy.loadFailed}: ${err instanceof Error ? err.message : String(err)}`, 'error');
     } finally {
       setLoading(false);
     }
-  }, [copy.loadFailed, currentAgentId, filters.query, filters.relation, showToast]);
+  }, [agentIds, copy.loadFailed, currentAgentId, filters.query, filters.relation, showToast]);
 
   useEffect(() => {
     void loadData();
@@ -401,13 +472,6 @@ export function ContactsTab() {
     return `${copy.ownerLabel} ${entries.join(' · ')}`;
   }, [bridgeStatus?.owner, copy.ownerLabel, copy.platformLabels]);
 
-  const knownUserGroups = useMemo(() => PLATFORM_ORDER
-    .map((platform) => ({
-      platform,
-      users: bridgeStatus?.knownUsers?.[platform] || [],
-    }))
-    .filter(group => group.users.length > 0), [bridgeStatus?.knownUsers]);
-
   if (!currentAgentId) {
     return (
       <div className={`${styles['settings-tab-content']} ${styles.active}`} data-tab="contacts">
@@ -428,11 +492,11 @@ export function ContactsTab() {
       <SettingsSection title={copy.candidateTitle} collapsible defaultCollapsed>
         <SettingsSection.Note>{copy.candidateHint}</SettingsSection.Note>
         {ownerSummary ? <SettingsSection.Note>{ownerSummary}</SettingsSection.Note> : null}
-        {knownUserGroups.length === 0 ? (
+        {candidateGroups.length === 0 ? (
           <SettingsSection.Note>{copy.candidateEmpty}</SettingsSection.Note>
         ) : (
           <div style={{ display: 'grid', gap: 'var(--space-md)' }}>
-            {knownUserGroups.map(({ platform, users }) => (
+            {candidateGroups.map(({ platform, users }) => (
               <div
                 key={platform}
                 style={{

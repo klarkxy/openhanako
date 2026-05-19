@@ -29,14 +29,17 @@ vi.mock('../../settings/api', () => ({
 function resetState() {
   Object.keys(mockState).forEach(key => delete mockState[key]);
   Object.assign(mockState, {
-    agents: [{ id: 'hana', name: 'Hana', yuan: 'hanako' }],
+    agents: [
+      { id: 'hana', name: 'Hana', yuan: 'hanako' },
+      { id: 'agent-mp9vr3c7', name: 'Relay', yuan: 'relay' },
+    ],
     currentAgentId: 'hana',
     showToast: vi.fn(),
   });
 }
 
 function jsonResponse(body: unknown): Response {
-  return { json: async () => body } as Response;
+  return { ok: true, status: 200, json: async () => body } as Response;
 }
 
 function createContactStore() {
@@ -48,13 +51,23 @@ function createContactStore() {
       stranger: '',
     },
   };
-  const status = {
-    knownUsers: {
-      telegram: [{ userId: 'alice-id', name: 'Alice' }],
-      feishu: [{ userId: 'lark-id', name: 'Lark' }],
+  const statuses: Record<string, any> = {
+    hana: {
+      knownUsers: {
+        qq: [{ userId: 'owner-id', name: 'Owner User' }],
+      },
+      owner: {
+        qq: 'owner-id',
+      },
     },
-    owner: {
-      telegram: 'owner-id',
+    'agent-mp9vr3c7': {
+      knownUsers: {
+        qq: [{ userId: 'guest-id', name: 'Guest One' }],
+        wechat: [{ userId: 'wx-guest-id', name: 'Wechat Guest' }],
+      },
+      owner: {
+        wechat: 'wx-owner-id',
+      },
     },
   };
 
@@ -90,13 +103,15 @@ function createContactStore() {
     }
 
     if (url.startsWith('/api/bridge/status')) {
-      return jsonResponse(status);
+      const parsedUrl = new URL(url, 'http://localhost');
+      const agentId = parsedUrl.searchParams.get('agentId') || 'hana';
+      return jsonResponse(statuses[agentId] || { knownUsers: {}, owner: {} });
     }
 
     throw new Error(`unexpected request: ${url}`);
   });
 
-  return { contacts, settings, status };
+  return { contacts, settings, statuses };
 }
 
 describe('ContactsTab', () => {
@@ -128,6 +143,7 @@ describe('ContactsTab', () => {
     expect(mockHanaFetch).toHaveBeenCalledWith('/api/bridge/contacts?agentId=hana');
     expect(mockHanaFetch).toHaveBeenCalledWith('/api/bridge/contacts/settings?agentId=hana');
     expect(mockHanaFetch).toHaveBeenCalledWith('/api/bridge/status?agentId=hana');
+    expect(mockHanaFetch).toHaveBeenCalledWith('/api/bridge/status?agentId=agent-mp9vr3c7');
   });
 
   it('prefills a known user into the form and saves a contact', async () => {
@@ -139,19 +155,24 @@ describe('ContactsTab', () => {
     await waitFor(() => {
       expect(mockHanaFetch).toHaveBeenCalledWith('/api/bridge/status?agentId=hana');
     });
+    await waitFor(() => {
+      expect(mockHanaFetch).toHaveBeenCalledWith('/api/bridge/status?agentId=agent-mp9vr3c7');
+    });
 
     fireEvent.click(screen.getByRole('button', { name: '候选接入' }));
-    fireEvent.click(screen.getByRole('button', { name: /Alice/ }));
+    expect(screen.queryByRole('button', { name: 'Owner User' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Guest One/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Guest One/ }));
 
-    expect(screen.getByLabelText('联系人名称')).toHaveValue('Alice');
-    expect(screen.getByLabelText('账号映射')).toHaveValue('telegram, alice-id, , Alice');
+    expect(screen.getByLabelText('联系人名称')).toHaveValue('Guest One');
+    expect(screen.getByLabelText('账号映射')).toHaveValue('qq, guest-id, , Guest One');
 
     fireEvent.click(screen.getByRole('button', { name: '创建联系人' }));
 
     await waitFor(() => {
       expect(mockHanaFetch).toHaveBeenCalledWith('/api/bridge/contacts?agentId=hana', expect.objectContaining({ method: 'POST' }));
     });
-    expect(await screen.findByText((_, element) => element?.tagName.toLowerCase() === 'strong' && element?.textContent === 'Alice')).toBeInTheDocument();
+    expect(await screen.findByText((_, element) => element?.tagName.toLowerCase() === 'strong' && element?.textContent === 'Guest One')).toBeInTheDocument();
     expect(store.contacts).toHaveLength(1);
   });
 

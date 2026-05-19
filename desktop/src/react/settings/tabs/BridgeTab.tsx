@@ -15,6 +15,7 @@ export function BridgeTab() {
   const fsInfo = b.status?.feishu || {};
   const qqInfo = b.status?.qq || {};
   const wxInfo = b.status?.wechat || {};
+  const obInfo = b.status?.onebot || {};
   const readOnly = !!b.status?.readOnly;
   const receiptEnabled = b.status?.receiptEnabled !== false;
 
@@ -147,6 +148,52 @@ export function BridgeTab() {
         onSaveConfig={(creds, enabled) => b.saveBridgeConfig('wechat', creds, enabled)}
         onReload={b.loadStatus}
         agentId={b.selectedAgentId}
+      />
+
+      {/* OneBot */}
+      <PlatformSection
+        platform="onebot"
+        title={t('settings.bridge.onebot')}
+        status={obInfo}
+        credentialFields={[
+          { key: 'apiBase', label: t('settings.bridge.onebotApiBase'), type: 'text', value: b.onebotApiBase, onChange: b.setOnebotApiBase },
+          { key: 'accessToken', label: t('settings.bridge.onebotAccessToken'), type: 'secret', value: b.onebotAccessToken, onChange: b.setOnebotAccessToken },
+          { key: 'secret', label: t('settings.bridge.onebotSecret'), type: 'secret', value: b.onebotSecret, onChange: b.setOnebotSecret },
+          { key: 'selfId', label: t('settings.bridge.onebotSelfId'), type: 'text', value: b.onebotSelfId, onChange: b.setOnebotSelfId },
+        ]}
+        onToggle={async (on) => {
+          if (on && !b.onebotApiBase.trim()) { b.showToast(t('settings.bridge.onebotNoApiBase'), 'error'); return; }
+          await b.saveBridgeConfig('onebot', {
+            apiBase: b.onebotApiBase.trim(),
+            accessToken: b.onebotAccessToken.trim(),
+            secret: b.onebotSecret.trim(),
+            selfId: b.onebotSelfId.trim(),
+          }, on);
+        }}
+        onTest={() => {
+          if (!b.onebotApiBase.trim()) { b.showToast(t('settings.bridge.onebotNoApiBase'), 'error'); return; }
+          b.testPlatform('onebot', {
+            apiBase: b.onebotApiBase.trim(),
+            accessToken: b.onebotAccessToken.trim(),
+            secret: b.onebotSecret.trim(),
+            selfId: b.onebotSelfId.trim(),
+          });
+        }}
+        onCredentialBlur={async () => {
+          if (b.onebotApiBase.trim()) {
+            await b.saveBridgeConfig('onebot', {
+              apiBase: b.onebotApiBase.trim(),
+              accessToken: b.onebotAccessToken.trim(),
+              secret: b.onebotSecret.trim(),
+              selfId: b.onebotSelfId.trim(),
+            }, undefined);
+          }
+        }}
+        testing={b.testingPlatform === 'onebot'}
+        hint={t('settings.bridge.onebotHint')}
+        ownerUsers={b.status?.knownUsers?.onebot || []}
+        currentOwner={b.status?.owner?.onebot}
+        onOwnerChange={(userId) => b.setOwner('onebot', userId)}
       />
     </div>
   );

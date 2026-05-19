@@ -21,6 +21,12 @@ export interface TelegramStatus extends PlatformStatusBase { token?: string }
 export interface FeishuStatus extends PlatformStatusBase { appId?: string; appSecret?: string }
 export interface QQStatus extends PlatformStatusBase { appID?: string; appSecret?: string }
 export interface WechatStatus extends PlatformStatusBase { token?: string }
+export interface OneBotStatus extends PlatformStatusBase {
+  apiBase?: string;
+  accessToken?: string;
+  secret?: string;
+  selfId?: string;
+}
 
 export interface BridgeStatus {
   telegram: TelegramStatus;
@@ -28,13 +34,14 @@ export interface BridgeStatus {
   whatsapp: PlatformStatusBase;
   qq: QQStatus;
   wechat: WechatStatus;
+  onebot: OneBotStatus;
   readOnly: boolean;
   receiptEnabled: boolean;
-  knownUsers: { telegram?: KnownUser[]; feishu?: KnownUser[]; whatsapp?: KnownUser[]; qq?: KnownUser[]; wechat?: KnownUser[] };
-  owner: { telegram?: string; feishu?: string; whatsapp?: string; qq?: string; wechat?: string };
+  knownUsers: { telegram?: KnownUser[]; feishu?: KnownUser[]; whatsapp?: KnownUser[]; qq?: KnownUser[]; wechat?: KnownUser[]; onebot?: KnownUser[] };
+  owner: { telegram?: string; feishu?: string; whatsapp?: string; qq?: string; wechat?: string; onebot?: string };
 }
 
-export type BridgePlatform = 'telegram' | 'feishu' | 'whatsapp' | 'qq' | 'wechat';
+export type BridgePlatform = 'telegram' | 'feishu' | 'whatsapp' | 'qq' | 'wechat' | 'onebot';
 
 export function useBridgeState() {
   // Atomic selectors: only re-render when these specific fields change
@@ -63,6 +70,10 @@ export function useBridgeState() {
   const [fsAppSecret, setFsAppSecret] = useState('');
   const [qqAppId, setQqAppId] = useState('');
   const [qqAppSecret, setQqAppSecret] = useState('');
+  const [onebotApiBase, setOnebotApiBase] = useState('');
+  const [onebotAccessToken, setOnebotAccessToken] = useState('');
+  const [onebotSecret, setOnebotSecret] = useState('');
+  const [onebotSelfId, setOnebotSelfId] = useState('');
 
   const loadStatus = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -77,6 +88,10 @@ export function useBridgeState() {
       setFsAppSecret(data.feishu?.appSecret || '');
       setQqAppId(data.qq?.appID || '');
       setQqAppSecret(data.qq?.appSecret || '');
+      setOnebotApiBase(data.onebot?.apiBase || '');
+      setOnebotAccessToken(data.onebot?.accessToken || '');
+      setOnebotSecret(data.onebot?.secret || '');
+      setOnebotSelfId(data.onebot?.selfId || '');
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return;
       console.error('[bridge] load status failed:', err);
@@ -175,6 +190,10 @@ export function useBridgeState() {
     tgToken, setTgToken,
     fsAppId, setFsAppId, fsAppSecret, setFsAppSecret,
     qqAppId, setQqAppId, qqAppSecret, setQqAppSecret,
+    onebotApiBase, setOnebotApiBase,
+    onebotAccessToken, setOnebotAccessToken,
+    onebotSecret, setOnebotSecret,
+    onebotSelfId, setOnebotSelfId,
     saveBridgeConfig, testPlatform, setOwner, saveGlobalSettings,
   };
 }
