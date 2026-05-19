@@ -21,6 +21,11 @@ import { collectMediaItems } from "../lib/tools/media-details.js";
 import { materializeBridgeInboundFiles } from "../lib/session-files/bridge-inbound-files.js";
 import { modelSupportsDirectVideoInput, modelSupportsVideoInput } from "../shared/model-capabilities.js";
 import {
+  buildBridgeAudiencePrompt,
+  getEffectiveBridgeRelationPolicy,
+  normalizeBridgeRelation,
+} from "../lib/bridge/contacts/policy.js";
+import {
   appendBridgePromptLine,
   bridgeContextIndexMeta,
   buildBridgeContext,
@@ -62,6 +67,33 @@ function buildPromptMediaOptions(opts) {
 function getProviderMessageEndError(event) {
   if (event?.type !== "message_end" || event.message?.stopReason !== "error") return null;
   return event.message.errorMessage || event.message.error?.message || "Unknown error";
+}
+
+function appendPromptNotes(prompt, notes = []) {
+  let output = prompt || "";
+  for (const note of notes.filter(Boolean)) {
+    if (output.includes(note)) continue;
+    output = output ? `${output}\n\n${note}` : note;
+  }
+  return output;
+}
+
+function normalizeAudience(raw = null, role = "guest") {
+  const relation = normalizeBridgeRelation(raw?.relation || (role === "owner" ? "self" : "stranger"));
+  const policy = getEffectiveBridgeRelationPolicy(relation, raw || null);
+  return {
+    ...(raw || {}),
+    relation,
+    policy,
+    contactName: typeof raw?.contactName === "string" && raw.contactName.trim() ? raw.contactName.trim() : null,
+    promptSource: raw?.promptSource || policy.promptSource || (role === "owner" ? "owner" : "public"),
+    allowWorkspaceActions: raw?.allowWorkspaceActions === true || policy.allowWorkspaceActions === true,
+  };
+}
+
+function bridgeAudienceSubdir(isGuest, audience) {
+  if (!isGuest) return "owner";
+  return audience?.promptSource === "owner" ? "social" : "guests";
 }
 
 function zeroUsage() {
@@ -325,11 +357,15 @@ export class BridgeSessionManager {
   }
 
   _buildBridgeContext(sessionKey, meta = {}, opts = {}, agent = null) {
+    const bridgeAudience = opts.bridgeAudience || null;
     return buildBridgeContext({
       ...(meta || {}),
       sessionKey,
       role: opts.guest === true ? "guest" : "owner",
       agentId: agent?.id || opts.agentId || null,
+      relation: bridgeAudience?.relation,
+      infoDisclosure: bridgeAudience?.infoDisclosure,
+      toneProfile: bridgeAudience?.toneProfile,
     }, getLocale());
   }
 
@@ -441,10 +477,11 @@ export class BridgeSessionManager {
       const isGuest = opts.guest === true;
       let agent = this._resolveAgent(opts, "executeExternalMessage");
       agent = await this._ensureAgentRuntime(agent, "executeExternalMessage");
-      const bridgeContext = this._buildBridgeContext(sessionKey, meta, opts, agent);
+      const bridgeAudience = normalizeAudience(opts.bridgeAudience, isGuest ? "guest" : "owner");
+      const bridgeContext = this._buildBridgeContext(sessionKey, meta, { ...opts, bridgeAudience }, agent);
       const mm = this._deps.getModelManager();
       const bridgeDir = path.join(agent.sessionDir, "bridge");
-      const subDir = opts.guest ? "guests" : "owner";
+      const subDir = bridgeAudienceSubdir(isGuest, bridgeAudience);
       const sessionDir = path.join(bridgeDir, subDir);
       fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -452,10 +489,15 @@ export class BridgeSessionManager {
       const index = this.readIndex(agent);
       const raw = index[sessionKey];
       const existingFile = typeof raw === "string" ? raw : raw?.file || null;
-      const existingPath = existingFile ? path.join(bridgeDir, existingFile) : null;
+      const existingRoot = existingFile ? String(existingFile).split(/[\\/]/)[0] : null;
+      const existingPath = existingFile && existingRoot === subDir ? path.join(bridgeDir, existingFile) : null;
 
       let mgr;
       let reopenError = null;
+      if (existingFile && existingRoot && existingRoot !== subDir) {
+        reopenError = new Error(`bridge audience profile changed: ${existingRoot} -> ${subDir}`);
+        debugLog()?.log("bridge-session", `session profile changed for ${sessionKey}: ${existingRoot} -> ${subDir}`);
+      }
       if (existingPath) {
         try {
           mgr = SessionManager.open(existingPath, sessionDir);
@@ -477,52 +519,22 @@ export class BridgeSessionManager {
       const toolMediaUrls = [];
 
       if (isGuest) {
-        // guest 模式：yuan + public-ishiki + contextTag，主模型，无工具
-        const yuanBase = agent.yuanPrompt;
-        const pubIshiki = agent.publicIshiki;
-        const bridgePromptLine = appendBridgePromptLine("", bridgeContext, getLocale()).trim();
-        const parts = [yuanBase, pubIshiki, opts.contextTag, bridgePromptLine].filter(Boolean);
-        const guestPrompt = parts.join("\n\n");
-        const tempResourceLoader = Object.create(this._deps.getResourceLoader());
-        tempResourceLoader.getSystemPrompt = () => guestPrompt;
-        tempResourceLoader.getSkills = () => ({ skills: [], diagnostics: [] });
-        const guestResourceLoader = withVisionExtension(
-          tempResourceLoader,
-          () => this._deps.getVisionBridge?.(),
-          () => sessionPathRef.current,
-          () => this._deps.isVisionAuxiliaryEnabled?.() === true,
-          (msg) => console.warn(`[bridge-session] ${msg}`),
-          ({ fileId, filePath, sessionPath }) => {
-            const lookupSessionPath = sessionPath || sessionPathRef.current || null;
-            if (fileId) return this._deps.getSessionFile?.(fileId, { sessionPath: lookupSessionPath });
-            if (filePath) return this._deps.getSessionFileByPath?.(filePath, { sessionPath: lookupSessionPath });
-            return null;
-          },
-        );
-
-        // 使用 agent 配置的模型，而非 defaultModel。
-        // migration #5 之后 models.chat 必为 {id, provider} 对象；缺 provider 视为未配置。
-        const chatRef = agent.config?.models?.chat;
-        const ref = (typeof chatRef === "object" && chatRef?.id && chatRef?.provider) ? chatRef : null;
-        if (!ref) {
-          throw new Error(t("error.bridgeAgentNoChatModel", { name: agent.agentName }));
-        }
-        const chatModel = findModel(mm.availableModels, ref.id, ref.provider);
-        if (!chatModel) {
-          throw new Error(t("error.bridgeAgentModelNotAvailable", { name: agent.agentName, model: `${ref.provider}/${ref.id}` }));
-        }
-
-        sessionOpts = {
-          model: chatModel,
-          thinkingLevel: "off",
-          resourceLoader: guestResourceLoader,
-          tools: [],
-          customTools: [],
-          settingsManager: this._createSettings(chatModel),
-        };
+        sessionOpts = bridgeAudience.promptSource === "owner"
+          ? this._buildSocialSessionOpts(agent, mm, homeCwd, sessionPathRef, {
+            bridgeContext,
+            bridgeAudience,
+            contextTag: opts.contextTag,
+            senderName: meta?.name || bridgeAudience.contactName || null,
+          })
+          : this._buildGuestSessionOpts(agent, mm, sessionPathRef, {
+            bridgeContext,
+            bridgeAudience,
+            contextTag: opts.contextTag,
+            senderName: meta?.name || bridgeAudience.contactName || null,
+          });
       } else {
         // owner 模式：完整 agent。抽出 _buildOwnerSessionOpts 后，compactSession 也能复用同一构造逻辑
-        sessionOpts = this._buildOwnerSessionOpts(agent, mm, homeCwd, sessionPathRef, { bridgeContext });
+        sessionOpts = this._buildOwnerSessionOpts(agent, mm, homeCwd, sessionPathRef, { bridgeContext, bridgeAudience, contextTag: opts.contextTag, senderName: meta?.name || bridgeAudience.contactName || null });
       }
 
       const { session } = await createAgentSession({
@@ -761,15 +773,7 @@ export class BridgeSessionManager {
 
   _buildRecordedAssistantMessage(agent, text) {
     const mm = this._deps.getModelManager();
-    const chatRef = agent.config?.models?.chat;
-    const ref = (typeof chatRef === "object" && chatRef?.id && chatRef?.provider) ? chatRef : null;
-    if (!ref) {
-      throw new Error(t("error.bridgeAgentNoChatModel", { name: agent.agentName }));
-    }
-    const chatModel = findModel(mm.availableModels, ref.id, ref.provider);
-    if (!chatModel) {
-      throw new Error(t("error.bridgeAgentModelNotAvailable", { name: agent.agentName, model: `${ref.provider}/${ref.id}` }));
-    }
+    const chatModel = this._resolveBridgeChatModel(agent, mm);
     return {
       role: "assistant",
       content: [{ type: "text", text }],
@@ -796,9 +800,10 @@ export class BridgeSessionManager {
   _buildOwnerSessionOpts(agent, mm, homeCwd, sessionPathRef = { current: null }, opts = {}) {
     const prefs = this._deps.getPreferences();
     const bridgeReadOnly = prefs?.bridge?.readOnly === true;
+    const bridgeAudience = normalizeAudience(opts.bridgeAudience, "owner");
     const bridgePermissionMode = bridgeReadOnly
       ? SESSION_PERMISSION_MODES.READ_ONLY
-      : SESSION_PERMISSION_MODES.OPERATE;
+      : bridgeAudience.policy.hostPermissionMode || SESSION_PERMISSION_MODES.OPERATE;
     const agentToolsSnapshot = typeof agent.getToolsSnapshot === "function"
       ? agent.getToolsSnapshot({
         forceMemoryEnabled: agent.memoryMasterEnabled !== false,
@@ -817,15 +822,7 @@ export class BridgeSessionManager {
     );
 
     // 使用 agent 配置的模型（必须是带 provider 的复合键对象）
-    const ownerRef = agent.config?.models?.chat;
-    const ref = (typeof ownerRef === "object" && ownerRef?.id && ownerRef?.provider) ? ownerRef : null;
-    if (!ref) {
-      throw new Error(t("error.bridgeAgentNoChatModel", { name: agent.agentName }));
-    }
-    const ownerModel = findModel(mm.availableModels, ref.id, ref.provider);
-    if (!ownerModel) {
-      throw new Error(t("error.bridgeAgentModelNotAvailable", { name: agent.agentName, model: `${ref.provider}/${ref.id}` }));
-    }
+    const ownerModel = this._resolveBridgeChatModel(agent, mm);
 
     // 快照 prompt，隔离于其他 session 的 prompt 变更（与 SessionCoordinator.createSession 一致）。
     // 显式按 master 开关构建：bridge owner 是独立链路，不应受桌面端某个 session
@@ -837,12 +834,48 @@ export class BridgeSessionManager {
         ? { forceExperienceEnabled: agent.experienceEnabled === true }
         : {}),
     });
-    const ownerPromptSnapshot = appendBridgePromptLine(ownerPromptBase, opts.bridgeContext, getLocale());
+    const audiencePrompt = buildBridgeAudiencePrompt({
+      relation: bridgeAudience.relation,
+      policy: bridgeAudience.policy,
+      senderName: opts.senderName,
+      isGroup: opts.bridgeContext?.chatType === "group",
+      locale: getLocale(),
+    });
+    const ownerPromptSnapshot = appendPromptNotes(
+      appendBridgePromptLine(ownerPromptBase, opts.bridgeContext, getLocale()),
+      [opts.contextTag, audiencePrompt],
+    );
     const ownerResourceLoader = Object.create(this._deps.getResourceLoader(), {
       getSystemPrompt: { value: () => ownerPromptSnapshot },
     });
-    const visionResourceLoader = withVisionExtension(
-      ownerResourceLoader,
+    const visionResourceLoader = this._buildBridgeResourceLoader(ownerResourceLoader, sessionPathRef);
+
+    return {
+      model: ownerModel,
+      thinkingLevel: mm.resolveThinkingLevel(prefs?.thinking_level || "auto"),
+      resourceLoader: visionResourceLoader,
+      tools: baseTools,
+      customTools: baseCustomTools,
+      settingsManager: this._createSettings(ownerModel),
+    };
+  }
+
+  _resolveBridgeChatModel(agent, mm) {
+    const chatRef = agent.config?.models?.chat;
+    const ref = (typeof chatRef === "object" && chatRef?.id && chatRef?.provider) ? chatRef : null;
+    if (!ref) {
+      throw new Error(t("error.bridgeAgentNoChatModel", { name: agent.agentName }));
+    }
+    const chatModel = findModel(mm.availableModels, ref.id, ref.provider);
+    if (!chatModel) {
+      throw new Error(t("error.bridgeAgentModelNotAvailable", { name: agent.agentName, model: `${ref.provider}/${ref.id}` }));
+    }
+    return chatModel;
+  }
+
+  _buildBridgeResourceLoader(baseResourceLoader, sessionPathRef = { current: null }) {
+    return withVisionExtension(
+      baseResourceLoader,
       () => this._deps.getVisionBridge?.(),
       () => sessionPathRef.current,
       () => this._deps.isVisionAuxiliaryEnabled?.() === true,
@@ -854,14 +887,68 @@ export class BridgeSessionManager {
         return null;
       },
     );
+  }
+
+  _buildGuestSessionOpts(agent, mm, sessionPathRef = { current: null }, opts = {}) {
+    const guestModel = this._resolveBridgeChatModel(agent, mm);
+    const bridgePromptLine = appendBridgePromptLine("", opts.bridgeContext, getLocale()).trim();
+    const audiencePrompt = buildBridgeAudiencePrompt({
+      relation: opts.bridgeAudience?.relation,
+      policy: opts.bridgeAudience?.policy,
+      senderName: opts.senderName,
+      isGroup: opts.bridgeContext?.chatType === "group",
+      locale: getLocale(),
+    });
+    const guestPrompt = [agent.yuanPrompt, agent.publicIshiki, opts.contextTag, bridgePromptLine, audiencePrompt]
+      .filter(Boolean)
+      .join("\n\n");
+    const tempResourceLoader = Object.create(this._deps.getResourceLoader());
+    tempResourceLoader.getSystemPrompt = () => guestPrompt;
+    tempResourceLoader.getSkills = () => ({ skills: [], diagnostics: [] });
 
     return {
-      model: ownerModel,
+      model: guestModel,
+      thinkingLevel: "off",
+      resourceLoader: this._buildBridgeResourceLoader(tempResourceLoader, sessionPathRef),
+      tools: [],
+      customTools: [],
+      settingsManager: this._createSettings(guestModel),
+    };
+  }
+
+  _buildSocialSessionOpts(agent, mm, homeCwd, sessionPathRef = { current: null }, opts = {}) {
+    const prefs = this._deps.getPreferences();
+    const socialModel = this._resolveBridgeChatModel(agent, mm);
+    const basePrompt = agent.buildSystemPrompt({
+      cwdOverride: homeCwd,
+      forceMemoryEnabled: agent.memoryMasterEnabled,
+      ...(typeof agent.experienceEnabled === "boolean"
+        ? { forceExperienceEnabled: agent.experienceEnabled === true }
+        : {}),
+    });
+    const audiencePrompt = buildBridgeAudiencePrompt({
+      relation: opts.bridgeAudience?.relation,
+      policy: opts.bridgeAudience?.policy,
+      senderName: opts.senderName,
+      isGroup: opts.bridgeContext?.chatType === "group",
+      locale: getLocale(),
+    });
+    const socialPrompt = appendPromptNotes(basePrompt, [
+      opts.contextTag,
+      appendBridgePromptLine("", opts.bridgeContext, getLocale()).trim(),
+      audiencePrompt,
+    ]);
+    const resourceLoader = Object.create(this._deps.getResourceLoader(), {
+      getSystemPrompt: { value: () => socialPrompt },
+    });
+
+    return {
+      model: socialModel,
       thinkingLevel: mm.resolveThinkingLevel(prefs?.thinking_level || "auto"),
-      resourceLoader: visionResourceLoader,
-      tools: baseTools,
-      customTools: baseCustomTools,
-      settingsManager: this._createSettings(ownerModel),
+      resourceLoader: this._buildBridgeResourceLoader(resourceLoader, sessionPathRef),
+      tools: [],
+      customTools: [],
+      settingsManager: this._createSettings(socialModel),
     };
   }
 

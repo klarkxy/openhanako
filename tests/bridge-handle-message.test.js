@@ -24,6 +24,8 @@ vi.mock("../lib/debug-log.js", () => ({
 }));
 
 import os from "os";
+import fs from "fs";
+import path from "path";
 import { BridgeManager } from "../lib/bridge/bridge-manager.js";
 import { createSlashSystem } from "../core/slash-commands/index.js";
 
@@ -33,6 +35,12 @@ import { createSlashSystem } from "../core/slash-commands/index.js";
 const tagged = (text) => expect.stringMatching(new RegExp(`^<t>\\d{2}-\\d{2} \\d{2}:\\d{2}</t> ${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
 
 function createMocks() {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-handle-message-"));
+  const sessionDir = path.join(rootDir, "sessions");
+  const agentDir = path.join(rootDir, "agent");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+
   const adapter = {
     sendReply: vi.fn().mockResolvedValue(),
     sendBlockReply: vi.fn().mockResolvedValue(),
@@ -42,7 +50,7 @@ function createMocks() {
 
   const engine = {
     getAgent: vi.fn().mockImplementation((id) => {
-      if (id === "hana") return { agentName: "TestAgent", config: { bridge: { telegram: { owner: "owner123" } } }, sessionDir: os.tmpdir() };
+      if (id === "hana") return { agentName: "TestAgent", config: { bridge: { telegram: { owner: "owner123" } } }, sessionDir, agentDir };
       return null;
     }),
     getBridgeReceiptEnabled: vi.fn().mockReturnValue(true),
@@ -76,7 +84,7 @@ function createMocks() {
   // Disable block streaming for simpler assertions
   bm.blockStreaming = false;
 
-  return { bm, adapter, engine, hub };
+  return { bm, adapter, engine, hub, rootDir, agentDir };
 }
 
 // ── Tests ──
@@ -950,6 +958,78 @@ describe("BridgeManager._handleMessage", () => {
       expect(hub.send.mock.calls[0][0]).toContain("/stop");
       // agent 的回复送回 adapter
       await vi.waitFor(() => expect(adapter.sendReply).toHaveBeenCalled());
+    });
+
+    it("routes family DMs through the owner path when the address book grants operate access", async () => {
+      const { bm, hub, agentDir } = createMocks();
+      fs.writeFileSync(path.join(agentDir, "bridge-contacts.json"), JSON.stringify({
+        version: 1,
+        contacts: [{
+          id: "family-1",
+          displayName: "Mom",
+          relation: "family",
+          aliases: [],
+          tags: [],
+          notes: "",
+          accounts: [{ platform: "telegram", userId: "family1", chatId: "family1" }],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+      }, null, 2));
+
+      await bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_family1@hana",
+        text: "hello from home",
+        senderName: "Mom",
+        userId: "family1",
+        chatId: "family1",
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(hub.send).toHaveBeenCalledWith(
+        expect.stringContaining("hello from home"),
+        expect.objectContaining({
+          role: "owner",
+          bridgeAudience: expect.objectContaining({ relation: "family", allowWorkspaceActions: true }),
+        }),
+      );
+    });
+
+    it("keeps friend DMs in guest mode while attaching social audience metadata", async () => {
+      const { bm, hub, agentDir } = createMocks();
+      fs.writeFileSync(path.join(agentDir, "bridge-contacts.json"), JSON.stringify({
+        version: 1,
+        contacts: [{
+          id: "friend-1",
+          displayName: "Alice",
+          relation: "friend",
+          aliases: [],
+          tags: [],
+          notes: "",
+          accounts: [{ platform: "telegram", userId: "friend1", chatId: "friend1" }],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }],
+      }, null, 2));
+
+      await bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_friend1@hana",
+        text: "what are you working on",
+        senderName: "Alice",
+        userId: "friend1",
+        chatId: "friend1",
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(hub.send).toHaveBeenCalledWith(
+        expect.stringContaining("what are you working on"),
+        expect.objectContaining({
+          role: "guest",
+          bridgeAudience: expect.objectContaining({ relation: "friend", promptSource: "owner", allowWorkspaceActions: false }),
+        }),
+      );
     });
   });
 

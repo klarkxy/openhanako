@@ -1489,6 +1489,12 @@ export class HanaEngine {
           cwd,
           getSessionPath,
         }),
+        customTools: wrapWithCheckpoint(result.customTools, {
+          store: this._checkpointStore,
+          maxFileSizeKb: backupCfg.max_file_size_kb,
+          cwd,
+          getSessionPath,
+        }),
       };
     }
 

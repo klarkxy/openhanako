@@ -15,6 +15,7 @@ import { WorkTab } from './tabs/WorkTab';
 import { ComputerUseTab } from './tabs/ComputerUseTab';
 import { SkillsTab } from './tabs/SkillsTab';
 import { BridgeTab } from './tabs/BridgeTab';
+import { ContactsTab } from './tabs/ContactsTab';
 import { ProvidersTab } from './tabs/ProvidersTab';
 import { MediaTab } from './tabs/MediaTab';
 import { AboutTab } from './tabs/AboutTab';
@@ -43,6 +44,7 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   computer: ComputerUseTab,
   skills: SkillsTab,
   bridge: BridgeTab,
+  contacts: ContactsTab,
   providers: ProvidersTab,
   media: MediaTab,
   sharing: SharingTab,
@@ -77,6 +79,7 @@ const TAB_TITLES: Record<string, string> = {
   computer: '使用电脑',
   skills: '技能',
   bridge: '社交平台',
+  contacts: '通讯录',
   providers: '供应商',
   media: '多媒体',
   sharing: '分享',

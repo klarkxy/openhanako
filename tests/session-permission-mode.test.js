@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifySessionPermission,
+  legacyAccessModeFromPermissionMode,
   normalizeSessionPermissionMode,
 } from "../core/session-permission-mode.js";
 
@@ -10,15 +11,27 @@ describe("session permission modes", () => {
     expect(normalizeSessionPermissionMode({ accessMode: "operate" })).toBe("operate");
     expect(normalizeSessionPermissionMode({ accessMode: "read_only" })).toBe("read_only");
     expect(normalizeSessionPermissionMode({ planMode: true })).toBe("read_only");
+    expect(normalizeSessionPermissionMode({ permissionMode: "social_readonly" })).toBe("social_readonly");
+    expect(normalizeSessionPermissionMode({ permissionMode: "social_greeting_only" })).toBe("social_greeting_only");
+    expect(legacyAccessModeFromPermissionMode("social_readonly")).toBe("read_only");
   });
 
   it("classifies information and side-effect tools by mode", () => {
     expect(classifySessionPermission({ mode: "read_only", toolName: "web_search" })).toEqual({ action: "allow" });
+    expect(classifySessionPermission({ mode: "read_only", toolName: "friends_list_contacts" })).toEqual({ action: "allow" });
     expect(classifySessionPermission({ mode: "read_only", toolName: "write" })).toMatchObject({
       action: "deny",
       code: "ACTION_BLOCKED_BY_READ_ONLY",
     });
+    expect(classifySessionPermission({ mode: "read_only", toolName: "friends_upsert_contact" })).toMatchObject({
+      action: "deny",
+      code: "ACTION_BLOCKED_BY_READ_ONLY",
+    });
     expect(classifySessionPermission({ mode: "ask", toolName: "write" })).toMatchObject({
+      action: "prompt",
+      kind: "tool_action_approval",
+    });
+    expect(classifySessionPermission({ mode: "ask", toolName: "friends_remove_contact" })).toMatchObject({
       action: "prompt",
       kind: "tool_action_approval",
     });
@@ -47,5 +60,18 @@ describe("session permission modes", () => {
       kind: "tool_action_approval",
     });
     expect(classifySessionPermission({ mode: "operate", toolName: "terminal", params: { action: "close" } })).toEqual({ action: "allow" });
+  });
+
+  it("blocks every tool in social audience modes", () => {
+    expect(classifySessionPermission({ mode: "social_readonly", toolName: "current_status" })).toMatchObject({
+      action: "deny",
+      code: "ACTION_BLOCKED_BY_READ_ONLY",
+    });
+    expect(classifySessionPermission({ mode: "social_readonly", toolName: "browser", params: { action: "snapshot" } })).toMatchObject({
+      action: "deny",
+    });
+    expect(classifySessionPermission({ mode: "social_greeting_only", toolName: "terminal", params: { action: "read" } })).toMatchObject({
+      action: "deny",
+    });
   });
 });

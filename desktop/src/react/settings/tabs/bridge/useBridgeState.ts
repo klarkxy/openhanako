@@ -57,43 +57,12 @@ export function useBridgeState() {
     if (currentAgentId) setSelectedAgentId(currentAgentId);
   }, [currentAgentId]);
 
-  // Public Ishiki — keyed to selectedAgentId
-  const [publicIshiki, setPublicIshiki] = useState('');
-  const [publicIshikiOriginal, setPublicIshikiOriginal] = useState('');
-
   // Credential fields
   const [tgToken, setTgToken] = useState('');
   const [fsAppId, setFsAppId] = useState('');
   const [fsAppSecret, setFsAppSecret] = useState('');
   const [qqAppId, setQqAppId] = useState('');
   const [qqAppSecret, setQqAppSecret] = useState('');
-
-  // Fetch public ishiki for selected agent (abort stale requests on agent switch)
-  useEffect(() => {
-    if (!selectedAgentId) return;
-    const ac = new AbortController();
-    hanaFetch(`/api/agents/${selectedAgentId}/public-ishiki`, { signal: ac.signal })
-      .then(r => r.json())
-      .then(data => { setPublicIshiki(data.content || ''); setPublicIshikiOriginal(data.content || ''); })
-      .catch(err => { if (err?.name !== 'AbortError') console.warn('[bridge] fetch public-ishiki failed:', err); });
-    return () => ac.abort();
-  }, [selectedAgentId]);
-
-  const savePublicIshiki = async () => {
-    const agentId = selectedAgentId;
-    if (!agentId || publicIshiki === publicIshikiOriginal) return;
-    try {
-      await hanaFetch(`/api/agents/${agentId}/public-ishiki`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: publicIshiki }),
-      });
-      setPublicIshikiOriginal(publicIshiki);
-      showToast(t('settings.saved'), 'success');
-    } catch (err: unknown) {
-      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
-    }
-  };
 
   const loadStatus = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -203,7 +172,6 @@ export function useBridgeState() {
   return {
     status, testingPlatform, showToast, loadStatus,
     selectedAgentId, setSelectedAgentId,
-    publicIshiki, setPublicIshiki, savePublicIshiki,
     tgToken, setTgToken,
     fsAppId, setFsAppId, fsAppSecret, setFsAppSecret,
     qqAppId, setQqAppId, qqAppSecret, setQqAppSecret,

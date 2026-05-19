@@ -19,6 +19,7 @@ const TAB_ITEMS = [
   { id: 'computer', key: 'settings.tabs.computer', d: '<path d="M4 5h16v10H4z"/><path d="M9 21h6"/><path d="M12 15v6"/><path d="M8 9l4-2 4 2"/>' },
   { id: 'skills', key: 'settings.tabs.skills', d: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>' },
   { id: 'bridge', key: 'settings.tabs.bridge', d: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>' },
+  { id: 'contacts', key: 'settings.tabs.contacts', d: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M5 4h2"/><path d="M17 4h2"/>' },
   { id: 'providers', key: 'settings.tabs.providers', d: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>' },
   { id: 'media', key: 'settings.tabs.media', d: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>' },
   { id: 'sharing', key: 'settings.tabs.sharing', d: '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>' },

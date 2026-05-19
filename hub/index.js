@@ -28,6 +28,12 @@ import {
 } from "../core/message-utils.js";
 import { submitDesktopSessionMessage } from "../core/desktop-session-submit.js";
 import { extOfName, inferFileKind } from "../lib/file-metadata.js";
+import {
+  listBridgeContacts,
+  removeBridgeContact,
+  resolveBridgeAudience,
+  upsertBridgeContact,
+} from "../lib/bridge/contacts/store.js";
 
 export class Hub {
   /**
@@ -133,10 +139,11 @@ export class Hub {
       inboundFiles,
       sessionPath,
       agentId,
+      bridgeAudience,
       uiContext,
       displayMessage,
     } = opts;
-    const o = { sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, from, to, onDelta, images, imageAttachmentPaths, videos, videoAttachmentPaths, inboundFiles, sessionPath, agentId, uiContext, displayMessage };
+    const o = { sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, from, to, onDelta, images, imageAttachmentPaths, videos, videoAttachmentPaths, inboundFiles, sessionPath, agentId, bridgeAudience, uiContext, displayMessage };
 
     // ── 图片预处理：持久化到磁盘 + 插入 [attached_image] 标记 ──
     // 在路由之前统一处理，所有消息路径（WS / Bridge DM / Bridge Group）共享
@@ -211,11 +218,11 @@ export class Hub {
       },
       { // Bridge guest
         match: o => o.sessionKey && o.role === "guest",
-        handle: () => this._guestHandler.handle(text, o.sessionKey, o.meta, { isGroup: o.isGroup, agentId: o.agentId, onDelta: o.onDelta, images: o.images, imageAttachmentPaths: o.imageAttachmentPaths, videos: o.videos, videoAttachmentPaths: o.videoAttachmentPaths, inboundFiles: o.inboundFiles, displayMessage: o.displayMessage }),
+        handle: () => this._guestHandler.handle(text, o.sessionKey, o.meta, { isGroup: o.isGroup, agentId: o.agentId, bridgeAudience: o.bridgeAudience, onDelta: o.onDelta, images: o.images, imageAttachmentPaths: o.imageAttachmentPaths, videos: o.videos, videoAttachmentPaths: o.videoAttachmentPaths, inboundFiles: o.inboundFiles, displayMessage: o.displayMessage }),
       },
       { // Bridge owner
         match: o => o.sessionKey && !o.ephemeral,
-        handle: () => this._engine.executeExternalMessage(text, o.sessionKey, o.meta, { guest: false, agentId: o.agentId, onDelta: o.onDelta, images: o.images, imageAttachmentPaths: o.imageAttachmentPaths, videos: o.videos, videoAttachmentPaths: o.videoAttachmentPaths, inboundFiles: o.inboundFiles, displayMessage: o.displayMessage }),
+        handle: () => this._engine.executeExternalMessage(text, o.sessionKey, o.meta, { guest: false, agentId: o.agentId, bridgeAudience: o.bridgeAudience, onDelta: o.onDelta, images: o.images, imageAttachmentPaths: o.imageAttachmentPaths, videos: o.videos, videoAttachmentPaths: o.videoAttachmentPaths, inboundFiles: o.inboundFiles, displayMessage: o.displayMessage }),
       },
       { // 隔离执行（cron/heartbeat/channel）
         match: o => o.ephemeral,
@@ -460,6 +467,134 @@ export class Hub {
       const { agent: fresh } = resolveAgentForBus(engine, agentId);
       return { config: fresh?.config || agent.config };
     }));
+
+    this._sessionHandlerCleanups.push(bus.handle("friends:list-contacts", async (payload = {}) => {
+      const { agent, error } = resolveAgentForContactsBus(engine, payload.agentId);
+      if (error) return { error };
+      return {
+        contacts: listBridgeContacts(agent, payload),
+      };
+    }, {
+      capability: {
+        title: "List bridge contacts",
+        description: "List built-in bridge address-book entries for self, family, friends, and strangers.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agentId: { type: "string" },
+            relation: { type: "string" },
+            query: { type: "string" },
+            platform: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+        outputSchema: { type: "object" },
+        permission: "contacts.read",
+        errors: ["INTERNAL_ERROR"],
+        owner: "system",
+        stability: "experimental",
+      },
+    }));
+
+    this._sessionHandlerCleanups.push(bus.handle("friends:resolve-contact", async (payload = {}) => {
+      const { agent, error } = resolveAgentForContactsBus(engine, payload.agentId);
+      if (error) return { error };
+      return resolveBridgeAudience(agent, payload);
+    }, {
+      capability: {
+        title: "Resolve bridge contact",
+        description: "Resolve a platform account into a built-in contact relation and effective policy.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agentId: { type: "string" },
+            platform: { type: "string" },
+            userId: { type: "string" },
+            chatId: { type: "string" },
+            name: { type: "string" },
+          },
+          required: ["platform"],
+          additionalProperties: false,
+        },
+        outputSchema: { type: "object" },
+        permission: "contacts.read",
+        errors: ["INTERNAL_ERROR"],
+        owner: "system",
+        stability: "experimental",
+      },
+    }));
+
+    this._sessionHandlerCleanups.push(bus.handle("friends:upsert-contact", async (payload = {}) => {
+      const { agent, error } = resolveAgentForContactsBus(engine, payload.agentId);
+      if (error) return { error };
+      return {
+        contact: upsertBridgeContact(agent, payload),
+      };
+    }, {
+      capability: {
+        title: "Upsert bridge contact",
+        description: "Create or update one built-in address-book entry.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agentId: { type: "string" },
+            id: { type: "string" },
+            displayName: { type: "string" },
+            relation: { type: "string" },
+            aliases: { type: "array", items: { type: "string" } },
+            tags: { type: "array", items: { type: "string" } },
+            notes: { type: "string" },
+            accounts: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  platform: { type: "string" },
+                  userId: { type: "string" },
+                  chatId: { type: "string" },
+                  label: { type: "string" },
+                },
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["displayName", "relation"],
+          additionalProperties: false,
+        },
+        outputSchema: { type: "object" },
+        permission: "contacts.write",
+        errors: ["INTERNAL_ERROR"],
+        owner: "system",
+        stability: "experimental",
+      },
+    }));
+
+    this._sessionHandlerCleanups.push(bus.handle("friends:remove-contact", async (payload = {}) => {
+      const { agent, error } = resolveAgentForContactsBus(engine, payload.agentId);
+      if (error) return { error };
+      return {
+        removed: removeBridgeContact(agent, payload.id),
+      };
+    }, {
+      capability: {
+        title: "Remove bridge contact",
+        description: "Delete one built-in address-book entry.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agentId: { type: "string" },
+            id: { type: "string" },
+          },
+          required: ["id"],
+          additionalProperties: false,
+        },
+        outputSchema: { type: "object" },
+        permission: "contacts.write",
+        errors: ["INTERNAL_ERROR"],
+        owner: "system",
+        stability: "experimental",
+      },
+    }));
   }
 
   _setupDmHandler() {
@@ -479,6 +614,14 @@ function resolveAgentForBus(engine, agentId) {
   const agent = engine.getAgent(agentId);
   if (!agent) return { error: "not_found" };
   return { agent };
+}
+
+function resolveAgentForContactsBus(engine, agentId) {
+  if (agentId) return resolveAgentForBus(engine, agentId);
+  if (typeof engine?.getAgent !== "function") return { error: "agent_lookup_unavailable" };
+  const currentAgentId = engine.currentAgentId || null;
+  if (!currentAgentId) return { error: "agent_id_required" };
+  return resolveAgentForBus(engine, currentAgentId);
 }
 
 function hasDisplayImageAttachments(displayMessage) {

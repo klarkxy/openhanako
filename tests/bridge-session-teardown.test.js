@@ -796,6 +796,50 @@ describe("BridgeSessionManager teardown", () => {
     ]);
   });
 
+  it("friend bridge sessions use dedicated social sessions without tools", async () => {
+    const agent = makeAgent(rootDir);
+    const buildTools = vi.fn(() => ({
+      tools: [{ name: "read" }],
+      customTools: [{ name: "search_memory" }],
+    }));
+    const deps = {
+      ...makeDeps(agent),
+      buildTools,
+    };
+    const mgrPath = path.join(agent.sessionDir, "bridge", "social", "s-friend.jsonl");
+    const manager = new BridgeSessionManager(deps);
+    sessionManagerCreateMock.mockReturnValue({ getSessionFile: () => mgrPath });
+
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        model: { input: ["text"] },
+        prompt: vi.fn(async () => {}),
+        subscribe: vi.fn(() => () => {}),
+        dispose: vi.fn(),
+        sessionManager: { getSessionFile: () => mgrPath },
+        extensionRunner: { hasHandlers: vi.fn(() => false) },
+      },
+    });
+
+    await manager.executeExternalMessage("hello", "bridge-k-friend", { name: "Alice" }, {
+      agentId: "agent-a",
+      guest: true,
+      bridgeAudience: {
+        relation: "friend",
+        promptSource: "owner",
+        infoDisclosure: "limited_work_summary",
+        toneProfile: "friend",
+      },
+    });
+
+    expect(buildTools).not.toHaveBeenCalled();
+    const createArgs = createAgentSessionMock.mock.calls.at(-1)[0];
+    expect(createArgs.sessionManager.getSessionFile()).toBe(mgrPath);
+    expect(createArgs.tools).toEqual([]);
+    expect(createArgs.customTools).toEqual([]);
+    expect(createArgs.resourceLoader.getSystemPrompt()).toContain("朋友");
+  });
+
   it("owner bridge text-only model prepares images through the vision bridge", async () => {
     const agent = makeAgent(rootDir);
     const visionBridge = {

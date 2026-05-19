@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import styles from './settings-components.module.css';
 
 type Variant = 'default' | 'hero' | 'double-column' | 'flush';
@@ -11,6 +11,8 @@ interface SettingsSectionProps {
   variant?: Variant;
   children: React.ReactNode;
   className?: string;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 }
 
 interface FooterProps {
@@ -47,7 +49,16 @@ function Warning({ children, className, ...rest }: WarningProps) {
   return <div className={[styles.sectionWarning, className].filter(Boolean).join(' ')} {...rest}>{children}</div>;
 }
 
-function SettingsSectionBase({ title, context, variant = 'default', children, className }: SettingsSectionProps) {
+function SettingsSectionBase({
+  title,
+  context,
+  variant = 'default',
+  children,
+  className,
+  collapsible = false,
+  defaultCollapsed = false,
+}: SettingsSectionProps) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const rootClass = [
     styles.section,
     variant === 'hero' && styles.sectionHero,
@@ -57,6 +68,50 @@ function SettingsSectionBase({ title, context, variant = 'default', children, cl
   ].filter(Boolean).join(' ');
 
   const hasHeader = (title || context) && variant !== 'hero';
+
+  if (collapsible && hasHeader) {
+    return (
+      <section className={rootClass}>
+        <div className={styles.sectionBody}>
+          <div
+            className={styles.sectionHeader}
+            style={{
+              marginBottom: 0,
+              padding: 'var(--space-sm) var(--space-md)',
+              borderBottom: 'var(--border-width, 1px) solid var(--border)',
+            }}
+          >
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsed(value => !value)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-sm)',
+                flex: 1,
+                minWidth: 0,
+                padding: 0,
+                background: 'none',
+                border: 'none',
+                color: 'inherit',
+                font: 'inherit',
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              <span aria-hidden="true" style={{ color: 'var(--text-muted)', flexShrink: 0, lineHeight: 1 }}>
+                {collapsed ? '▸' : '▾'}
+              </span>
+              {title && <h2 className={styles.sectionTitle} style={{ margin: 0 }}>{title}</h2>}
+            </button>
+            {context && <div className={styles.sectionContext}>{context}</div>}
+          </div>
+          {!collapsed && <div style={{ padding: '0 var(--space-md) var(--space-md)' }}>{children}</div>}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className={rootClass}>

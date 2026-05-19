@@ -183,6 +183,7 @@ function isSettingsReadRoute(verb, routePath) {
     || routePath === "/api/preferences/models"
     || routePath === "/api/preferences/appearance"
     || routePath === "/api/bridge/status"
+    || routePath === "/api/bridge/contacts"
     || /^\/api\/agents\/[^/]+\/config$/.test(routePath);
 }
 
@@ -224,10 +225,17 @@ function isProviderManagementRoute(verb, routePath) {
 }
 
 function isBridgeManagementRoute(verb, routePath) {
-  if (verb !== "POST") return false;
-  return routePath === "/api/bridge/config"
-    || routePath === "/api/bridge/settings"
-    || routePath === "/api/bridge/owner"
-    || routePath === "/api/bridge/stop"
-    || routePath === "/api/bridge/test";
+  if (verb === "POST") {
+    return routePath === "/api/bridge/config"
+      || routePath === "/api/bridge/settings"
+      || routePath === "/api/bridge/owner"
+      || routePath === "/api/bridge/stop"
+      || routePath === "/api/bridge/test"
+      || routePath === "/api/bridge/contacts"
+      || routePath === "/api/bridge/contacts/resolve";
+  }
+  if (verb === "PUT" || verb === "DELETE") {
+    return /^\/api\/bridge\/contacts\/[^/]+$/.test(routePath);
+  }
+  return false;
 }

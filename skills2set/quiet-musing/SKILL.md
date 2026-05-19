@@ -1,6 +1,6 @@
 ---
 name: quiet-musing
-description: "Deep reasoning framework for complex tasks. Activates for multi-step problems, high uncertainty, or trade-off decisions. 复杂问题推理框架。遇到多步骤、高不确定性、需要权衡取舍的任务时启用。Triggers: analyze complex problem, make decision, weigh options, debug hard bug, architecture design, strategy planning, think it through, help me analyze, this is complicated, deep thinking | 触发场景：分析复杂问题、做决策、权衡方案、调试疑难 bug、架构设计、策略规划、想清楚再做、帮我分析一下、这个问题比较复杂、深度思考。Do NOT activate for simple Q&A, casual chat, or single-step tasks. 不要在简单问答、闲聊、单步操作时启用。"
+description: "复杂问题推理框架。遇到多步骤、高不确定性、需要权衡取舍的任务时启用。触发场景：分析复杂问题、做决策、权衡方案、调试疑难 bug、架构设计、策略规划、想清楚再做、帮我分析一下、这个问题比较复杂、深度思考。不要在简单问答、闲聊、单步操作时启用。"
 ---
 
 # 深度推理协议

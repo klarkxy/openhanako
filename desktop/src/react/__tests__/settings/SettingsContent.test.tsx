@@ -68,6 +68,7 @@ vi.mock('../../settings/tabs/WorkTab', () => ({ WorkTab: () => <div data-testid=
 vi.mock('../../settings/tabs/ComputerUseTab', () => ({ ComputerUseTab: () => <div data-testid="active-tab">computer tab</div> }));
 vi.mock('../../settings/tabs/SkillsTab', () => ({ SkillsTab: () => <div data-testid="active-tab">skills tab</div> }));
 vi.mock('../../settings/tabs/BridgeTab', () => ({ BridgeTab: () => <div data-testid="active-tab">bridge tab</div> }));
+vi.mock('../../settings/tabs/ContactsTab', () => ({ ContactsTab: () => <div data-testid="active-tab">contacts tab</div> }));
 vi.mock('../../settings/tabs/ProvidersTab', () => ({ ProvidersTab: () => <div data-testid="active-tab">providers tab</div> }));
 vi.mock('../../settings/tabs/MediaTab', () => ({ MediaTab: () => <div data-testid="active-tab">media tab</div> }));
 vi.mock('../../settings/tabs/AboutTab', () => ({ AboutTab: () => <div data-testid="active-tab">about tab</div> }));

@@ -1,37 +1,37 @@
 ---
 name: office-documents
-description: "Use when the user asks to open, read, inspect, understand, summarize, analyze, extract tables/text from, modify, update, repair, split, merge, rotate, or convert information from PDF, DOCX, XLSX, XLSM, or PPTX files, including when they mention Word, Excel, PowerPoint, spreadsheet, presentation, Office document, or PDF in passing. 读取或修改 PDF、Word、Excel、PPT 文件时必须使用。"
-compatibility: "Uses bundled Python scripts. Optional libraries improve coverage: markitdown, python-docx, openpyxl, python-pptx, pdfplumber, pypdf. No OfficeCLI, Microsoft Office, LibreOffice, or GUI viewer is required."
+description: "当用户要打开、读取、检查、理解、总结、分析、从 PDF、DOCX、XLSX、XLSM 或 PPTX 文件中提取表格/文本、修改、更新、修复、拆分、合并、旋转或转换信息时使用，包括用户顺带提到 Word、Excel、PowerPoint、电子表格、演示文稿、Office 文档或 PDF 的情况。读取或修改 PDF、Word、Excel、PPT 文件时必须使用。"
+compatibility: "使用内置的 Python 脚本。可选库可提升覆盖率：markitdown、python-docx、openpyxl、python-pptx、pdfplumber、pypdf。无需 OfficeCLI、Microsoft Office、LibreOffice 或 GUI 查看器。"
 metadata:
   default-enabled: true
 ---
 
-# Office Documents
+# Office 文档
 
-Use this skill for document files, not for building an Office viewer. The goal is to let the agent understand and safely modify files through deterministic scripts.
+此技能用于处理文档文件，而不是搭建 Office 查看器。目标是让代理通过确定性的脚本理解并安全地修改文件。
 
-Supported formats:
+支持的格式：
 
-- PDF: `.pdf`
-- Word: `.docx`
-- Excel: `.xlsx`, `.xlsm`
-- PowerPoint: `.pptx`
+- PDF：`.pdf`
+- Word：`.docx`
+- Excel：`.xlsx`、`.xlsm`
+- PowerPoint：`.pptx`
 
-Do not use Anthropic/Claude document skills as source material. This skill is independently written and relies on permissive open-source libraries or direct OOXML parsing. See `references/licenses.md` before changing dependencies.
+不要把 Anthropic/Claude 的文档技能当作来源材料。这个技能是独立编写的，依赖宽松许可的开源库或直接的 OOXML 解析。修改依赖前请先查看 `references/licenses.md`。
 
-## Core Workflow
+## 核心工作流
 
-1. Identify the file type from the extension and the user's requested outcome.
-2. Read first, edit second. Always inspect the source file before modifying it.
-3. For reading, run `scripts/read_document.py`.
-4. For edits, write a small JSON operations file and run the matching edit script.
-5. Save edits to a new output file unless the user explicitly asks to overwrite.
-6. Read the output file again with `scripts/read_document.py` and verify the requested change.
-7. If the requested operation is outside the supported surface, say so clearly and stop.
+1. 根据扩展名和用户目标，先判断文件类型。
+2. 先读后改。修改前一定要先检查源文件。
+3. 读取时运行 `scripts/read_document.py`。
+4. 编辑时，先写一个小型 JSON 操作文件，再运行对应的编辑脚本。
+5. 除非用户明确要求覆盖原文件，否则把编辑结果保存到新输出文件。
+6. 再用 `scripts/read_document.py` 读取输出文件，确认修改是否符合要求。
+7. 如果请求超出支持范围，要明确说明并停止。
 
-## Reading
+## 读取
 
-Use `read_document.py` for every supported format:
+所有支持格式都使用 `read_document.py`：
 
 ```bash
 python3 skills2set/office-documents/scripts/read_document.py input.docx --format markdown
@@ -39,18 +39,18 @@ python3 skills2set/office-documents/scripts/read_document.py input.xlsx --format
 python3 skills2set/office-documents/scripts/read_document.py input.pdf --max-chars 120000
 ```
 
-Behavior:
+行为：
 
-- It tries MarkItDown first when available.
-- If MarkItDown is unavailable, it uses direct OOXML readers for DOCX, XLSX, and PPTX.
-- For PDF text extraction it tries pdfplumber, then pypdf.
-- It returns clear JSON errors when required PDF libraries are unavailable or the file is unsupported.
+- 如果可用，优先尝试 MarkItDown。
+- 如果 MarkItDown 不可用，则对 DOCX、XLSX 和 PPTX 使用直接的 OOXML 读取器。
+- PDF 文本提取先尝试 pdfplumber，再尝试 pypdf。
+- 当所需 PDF 库不可用或文件不受支持时，会返回清晰的 JSON 错误。
 
-For large documents, read enough to understand structure first, then narrow by sheet, slide, page, heading, or searched text.
+对于大文档，先读到足够理解结构，再按工作表、幻灯片、页面、标题或搜索文本缩小范围。
 
-## Editing
+## 编辑
 
-Use JSON operations. Keep each operation explicit and small enough to verify.
+使用 JSON 操作。每个操作都要明确，且足够小，便于验证。
 
 ### DOCX
 
@@ -58,7 +58,7 @@ Use JSON operations. Keep each operation explicit and small enough to verify.
 python3 skills2set/office-documents/scripts/edit_docx.py input.docx output.docx --ops ops.json
 ```
 
-Supported operations:
+支持的操作：
 
 ```json
 [
@@ -68,7 +68,7 @@ Supported operations:
 ]
 ```
 
-Use `replace_text` for safe text updates. `append_paragraph` and `add_table` require `python-docx`.
+安全的文本更新使用 `replace_text`。`append_paragraph` 和 `add_table` 需要 `python-docx`。
 
 ### XLSX
 
@@ -76,7 +76,7 @@ Use `replace_text` for safe text updates. `append_paragraph` and `add_table` req
 python3 skills2set/office-documents/scripts/edit_xlsx.py input.xlsx output.xlsx --ops ops.json
 ```
 
-Supported operations:
+支持的操作：
 
 ```json
 [
@@ -89,7 +89,7 @@ Supported operations:
 ]
 ```
 
-XLSX editing requires `openpyxl`. Preserve formulas unless the user asks to replace them.
+XLSX 编辑需要 `openpyxl`。除非用户要求替换，否则要保留公式。
 
 ### PPTX
 
@@ -97,7 +97,7 @@ XLSX editing requires `openpyxl`. Preserve formulas unless the user asks to repl
 python3 skills2set/office-documents/scripts/edit_pptx.py input.pptx output.pptx --ops ops.json
 ```
 
-Supported operations:
+支持的操作：
 
 ```json
 [
@@ -107,7 +107,7 @@ Supported operations:
 ]
 ```
 
-Use `replace_text` for direct OOXML text updates. Shape targeting and text boxes require `python-pptx`.
+直接的 OOXML 文本更新使用 `replace_text`。形状定位和文本框需要 `python-pptx`。
 
 ### PDF
 
@@ -115,7 +115,7 @@ Use `replace_text` for direct OOXML text updates. Shape targeting and text boxes
 python3 skills2set/office-documents/scripts/edit_pdf.py input.pdf output.pdf --ops ops.json
 ```
 
-Supported operations:
+支持的操作：
 
 ```json
 [
@@ -127,39 +127,39 @@ Supported operations:
 ]
 ```
 
-PDF editing requires `pypdf`. Do not claim support for arbitrary PDF text replacement. PDF text is drawing instructions, not normal document text.
+PDF 编辑需要 `pypdf`。不要声称支持任意 PDF 文本替换。PDF 文本是绘制指令，不是普通文档文本。
 
-## Verification
+## 验证
 
-After any edit:
+每次编辑后：
 
-1. Confirm the output file exists and is non-empty.
-2. Read the output with `read_document.py`.
-3. Check that requested content changed and unrelated content still appears intact.
-4. Report any limitation, dependency failure, or partial edit.
+1. 确认输出文件存在且非空。
+2. 用 `read_document.py` 读取输出文件。
+3. 检查请求的内容是否已改变，以及无关内容是否仍然完好。
+4. 报告任何限制、依赖失败或部分编辑情况。
 
-For XLSX formulas, openpyxl preserves formulas but does not calculate them. If calculated values matter and no recalculation engine is available, say that formulas were written but not recalculated locally.
+对于 XLSX 公式，openpyxl 会保留公式，但不会计算它们。如果计算后的值很重要，而本地又没有可用的重算引擎，就要说明公式已经写入，但本地没有重新计算。
 
-## Unsupported Or Caution Cases
+## 不支持或需要谨慎的情况
 
-Be explicit when the requested task needs a real Office renderer or advanced document engine:
+当请求需要真实的 Office 渲染器或高级文档引擎时，要明确说明：
 
-- Pixel-perfect layout repair.
-- Scanned PDF OCR when no OCR engine or model is available.
-- PDF arbitrary text replacement.
-- Macros, VBA, encrypted files, password-protected files.
-- Complex PowerPoint animations, transitions, SmartArt, embedded media, OLE objects.
-- Excel pivot table authoring, slicers, external links, macros.
-- Redline or track-changes fidelity matching Microsoft Word.
+- 像素级布局修复。
+- 在没有 OCR 引擎或模型时，对扫描版 PDF 做 OCR。
+- 任意 PDF 文本替换。
+- 宏、VBA、加密文件、密码保护文件。
+- 复杂的 PowerPoint 动画、过渡、SmartArt、嵌入媒体、OLE 对象。
+- Excel 数据透视表制作、切片器、外部链接、宏。
+- 与 Microsoft Word 完全一致的修订/跟踪更改效果。
 
-If the user needs one of these, explain the specific limitation and suggest the smallest safe alternative.
+如果用户需要这些能力中的任意一种，要解释具体限制，并建议最小且安全的替代方案。
 
-## References
+## 参考
 
-Read only the relevant reference file when needed:
+只在需要时读取相关参考文件：
 
-- `references/docx.md` for Word details.
-- `references/xlsx.md` for spreadsheet details.
-- `references/pptx.md` for PowerPoint details.
-- `references/pdf.md` for PDF details.
-- `references/licenses.md` for licensing and dependency constraints.
+- `references/docx.md`：Word 细节。
+- `references/xlsx.md`：电子表格细节。
+- `references/pptx.md`：PowerPoint 细节。
+- `references/pdf.md`：PDF 细节。
+- `references/licenses.md`：许可和依赖约束。

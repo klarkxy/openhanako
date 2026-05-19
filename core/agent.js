@@ -36,6 +36,8 @@ import { createWaitTool } from "../lib/tools/wait-tool.js";
 import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
+import { createTextFileTool } from "../lib/tools/text-file-tool.js";
+import { createFriendsContactsTools } from "../lib/tools/friends-contacts-tools.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
 
@@ -112,6 +114,7 @@ export class Agent {
     this._stopTaskTool = null;
     this._currentStatusTool = null;
     this._terminalTool = null;
+    this._textFileTool = null;
 
     /**
      * 外部回调注入（由 AgentManager._createAgentInstance 填充）。
@@ -307,6 +310,11 @@ export class Agent {
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
     });
+    this._textFileTool = createTextFileTool({
+      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
+      getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+      registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
+    });
     this._artifactTool = createArtifactTool({
       getHanakoHome: () => this._cb?.getEngine?.()?.hanakoHome,
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
@@ -347,6 +355,7 @@ export class Agent {
       getAgentId: () => this.id,
       getCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
+    this._friendsContactTools = createFriendsContactsTools({ agent: this });
 
     // 10. 设置修改工具
     this._updateSettingsTool = createUpdateSettingsTool({
@@ -604,6 +613,7 @@ export class Agent {
       this._todoTool,
       this._cronTool,
       this._stageFilesTool,
+      this._textFileTool,
       ...legacyArtifactTools,
       this._channelTool,
       this._dmTool,
@@ -616,6 +626,7 @@ export class Agent {
       this._subagentTool,
       this._checkDeferredTool,
       this._currentStatusTool,
+      ...this._friendsContactTools,
       this._terminalTool,
       createWaitTool(),
     ].filter(Boolean);

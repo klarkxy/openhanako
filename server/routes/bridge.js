@@ -12,6 +12,18 @@ import { debugLog } from "../../lib/debug-log.js";
 import { parseSessionKey, collectKnownUsers, KNOWN_PLATFORMS } from "../../lib/bridge/session-key.js";
 import { isBridgeOwner, resolveBridgeOwnerUserId } from "../../lib/bridge/owner-policy.js";
 import { collectBridgeMediaAllowedRoots, isInsideBridgeMediaRoot } from "../../lib/bridge/media-roots.js";
+import {
+  DEFAULT_BRIDGE_RELATION_POLICIES,
+} from "../../lib/bridge/contacts/policy.js";
+import {
+  getBridgeContactById,
+  getBridgeContactSettings,
+  listBridgeContacts,
+  removeBridgeContact,
+  resolveBridgeAudience,
+  updateBridgeContactSettings,
+  upsertBridgeContact,
+} from "../../lib/bridge/contacts/store.js";
 import { t } from "../i18n.js";
 import { resolveAgent, resolveAgentStrict } from "../utils/resolve-agent.js";
 import { telegramBotOptions } from "../../lib/net/outbound-proxy.js";
@@ -236,6 +248,78 @@ export function createBridgeRoute(engine, bridgeManagerRef) {
     return c.json({ ok: true });
   });
 
+  route.get("/bridge/contacts", async (c) => {
+    const agent = resolveAgent(engine, c);
+    const query = c.req.query("query") || c.req.query("q") || "";
+    return c.json({
+      contacts: listBridgeContacts(agent, {
+        relation: c.req.query("relation") || "",
+        platform: c.req.query("platform") || "",
+        query,
+      }),
+      settings: getBridgeContactSettings(agent),
+      relationPolicies: DEFAULT_BRIDGE_RELATION_POLICIES,
+    });
+  });
+
+  route.post("/bridge/contacts", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const agent = resolveAgent(engine, c);
+    try {
+      const contact = upsertBridgeContact(agent, await safeJson(c));
+      return c.json({ ok: true, contact });
+    } catch (err) {
+      return c.json({ ok: false, error: err.message || "invalid contact" }, 400);
+    }
+  });
+
+  route.get("/bridge/contacts/settings", async (c) => {
+    const agent = resolveAgent(engine, c);
+    return c.json({ settings: getBridgeContactSettings(agent) });
+  });
+
+  route.put("/bridge/contacts/settings", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const agent = resolveAgent(engine, c);
+    const settings = updateBridgeContactSettings(agent, await safeJson(c));
+    return c.json({ ok: true, settings });
+  });
+
+  route.put("/bridge/contacts/:contactId", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const agent = resolveAgent(engine, c);
+    const contactId = c.req.param("contactId");
+    try {
+      const existing = getBridgeContactById(agent, contactId);
+      if (!existing) return c.json({ ok: false, error: "contact not found" }, 404);
+      const body = await safeJson(c);
+      const contact = upsertBridgeContact(agent, { ...body, id: contactId });
+      return c.json({ ok: true, contact });
+    } catch (err) {
+      return c.json({ ok: false, error: err.message || "invalid contact" }, 400);
+    }
+  });
+
+  route.delete("/bridge/contacts/:contactId", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const agent = resolveAgent(engine, c);
+    const ok = removeBridgeContact(agent, c.req.param("contactId"));
+    if (!ok) return c.json({ ok: false, error: "contact not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  route.post("/bridge/contacts/resolve", async (c) => {
+    const scopeDenied = denyWithoutScope(c, "bridge.manage");
+    if (scopeDenied) return scopeDenied;
+    const agent = resolveAgent(engine, c);
+    const body = await safeJson(c);
+    return c.json(resolveBridgeAudience(agent, body));
+  });
+
   /** 获取最近消息日志（实时内存缓冲） */
   route.get("/bridge/messages", async (c) => {
     const limit = parseInt(c.req.query("limit"), 10) || 50;
@@ -281,6 +365,7 @@ export function createBridgeRoute(engine, bridgeManagerRef) {
         displayName: entry.name || null,
         avatarUrl: entry.avatarUrl || null,
         isOwner,
+        relation: entry.relation || (isOwner ? "self" : "stranger"),
       });
     }
 

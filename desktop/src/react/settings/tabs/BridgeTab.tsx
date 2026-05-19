@@ -52,29 +52,6 @@ export function BridgeTab() {
         />
       </SettingsSection>
 
-      {/* 对外意识：hint 在上、textarea 在下，直接作为 section body children（单 textarea 不套 row） */}
-      <SettingsSection title={t('settings.agent.publicIshiki')}>
-        <div style={{ padding: 'var(--space-sm) var(--space-md)' }}>
-          <div style={{
-            fontSize: '0.7rem',
-            color: 'var(--text-muted)',
-            lineHeight: 1.5,
-            marginBottom: 'var(--space-sm)',
-            whiteSpace: 'pre-line',
-          }}>
-            {t('settings.agent.publicIshikiHint')}
-          </div>
-          <textarea
-            className={styles['settings-textarea']}
-            rows={6}
-            spellCheck={false}
-            value={b.publicIshiki}
-            onChange={(e) => b.setPublicIshiki(e.target.value)}
-            onBlur={b.savePublicIshiki}
-          />
-        </div>
-      </SettingsSection>
-
       <div className="bridge-help-link-row">
         <span className="bridge-help-link" onClick={() => window.dispatchEvent(new Event('hana-show-bridge-tutorial'))}>
           {t('settings.bridge.howTo')}
