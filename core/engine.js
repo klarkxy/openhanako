@@ -1622,6 +1622,7 @@ export class HanaEngine {
       isSessionMemoryEnabledForPath: (sessionPath) => {
         return agent.isSessionMemoryEnabledFor(sessionPath);
       },
+      timeZone: this.getTimezone?.() || null,
       getCompactionAuth: async (model) => {
         const auth = await this._models.modelRegistry.getApiKeyAndHeaders(model);
         if (!auth.ok) {

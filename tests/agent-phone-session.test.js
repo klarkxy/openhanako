@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import path from "path";
 import {
   AGENT_PHONE_COMPACTION,
   filterAgentPhoneTools,
@@ -10,8 +11,8 @@ import {
 describe("agent phone session policy", () => {
   it("uses a stable safe session directory per conversation", () => {
     const dir = getAgentPhoneSessionDir("/agents/hana", "dm:yui");
-    expect(dir).toContain("/agents/hana/phone/sessions/");
-    expect(dir.split("/").at(-1)).not.toContain(":");
+    expect(dir).toContain(path.join("/agents/hana", "phone", "sessions"));
+    expect(path.basename(dir)).not.toContain(":");
   });
 
   it("recognizes phone sessions so memory pipelines can exclude them", () => {
@@ -35,6 +36,26 @@ describe("agent phone session policy", () => {
       tokens: AGENT_PHONE_COMPACTION.IDLE_TOKENS,
       isActive: false,
     })).toBe("idle");
+  });
+
+  it("uses context-window-aware thresholds so smaller models compact earlier", () => {
+    expect(shouldCompactAgentPhoneSession({
+      tokens: 90_000,
+      contextWindow: 128_000,
+      isActive: false,
+    })).toBe("idle");
+
+    expect(shouldCompactAgentPhoneSession({
+      tokens: 90_000,
+      contextWindow: 128_000,
+      isActive: true,
+    })).toBe(null);
+
+    expect(shouldCompactAgentPhoneSession({
+      tokens: 110_000,
+      contextWindow: 128_000,
+      isActive: true,
+    })).toBe("hard");
   });
 
   it("keeps phone write mode from opening recursive communication or browser tools", () => {

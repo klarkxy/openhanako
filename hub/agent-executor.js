@@ -34,6 +34,7 @@ import {
   buildFreshCompactSnapshot,
   shouldRunFreshCompact,
 } from "../lib/fresh-compact/policy.js";
+import { computeHardTruncation } from "../core/compaction-utils.js";
 
 function resolveAgentPhoneModel(engine, ctx, agentConfig, modelOverride) {
   if (!modelOverride) return ctx.resolveModel(agentConfig);
@@ -204,6 +205,7 @@ async function maybeCompactPhoneSession(session, { isActive = false, onActivity 
   const usage = session.getContextUsage?.() ?? null;
   const reason = shouldCompactAgentPhoneSession({
     tokens: usage?.tokens,
+    contextWindow: usage?.contextWindow,
     isActive,
   });
   if (!reason) return null;
@@ -218,7 +220,28 @@ async function maybeCompactPhoneSession(session, { isActive = false, onActivity 
       contextWindow: usage?.contextWindow ?? null,
     },
   );
-  await session.compact();
+  try {
+    await session.compact();
+  } catch (err) {
+    const fallback = hardTruncatePhoneSession(session, {
+      reason,
+      contextWindow: usage?.contextWindow,
+    });
+    if (!fallback?.ok) {
+      throw err;
+    }
+    await onActivity?.(
+      "idle",
+      "手机会话压缩失败，已自动硬截断恢复",
+      {
+        reason,
+        fallback: "hard-truncate",
+        compactError: err?.message || String(err),
+        tokensBefore: usage?.tokens ?? null,
+      },
+    );
+    return { reason: "hard-truncate", before: usage, after: session.getContextUsage?.() ?? null };
+  }
   const after = session.getContextUsage?.() ?? null;
   await onActivity?.(
     "idle",
@@ -231,6 +254,24 @@ async function maybeCompactPhoneSession(session, { isActive = false, onActivity 
     },
   );
   return { reason, before: usage, after };
+}
+
+function hardTruncatePhoneSession(session, { reason, contextWindow } = {}) {
+  const sm = session?.sessionManager;
+  const pathEntries = sm?.getBranch?.() || [];
+  const keepRecentTokens = Number.isFinite(contextWindow) && contextWindow > 0
+    ? Math.max(20_000, Math.floor(contextWindow * 0.55))
+    : 90_000;
+  const result = computeHardTruncation(pathEntries, keepRecentTokens, {
+    summary: "[频道会话因上下文过长触发恢复，早期历史已被截断]",
+    reason: `agent-phone-${reason || "auto"}`,
+  });
+  if (!result) return { ok: false, error: "hard-truncate-unavailable" };
+
+  sm.appendCompaction(result.summary, result.firstKeptEntryId, result.tokensBefore, result.details);
+  const ctx = sm.buildSessionContext();
+  session.agent?.replaceMessages?.(ctx.messages);
+  return { ok: true };
 }
 
 async function maybeFreshCompactPhoneSession(session, {
