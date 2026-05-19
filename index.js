@@ -4,6 +4,7 @@ import { HanaEngine } from "./core/engine.js";
 import { ensureFirstRun } from "./core/first-run.js";
 import { MoodParser } from "./core/events.js";
 import { configureProcessPiSdkEnv, ensureHanaPiSdkDirs, resolveHanakoHome } from "./shared/hana-runtime-paths.js";
+import { ensureWindowsUtf8Console } from "./shared/windows-console.js";
 
 // ═══════════════════════════════════════
 // Project Hana — CLI Agent with Memory
@@ -13,6 +14,8 @@ import path from "path";
 
 const projectRoot = import.meta.dirname;
 const productDir = projectRoot + "/lib";
+
+ensureWindowsUtf8Console();
 
 // 用户数据目录：优先 HANA_HOME，默认 ~/.hanako
 const hanakoHome = resolveHanakoHome(process.env.HANA_HOME);

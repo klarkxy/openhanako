@@ -7,8 +7,10 @@ import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { ensureWindowsUtf8Console } from "../shared/windows-console.js";
 
 const require = createRequire(import.meta.url);
+ensureWindowsUtf8Console();
 process.env.HANA_HOME = join(homedir(), ".hanako-dev");
 // 本地 Electron 再拉起 server 时，显式把当前 Node runtime 传下去。
 // 这样开发模式的 server/source 进程就不会误用 Electron 自带 Node，避免 native addon ABI 漂移。

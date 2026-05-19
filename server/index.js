@@ -62,6 +62,7 @@ import { createMobileWorkbenchRoute } from "./routes/mobile-workbench.js";
 import { createMobileStaticRoute } from "./routes/mobile-static.js";
 import { createAccessRoute } from "./routes/access.js";
 import { configureProcessPiSdkEnv, ensureHanaPiSdkDirs, resolveHanakoHome } from "../shared/hana-runtime-paths.js";
+import { ensureWindowsUtf8Console } from "../shared/windows-console.js";
 // internal-browser WS is handled directly via raw ws.WebSocketServer in the
 // upgrade handler below (WsTransport needs raw ws .on()/.off() methods)
 import { ConfirmStore } from "../lib/confirm-store.js";
@@ -75,6 +76,8 @@ import { startCLI } from "./cli.js";
 import { fromRoot } from "../shared/hana-root.js";
 
 const productDir = fromRoot("lib");
+
+ensureWindowsUtf8Console();
 
 // 用户数据存放在 ~/.hanako/（打包后与产品代码分离）
 // 开发时可通过 HANA_HOME 环境变量隔离数据目录，如：HANA_HOME=~/.hanako-dev node server/index.js
