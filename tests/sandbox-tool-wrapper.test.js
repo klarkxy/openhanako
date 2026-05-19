@@ -158,4 +158,23 @@ describe("sandbox wrapper dynamic external read grants", () => {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("blocks text_file writes outside the allowed roots", async () => {
+    const { wrapTextFileTool } = await import("../lib/sandbox/tool-wrapper.js");
+    const tool = { name: "text_file", execute: vi.fn(async () => ({ content: [{ type: "text", text: "ok" }] })) };
+    const guard = {
+      check: vi.fn(() => ({ allowed: false, reason: "blocked" })),
+    };
+
+    const wrapped = wrapTextFileTool(tool, guard, "D:\\workspace");
+    const result = await wrapped.execute("call-text-file", {
+      action: "write",
+      path: "C:\\outside\\note.md",
+      text: "hello",
+    });
+
+    expect(guard.check).toHaveBeenCalledWith("C:\\outside\\note.md", "write");
+    expect(tool.execute).not.toHaveBeenCalled();
+    expect(result.content[0].text).toBeTruthy();
+  });
 });

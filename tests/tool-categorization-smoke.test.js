@@ -57,6 +57,7 @@ describe("tool-categorization smoke", () => {
     expect(names).toContain("web_search");
     expect(names).toContain("browser");
     expect(names).toContain("todo_write");
+    expect(names).toContain("text_file");
     expect(names).toContain("search_memory");
 
     expect(names.length).toBeGreaterThan(15);

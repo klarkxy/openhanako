@@ -128,4 +128,33 @@ describe("wrapWithCheckpoint", () => {
     const result = await wrapped.execute("t6", { path: "src/foo.js" });
     expect(writeTool.execute).toHaveBeenCalled();
   });
+
+  it("wraps text_file batch mutations and checkpoints each unique path", async () => {
+    const textFileTool = makeTool("text_file");
+    const [wrapped] = wrapWithCheckpoint([textFileTool], {
+      store,
+      maxFileSizeKb: 1024,
+      cwd: "/project",
+      getSessionPath: () => "sessions/test",
+    });
+
+    await wrapped.execute("t7", {
+      action: "batch",
+      operations: [
+        { action: "append", path: "src/a.txt", text: "x" },
+        { action: "replace", path: "src/a.txt", find: "a", replace: "b" },
+        { action: "delete", path: "src/b.txt" },
+      ],
+    });
+
+    expect(store.save).toHaveBeenCalledTimes(2);
+    expect(store.save).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      tool: "text_file",
+      filePath: path.resolve("/project", "src/a.txt"),
+    }));
+    expect(store.save).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      tool: "text_file",
+      filePath: path.resolve("/project", "src/b.txt"),
+    }));
+  });
 });
