@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const originalPlatform = process.platform;
 
 vi.mock("../lib/sandbox/platform.js", () => ({
   detectPlatform: vi.fn(() => "bwrap"),
@@ -27,8 +29,13 @@ vi.mock("../lib/pi-sdk/index.js", () => {
 });
 
 afterEach(() => {
+  Object.defineProperty(process, "platform", { value: originalPlatform });
   vi.resetModules();
   vi.clearAllMocks();
+});
+
+beforeEach(() => {
+  Object.defineProperty(process, "platform", { value: "linux" });
 });
 
 describe("createSandboxedTools on Linux", () => {
