@@ -833,6 +833,7 @@ export class AgentManager {
       resolveUtilityConfig: () => getEngine()?.resolveUtilityConfig?.({ agentId: ag.id }),
       getCwd:               () => getEngine()?.cwd ?? "",
       getTimezone:          () => getEngine()?.getTimezone?.() ?? "",
+      getThinkingLang:      () => getEngine()?.getThinkingLang?.() ?? "auto",
       scheduleMemoryMaintenance: (agentId, reason) =>
         this.scheduleAgentMemoryMaintenance(agentId, reason, ag),
       getEngine,  // update-settings-tool 仍需要完整 engine

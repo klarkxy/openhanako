@@ -778,15 +778,14 @@ export class Agent {
   //  System Prompt 组装
   // ════════════════════════════
 
-  /** 返回纯人格 prompt（identity + yuan + ishiki），不含记忆、用户档案等 */
-  get personality() {
-    const isZh = String(this._config.locale || "").startsWith("zh");
+  /** 按语言构建人格 prompt（identity + yuan + ishiki） */
+  _buildPersonality(useZh) {
     const fill = (text) => text
       .replace(/\{\{userName\}\}/g, this.userName)
       .replace(/\{\{agentName\}\}/g, this.agentName)
       .replace(/\{\{agentId\}\}/g, this.id);
     const readFile = (p) => safeReadFile(p, "");
-    const langDir = isZh ? "" : "en/";
+    const langDir = useZh ? "" : "en/";
     const yuanType = this._config?.agent?.yuan || "hanako";
     const identityMd = readFile(path.join(this.agentDir, "identity.md"))
       || readFile(path.join(this.productDir, "identity-templates", `${langDir}${yuanType}.md`))
@@ -798,6 +797,12 @@ export class Agent {
       || readFile(path.join(this.productDir, "ishiki-templates", `${yuanType}.md`))
       || readFile(path.join(this.productDir, "ishiki.example.md"));
     return fill(identityMd) + "\n\n" + fill(yuanMd || "") + "\n\n" + fill(ishikiMd);
+  }
+
+  /** 返回纯人格 prompt（identity + yuan + ishiki），语言由 locale 决定 */
+  get personality() {
+    const isZh = String(this._config.locale || "").startsWith("zh");
+    return this._buildPersonality(isZh);
   }
 
   /** 返回花名册描述生成用的人格来源，不包含 yuan 输出协议。 */
@@ -873,14 +878,21 @@ export class Agent {
     const experienceEnabled = typeof forceExperienceEnabled === "boolean"
       ? forceExperienceEnabled
       : this.experienceEnabled;
-    const isZh = String(this._config.locale || "").startsWith("zh");
+    // 思考语言：agent config → 全局偏好 → locale 推断 → 默认中文
+    const _localeIsZh = String(this._config.locale || "").startsWith("zh");
+    const _rawThinkingLang = this._config.thinking_lang
+      || this._cb?.getThinkingLang?.()
+      || "";
+    const isZh = _rawThinkingLang === "zh" ? true
+      : _rawThinkingLang === "en" ? false
+      : _localeIsZh;
 
     const readFile = (filePath) => safeReadFile(filePath, "");
 
-    // identity + yuan + ishiki（复用 personality getter）
+    // identity + yuan + ishiki（按思考语言选择模板语言）
     const yuanType = this._config?.agent?.yuan || "hanako";
     if (!this._readYuan()) throw new Error(`Cannot find yuan "${yuanType}". Check lib/yuan/`);
-    const ishiki = this.personality;
+    const ishiki = this._buildPersonality(isZh);
 
     // 可选文件
     const userMd = readFile(path.join(this.userDir, "user.md"));
@@ -1107,6 +1119,25 @@ export class Agent {
       : "\n## Settings Changes\n\n" +
         "When the user mentions changing settings without specifying a particular application, assume they mean this application.\n" +
         "When the user asks to change preferences (including but not limited to: appearance/theme, language/region, model selection, security/permissions, memory, personal info, working directory), use the update_settings tool. Do not search the web or edit config files. When intent is clear, apply directly; when unsure, search first."
+    );
+
+    // 语言指引
+    parts.push(isZh
+      ? `\n## 语言\n\n` +
+        `你的思考与回复语言通过以下规则确定：\n` +
+        `- 全局语言设置为「中文」，以下指令均使用中文，你的思考也应用中文\n` +
+        `- 如果当前启用的技能在 SKILL.md 中声明了 \`lang\` 字段（如 \`lang: zh\` 或 \`lang: en\`），` +
+        `该技能的内容应以对应语言来理解和运用\n` +
+        `- 没有声明 \`lang\` 的技能则是语言无关的，按全局语言处理\n` +
+        `- 用户的消息用什么语言，你优先用同一种语言回复；全局设置与用户语言冲突时以用户为准`
+      : `\n## Language\n\n` +
+        `Your thinking and response language follows these rules:\n` +
+        `- The global language is set to "English". Instructions below are in English and your thinking should be in English.\n` +
+        `- If an enabled skill declares a \`lang\` field in its SKILL.md frontmatter (e.g. \`lang: zh\` or \`lang: en\`), ` +
+        `that skill's content should be understood and applied in the specified language.\n` +
+        `- Skills without a \`lang\` declaration are language-agnostic — use the global language.\n` +
+        `- When the user sends a message in a particular language, prefer responding in that same language. ` +
+        `The global setting yields to the user's actual language choice.`
     );
 
     // 主动技能获取引导（仅在 allow_github_fetch 开启时注入）

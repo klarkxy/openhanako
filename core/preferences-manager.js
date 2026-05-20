@@ -310,9 +310,24 @@ export class PreferencesManager {
     this.savePreferences(prefs);
   }
 
-  /** 读取语言偏好（全局） */
+  /** 读取语言偏好（全局，控制 UI 界面语言） */
   getLocale() {
     return this._cache.locale || "";
+  }
+
+  /** 读取思考语言偏好（全局，控制 Agent 思考/回复语言，auto/zh/en） */
+  getThinkingLang() {
+    const val = this._cache.thinking_lang;
+    if (val === "zh" || val === "en") return val;
+    return "auto";
+  }
+
+  /** 保存思考语言偏好 */
+  setThinkingLang(value) {
+    const prefs = this._mutableCopy();
+    if (value === "zh" || value === "en") prefs.thinking_lang = value;
+    else delete prefs.thinking_lang; // 回退 auto
+    this.savePreferences(prefs);
   }
 
   /** 读取首次配置完成标记。 */

@@ -67,6 +67,7 @@ function decorateLoadedSkill(skill, hiddenSkills) {
   skill.defaultEnabled = meta?.defaultEnabled ?? (skill.defaultEnabled !== false);
   if (meta) {
     skill.disableModelInvocation = meta.disableModelInvocation;
+    skill.lang = meta.lang || "";
   }
   skill._hidden = hiddenSkills.has(skill.name);
   skill.sourceIdentity = sourceIdentityForSkill(skill);
@@ -140,6 +141,7 @@ export class SkillManager {
     return this._skillsVisibleToAgent(agent).map(s => ({
       name: s.name,
       description: s.description,
+      lang: s.lang || "",
       filePath: s.filePath,
       baseDir: s.baseDir,
       source: s.source,
@@ -158,6 +160,7 @@ export class SkillManager {
     return this._skillsVisibleToAgent(agent, { includeWorkspace: true }).map(s => ({
       name: s.name,
       description: s.description,
+      lang: s.lang || "",
       filePath: s.filePath,
       baseDir: s.baseDir,
       source: s._workspaceSkill ? "workspace" : s.source,
@@ -300,6 +303,7 @@ export class SkillManager {
             results.push({
               name: meta.name,
               description: meta.description,
+              lang: meta.lang || "",
               filePath: skillFile,
               baseDir,
               source: "external",
@@ -406,6 +410,7 @@ export class SkillManager {
         results.push({
           name: meta.name,
           description: meta.description,
+          lang: meta.lang || "",
           filePath: skillFile,
           baseDir,
           source: "learned",
