@@ -8,8 +8,8 @@ import { Hono } from "hono";
 import { MoodParser, ThinkTagParser, CardParser } from "../../core/events.js";
 import { extractBlocks } from "../block-extractors.js";
 import { toAppEventWsMessage } from "../app-events.js";
-import { wsSend, wsParse } from "../ws-protocol.js";
-import { debugLog } from "../../lib/debug-log.js";
+import { wsSend, wsParse, wsSendSerialized } from "../ws-protocol.js";
+import { debugLog, createModuleLogger } from "../../lib/debug-log.js";
 import { t } from "../i18n.js";
 import { getLastAssistantUsage } from "../../lib/pi-sdk/index.js";
 import { logLlmUsage } from "../../lib/llm/usage-observer.js";
@@ -36,6 +36,9 @@ import {
   wsClientCanReceiveEvent,
   wsClientCanSendMessage,
 } from "../ws-scope.js";
+
+const log = createModuleLogger("chat");
+const wsLog = createModuleLogger("ws");
 
 /** tool_start 事件只广播这些 arg 字段，避免传输完整文件内容（同步维护：chat-render-shim.ts extractToolDetail） */
 const TOOL_ARG_SUMMARY_KEYS = ["file_path", "path", "command", "pattern", "url", "query", "key", "value", "action", "type", "schedule", "prompt", "label"];
@@ -238,8 +241,15 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
 
   function broadcast(msg) {
     const hardenedMsg = hardenStudio(msg);
+    // 同一条消息发给 N 个 client 时只序列化一次。lazy：没有任何 client
+    // 能收到时连 JSON.stringify 都省掉。
+    let serialized = null;
     for (const [clientWs, client] of clients) {
-      if (wsClientCanReceiveEvent(client, hardenedMsg)) wsSend(clientWs, hardenedMsg);
+      if (clientWs.readyState !== 1) continue; // OPEN
+      if (wsClientCanReceiveEvent(client, hardenedMsg)) {
+        if (serialized === null) serialized = JSON.stringify(hardenedMsg);
+        wsSendSerialized(clientWs, serialized);
+      }
     }
   }
 
@@ -312,7 +322,7 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
       if (!ok) ss.titleRequested = false;
     }).catch((err) => {
       ss.titleRequested = false;
-      console.error("[chat] generateSessionTitle error:", err.message);
+      log.error(`generateSessionTitle error: ${err.message}`);
     });
   }
 
@@ -1011,7 +1021,7 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
 
         onError(event, ws) {
           const err = event.error || event;
-          console.error("[ws] error:", err.message || err);
+          wsLog.error(`error: ${err.message || err}`);
           debugLog()?.error("ws", err.message || String(err));
         },
 
@@ -1069,7 +1079,7 @@ async function generateSessionTitle(engine, notify, opts = {}) {
       const fallback = userText.replace(/\n/g, " ").trim().slice(0, 30);
       if (!fallback) return;
       title = fallback;
-      console.log("[chat] session 标题 API 失败，使用 fallback:", title);
+      log.log(`session 标题 API 失败，使用 fallback: ${title}`);
     }
 
     // 保存标题
@@ -1079,7 +1089,7 @@ async function generateSessionTitle(engine, notify, opts = {}) {
     notify({ type: "session_title", title, path: sessionPath });
     return true;
   } catch (err) {
-    console.error("[chat] 生成 session 标题失败:", err.message);
+    log.error(`生成 session 标题失败: ${err.message}`);
     return false;
   }
 }

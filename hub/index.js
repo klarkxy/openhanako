@@ -34,6 +34,9 @@ import {
   resolveBridgeAudience,
   upsertBridgeContact,
 } from "../lib/bridge/contacts/store.js";
+import { createModuleLogger } from "../lib/debug-log.js";
+
+const log = createModuleLogger("hub");
 
 export class Hub {
   /**
@@ -334,7 +337,7 @@ export class Hub {
       if (!sp) throw new Error("sessionPath is required for session:send");
       if (engine.isSessionStreaming(sp)) throw new Error("session_busy");
       engine.promptSession(sp, text, opts).catch(err => {
-        console.error("[Hub] session:send promptSession error:", err.message);
+        log.error(`session:send promptSession error: ${err.message}`);
         bus.emit({ type: "error", error: err.message, source: "session:send" }, sp);
       });
       return { sessionPath: sp, accepted: true };

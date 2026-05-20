@@ -6,6 +6,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { atomicWriteSync } from "../shared/safe-fs.js";
 import {
   approveComputerUseApp,
   normalizeComputerUseSettings,
@@ -22,6 +23,9 @@ import {
 } from "../shared/workspace-ui-state.js";
 import { normalizeWorkspacePath } from "../shared/workspace-history.js";
 import { normalizeNetworkProxyConfig } from "../shared/network-proxy.js";
+import { createModuleLogger } from "../lib/debug-log.js";
+
+const log = createModuleLogger("preferences");
 
 export class PreferencesManager {
   /**
@@ -63,22 +67,46 @@ export class PreferencesManager {
 
   /** 写入全局 preferences（更新缓存 + 原子写磁盘） */
   savePreferences(prefs) {
-    this._cache = structuredClone(prefs);
+    const next = this._preserveDiskSetupComplete(structuredClone(prefs));
     fs.mkdirSync(this._userDir, { recursive: true });
-    const tmp = this._path + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(prefs, null, 2) + "\n", "utf-8");
-    fs.renameSync(tmp, this._path);
+    try {
+      atomicWriteSync(this._path, JSON.stringify(next, null, 2) + "\n");
+      this._cache = this._readFromDiskStrict();
+    } catch (err) {
+      try { fs.unlinkSync(this._path + ".tmp"); } catch {}
+      throw err;
+    }
   }
 
   /** @private 从磁盘读取（仅构造时调用一次） */
   _readFromDisk() {
     try {
-      return JSON.parse(fs.readFileSync(this._path, "utf-8"));
+      return this._readFromDiskStrict();
     } catch (err) {
       if (err.code === "ENOENT") return {};
-      console.warn(`[preferences] failed to read ${this._path}: ${err.message}`);
+      log.warn(`failed to read ${this._path}: ${err.message}`);
       return {};
     }
+  }
+
+  /** @private 从磁盘读取，失败时抛给写入方，避免写后校验被吞掉 */
+  _readFromDiskStrict() {
+    return JSON.parse(fs.readFileSync(this._path, "utf-8"));
+  }
+
+  /**
+   * @private setupComplete 是单向完成标记。即使有旧 server cache，
+   * 后续偏好写入也不能把磁盘上已完成的事实覆盖掉。
+   */
+  _preserveDiskSetupComplete(prefs) {
+    if (prefs.setupComplete === true) return prefs;
+    try {
+      const stored = this._readFromDiskStrict();
+      if (stored?.setupComplete === true) {
+        return { ...prefs, setupComplete: true };
+      }
+    } catch {}
+    return prefs;
   }
 
   // ── 内部 getter 直接读 _cache，避免 structuredClone 开销 ──
@@ -285,6 +313,22 @@ export class PreferencesManager {
   /** 读取语言偏好（全局） */
   getLocale() {
     return this._cache.locale || "";
+  }
+
+  /** 读取首次配置完成标记。 */
+  getSetupComplete() {
+    return this._cache.setupComplete === true;
+  }
+
+  /** 标记首次配置完成：原子写入后读回校验。 */
+  markSetupComplete() {
+    const prefs = this._mutableCopy();
+    prefs.setupComplete = true;
+    this.savePreferences(prefs);
+    if (!this.getSetupComplete()) {
+      throw new Error("setupComplete read-back verification failed");
+    }
+    return { setupComplete: true };
   }
 
   /** 保存语言偏好 */
