@@ -413,7 +413,9 @@ export class Hub {
 
     this._sessionHandlerCleanups.push(bus.handle("provider:credentials", async ({ providerId }) => {
       const creds = engine.providerRegistry.getCredentials(providerId);
-      if (!creds?.apiKey) return { error: "no_credentials" };
+      if (!creds) return { error: "no_credentials" };
+      const allowsMissingApiKey = engine.providerRegistry.allowsMissingApiKey?.(providerId, creds.baseUrl);
+      if (!creds.apiKey && !allowsMissingApiKey) return { error: "no_credentials" };
       return {
         apiKey: creds.apiKey,
         baseUrl: creds.baseUrl,

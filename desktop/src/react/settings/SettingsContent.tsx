@@ -30,7 +30,6 @@ import { PluginsTab } from './tabs/PluginsTab';
 import { PluginMarketplaceTab } from './tabs/PluginMarketplaceTab';
 import { SecurityTab } from './tabs/SecurityTab';
 import { SharingTab } from './tabs/SharingTab';
-import { AccessTab } from './tabs/AccessTab';
 import { getNativeSettingsTabComponent } from './native-settings-tabs';
 import { CropOverlay } from './overlays/CropOverlay';
 import { AgentCreateOverlay } from './overlays/AgentCreateOverlay';
@@ -55,7 +54,6 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   providers: ProvidersTab,
   media: MediaTab,
   sharing: SharingTab,
-  access: AccessTab,
   plugins: PluginsTab,
   'plugin-marketplace': PluginMarketplaceTab,
   security: SecurityTab,
@@ -92,7 +90,6 @@ const TAB_TITLES: Record<string, string> = {
   providers: '供应商',
   media: '多媒体',
   sharing: '分享',
-  access: '访问与设备',
   plugins: '插件',
   'plugin-marketplace': '插件市场',
   security: '安全',
