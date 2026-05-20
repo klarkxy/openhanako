@@ -12,7 +12,7 @@ import fs from "fs";
 import { setMaxListeners } from "events";
 import path from "path";
 import { Hono } from "hono";
-import { serve } from "@hono/node-server";
+import { createAdaptorServer } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { WebSocketServer } from "ws";
 import { AppError } from "../shared/errors.js";
@@ -77,19 +77,69 @@ import { fromRoot } from "../shared/hana-root.js";
 
 const productDir = fromRoot("lib");
 
+async function bindServerTransportOwnership(server, { host, port, listenHost, networkMode }) {
+  try {
+    await new Promise((resolve, reject) => {
+      const cleanup = () => {
+        server.off("listening", onListening);
+        server.off("error", onError);
+      };
+      const onListening = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = (err) => {
+        cleanup();
+        reject(err);
+      };
+      server.once("listening", onListening);
+      server.once("error", onError);
+      server.listen(port, host);
+    });
+  } catch (err) {
+    const startupError = isAddressInUseError(err)
+      ? createPortInUseStartupError(err, { host, port, listenHost, networkMode })
+      : err;
+    if (startupError.code === "PORT_IN_USE") {
+      console.error(`[server] startup-error ${JSON.stringify(startupError.startupPayload)}`);
+    }
+    console.error("[server] 启动失败:", startupError.message);
+    process.exit(1);
+  }
+}
+
+function isAddressInUseError(err) {
+  return err?.code === "EADDRINUSE";
+}
+
+function createPortInUseStartupError(cause, { host, port, listenHost, networkMode }) {
+  const payload = {
+    code: "PORT_IN_USE",
+    host,
+    port,
+    listenHost,
+    networkMode,
+    suggestions: [
+      `Close the process already listening on ${host}:${port}.`,
+      "If this is another Hana server, restart that instance or quit it cleanly.",
+      "To use a different port, change the port in Access & Devices and restart.",
+    ],
+  };
+  const err = new Error(
+    `PORT_IN_USE: ${host}:${port} is already in use (network mode: ${networkMode}, configured host: ${listenHost}).`
+  );
+  err.code = "PORT_IN_USE";
+  err.startupPayload = payload;
+  err.cause = cause;
+  return err;
+}
+
 // 用户数据存放在 ~/.hanako/（打包后与产品代码分离）
 // 开发时可通过 HANA_HOME 环境变量隔离数据目录，如：HANA_HOME=~/.hanako-dev node server/index.js
 const hanakoHome = resolveHanakoHome(process.env.HANA_HOME);
 process.env.HANA_HOME = hanakoHome;
 ensureHanaPiSdkDirs(hanakoHome);
 configureProcessPiSdkEnv(hanakoHome);
-// ── 首次运行播种 ──
-console.log("[server] ① ensureFirstRun...");
-ensureFirstRun(hanakoHome, productDir);
-console.log("[server] ① ensureFirstRun 完成");
-
-// ── 初始化 Debug 日志 ──
-const dlog = initDebugLog(path.join(hanakoHome, "logs"));
 
 // 读取版本号
 let appVersion = "?";
@@ -97,6 +147,55 @@ try {
   const pkg = JSON.parse(fs.readFileSync(fromRoot("package.json"), "utf-8"));
   appVersion = pkg.version || "?";
 } catch {}
+
+const SERVER_TOKEN = process.env.HANA_TOKEN || crypto.randomBytes(16).toString("hex");
+const serverNetwork = resolveServerListenOptions(hanakoHome);
+const envPort = Number.parseInt(process.env.HANA_PORT || "", 10);
+const port = Number.isInteger(envPort) && envPort >= 0 ? envPort : serverNetwork.port;
+const serverRuntimeState = {
+  mode: serverNetwork.mode,
+  listenHost: serverNetwork.host,
+  bindHost: "0.0.0.0",
+  actualPort: null,
+  applyNetworkConfig(network) {
+    this.mode = network.mode;
+    this.listenHost = network.listenHost;
+  },
+};
+const host = serverRuntimeState.bindHost;
+
+let activeFetch = (request) => {
+  const url = new URL(request.url);
+  if (url.pathname === "/api/health") {
+    return Response.json({
+      status: "starting",
+      version: appVersion,
+      networkMode: serverRuntimeState.mode,
+      configuredHost: serverRuntimeState.listenHost,
+    }, { status: 503 });
+  }
+  return Response.json({ error: "server_starting" }, { status: 503 });
+};
+
+let server = createAdaptorServer({
+  fetch: (...args) => activeFetch(...args),
+  hostname: host,
+});
+
+await bindServerTransportOwnership(server, {
+  host,
+  port,
+  listenHost: serverNetwork.host,
+  networkMode: serverNetwork.mode,
+});
+
+// ── 首次运行播种 ──
+console.log("[server] ① ensureFirstRun...");
+ensureFirstRun(hanakoHome, productDir);
+console.log("[server] ① ensureFirstRun 完成");
+
+// ── 初始化 Debug 日志 ──
+const dlog = initDebugLog(path.join(hanakoHome, "logs"));
 
 // ── 初始化引擎 ──
 console.log("[server] ② 创建 HanaEngine...");
@@ -157,24 +256,11 @@ sessionFileCleanupTimer.unref?.();
 // 加载 i18n（engine.init 已经按全局偏好加载过，这里保持启动入口显式同步）
 loadLocale(engine.getLocale?.() || engine.config?.locale);
 
-// ── 启动令牌（阻止本机其他程序随意访问） ──
-const SERVER_TOKEN = process.env.HANA_TOKEN || crypto.randomBytes(16).toString("hex");
 const serverAuthService = createServerAuthService({
   hanakoHome,
   loopbackToken: SERVER_TOKEN,
   runtimeContext: () => engine.getRuntimeContext(),
 });
-const serverNetwork = resolveServerListenOptions(hanakoHome);
-const serverRuntimeState = {
-  mode: serverNetwork.mode,
-  listenHost: serverNetwork.host,
-  bindHost: "0.0.0.0",
-  actualPort: null,
-  applyNetworkConfig(network) {
-    this.mode = network.mode;
-    this.listenHost = network.listenHost;
-  },
-};
 
 // ── 创建 Hono 实例 ──
 const app = new Hono();
@@ -514,6 +600,8 @@ app.get("/api/health", async (c) => {
   });
 });
 
+activeFetch = app.fetch.bind(app);
+
 // 前端日志上报（desktop 端把错误 POST 到 server 写进持久化日志）
 app.post("/api/log", async (c) => {
   const { level, module, message } = await safeJson(c);
@@ -611,38 +699,8 @@ app.post("/api/shutdown", async (c) => {
   return c.json({ ok: true });
 });
 
-// ── 启动服务器 ──
-const envPort = Number.parseInt(process.env.HANA_PORT || "", 10);
-const port = Number.isInteger(envPort) && envPort >= 0 ? envPort : serverNetwork.port;
-const host = serverRuntimeState.bindHost;
-
-let server;
+// ── 发布已绑定服务器 ──
 try {
-  server = serve({ fetch: app.fetch, port, hostname: host });
-
-  // @hono/node-server 的 serve() 内部调用 server.listen()，
-  // port=0 时需等 listening 事件才能拿到实际端口
-  await new Promise((resolve, reject) => {
-    if (server.listening) {
-      resolve();
-      return;
-    }
-    const cleanup = () => {
-      server.off("listening", onListening);
-      server.off("error", onError);
-    };
-    const onListening = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = (err) => {
-      cleanup();
-      reject(err);
-    };
-    server.once("listening", onListening);
-    server.once("error", onError);
-  });
-
   // ── Internal browser control WS (raw ws) ──
   // WsTransport requires raw ws .on()/.off() event methods that Hono's WSContext
   // doesn't expose, so we handle /internal/browser via a standalone WebSocketServer.
@@ -758,6 +816,7 @@ try {
   // 非授权进程能读到 token 后冒充 owner 调任意 LOCAL_ONLY 路由。
   const serverInfoPath = path.join(hanakoHome, "server-info.json");
   try {
+    const runtimeContext = engine.getRuntimeContext?.() || {};
     fs.writeFileSync(serverInfoPath, JSON.stringify({
       pid: process.pid,
       port: actualPort,
@@ -766,6 +825,10 @@ try {
       networkMode: serverRuntimeState.mode,
       token: SERVER_TOKEN,
       version: appVersion,
+      serverId: runtimeContext.serverId || null,
+      serverNodeId: runtimeContext.serverNodeId || runtimeContext.serverId || null,
+      studioId: runtimeContext.studioId || null,
+      userId: runtimeContext.userId || null,
     }), { mode: 0o600 });
     // mode-on-create 在某些 fs 上不可靠（已有文件不会重置 mode），显式 chmod 兜底
     try { fs.chmodSync(serverInfoPath, 0o600); } catch {}

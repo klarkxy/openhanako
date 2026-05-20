@@ -130,6 +130,26 @@ describe("server startup diagnostics contract", () => {
     expect(bridgeRouteSource).toContain("resolveBridgeManager");
   });
 
+  it("reuses only trusted server-info after token health and server identity checks", () => {
+    const mainSource = fs.readFileSync(path.join(root, "desktop", "main.cjs"), "utf-8");
+
+    expect(mainSource).toContain("verifyReusableServerInfo");
+    expect(mainSource).toContain("/api/health");
+    expect(mainSource).toContain("/api/server/identity");
+    expect(mainSource).toContain("Authorization: `Bearer ${existingInfo.token}`");
+    expect(mainSource).toContain("identity.studioId");
+  });
+
+  it("surfaces structured port conflicts instead of burying them under GPU diagnostics", () => {
+    const mainSource = fs.readFileSync(path.join(root, "desktop", "main.cjs"), "utf-8");
+
+    expect(mainSource).toContain("parsePortInUseStartupError");
+    expect(mainSource).toContain("extractRootServerStartupError");
+    expect(mainSource).toContain("buildLaunchFailureDialogDetail");
+    expect(mainSource).toContain("const rootServerError = structuredPortConflict || extractRootServerStartupError(_serverLogs)");
+    expect(mainSource).toContain("return `${rootServerError}\\n\\n${tail}`");
+  });
+
   it("keeps native SQLite out of the server static import graph", () => {
     const factStoreSource = fs.readFileSync(path.join(root, "lib", "memory", "fact-store.js"), "utf-8");
     const agentSource = fs.readFileSync(path.join(root, "core", "agent.js"), "utf-8");

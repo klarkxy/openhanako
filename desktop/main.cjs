@@ -577,6 +577,8 @@ async function waitForProcessExit(proc, pid, timeoutMs) {
 const {
   ensureServerFilesReady,
   isModuleResolutionError,
+  parsePortInUseStartupError,
+  extractRootServerStartupError,
   SERVER_INFO_FIRST_WAIT_MS,
   shouldKeepWaitingForServerInfo,
 } = require("./src/shared/server-readiness.cjs");
@@ -640,6 +642,65 @@ function pollServerInfo(infoPath, {
   });
 }
 
+async function verifyReusableServerInfo(existingInfo) {
+  const port = Number(existingInfo?.port);
+  const token = typeof existingInfo?.token === "string" ? existingInfo.token : "";
+  const pid = Number(existingInfo?.pid);
+  if (!Number.isInteger(port) || port <= 0 || !token || !Number.isInteger(pid)) {
+    return { reusable: false, trusted: false, terminate: false, reason: "invalid server-info shape" };
+  }
+
+  const currentVersion = app.getVersion();
+  const headers = { Authorization: `Bearer ${existingInfo.token}` };
+  let health = null;
+  let identity = null;
+  try {
+    const healthRes = await fetch(`http://127.0.0.1:${port}/api/health`, {
+      headers,
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!healthRes.ok) {
+      return { reusable: false, trusted: false, terminate: false, reason: `health returned ${healthRes.status}` };
+    }
+    health = await healthRes.json().catch(() => null);
+  } catch (err) {
+    return { reusable: false, trusted: false, terminate: false, reason: `health failed: ${err.message}` };
+  }
+
+  try {
+    const identityRes = await fetch(`http://127.0.0.1:${port}/api/server/identity`, {
+      headers,
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!identityRes.ok) {
+      return { reusable: false, trusted: false, terminate: false, reason: `identity returned ${identityRes.status}` };
+    }
+    identity = await identityRes.json().catch(() => null);
+  } catch (err) {
+    return { reusable: false, trusted: false, terminate: false, reason: `identity failed: ${err.message}` };
+  }
+
+  if (!identity || !identity.studioId) {
+    return { reusable: false, trusted: false, terminate: false, reason: "identity missing studioId" };
+  }
+
+  const healthVersion = health?.version;
+  const identityVersion = identity?.version;
+  const serverInfoVersion = existingInfo.version;
+  const versionMatches = (!serverInfoVersion || serverInfoVersion === currentVersion)
+    && (!healthVersion || healthVersion === currentVersion)
+    && (!identityVersion || identityVersion === currentVersion);
+  if (!versionMatches) {
+    return { reusable: false, trusted: true, terminate: true, reason: "version mismatch", health, identity };
+  }
+
+  if (existingInfo.studioId && existingInfo.studioId !== identity.studioId) {
+    return { reusable: false, trusted: true, terminate: false, reason: "studio identity mismatch", health, identity };
+  }
+
+  return { reusable: true, trusted: true, terminate: false, reason: "ok", health, identity };
+}
+
 async function startServer() {
   const serverInfoPath = path.join(hanakoHome, "server-info.json");
 
@@ -655,41 +716,27 @@ async function startServer() {
     })();
 
     if (pidAlive) {
-      // 版本校验：server-info 中的 version 必须与当前 app 版本一致，
-      // 否则是更新后残存的旧 server，必须杀掉重启
-      const currentVersion = app.getVersion();
-      const serverVersion = existingInfo.version;
-      if (serverVersion && serverVersion !== currentVersion) {
-        console.log(`[desktop] 旧 server 版本不匹配（server: ${serverVersion}, app: ${currentVersion}），终止旧 server`);
+      const verification = await verifyReusableServerInfo(existingInfo);
+      if (verification.reusable) {
+        console.log(`[desktop] 复用已运行的 server，端口: ${existingInfo.port}, 版本: ${existingInfo.version || "unknown"}, studio: ${verification.identity.studioId}`);
+        serverPort = existingInfo.port;
+        serverToken = existingInfo.token;
+        reusedServerPid = existingInfo.pid;
+        return; // 跳过启动
+      }
+
+      if (verification.terminate) {
+        console.log(`[desktop] 可信旧 server 不可复用（${verification.reason}），正在终止 PID ${existingInfo.pid}`);
+        killPid(existingInfo.pid);
+        const deadline = Date.now() + 2000;
+        while (Date.now() < deadline) {
+          try { process.kill(existingInfo.pid, 0); } catch { break; }
+          await new Promise(r => setTimeout(r, 100));
+        }
+        killPid(existingInfo.pid, true);
       } else {
-        // PID 存活且版本匹配（或无版本字段的老 server），尝试 health check
-        let reused = false;
-        try {
-          const res = await fetch(`http://127.0.0.1:${existingInfo.port}/api/health`, {
-            headers: { Authorization: `Bearer ${existingInfo.token}` },
-            signal: AbortSignal.timeout(2000),
-          });
-          if (res.ok) {
-            console.log(`[desktop] 复用已运行的 server，端口: ${existingInfo.port}, 版本: ${serverVersion || "unknown"}`);
-            serverPort = existingInfo.port;
-            serverToken = existingInfo.token;
-            reusedServerPid = existingInfo.pid;
-            reused = true;
-          }
-        } catch { /* health check 网络抖动，继续 kill 旧 server */ }
-
-        if (reused) return; // 跳过启动
+        console.warn(`[desktop] server-info 不可信，拒绝复用且不自动终止 PID ${existingInfo.pid}: ${verification.reason}`);
       }
-
-      // PID 存活但 health 失败（无响应或异常）：主动 kill，避免双 server 并存
-      console.log(`[desktop] 旧 server (PID ${existingInfo.pid}) 无响应，正在终止...`);
-      killPid(existingInfo.pid);
-      const deadline = Date.now() + 2000;
-      while (Date.now() < deadline) {
-        try { process.kill(existingInfo.pid, 0); } catch { break; }
-        await new Promise(r => setTimeout(r, 100));
-      }
-      killPid(existingInfo.pid, true);
     }
 
     // PID 已死或已 kill，删除脏文件
@@ -724,6 +771,14 @@ async function startServer() {
       return;
     } catch (err) {
       lastErr = err;
+      const portConflict = parsePortInUseStartupError(_serverLogs);
+      if (portConflict) {
+        const friendly = new Error(formatPortInUseStartupError(portConflict));
+        friendly.code = "PORT_IN_USE";
+        friendly.startupError = portConflict;
+        friendly.cause = err;
+        throw friendly;
+      }
       const missingModule = isModuleResolutionError(_serverLogs);
       const canRetry = missingModule && attempt === 0;
       if (!canRetry) {
@@ -1025,6 +1080,27 @@ function buildServerCrashDiagnostics() {
   items.push(buildGpuStartupDiagnostics({ hanakoHome, policy: gpuStartupPolicy, app }));
 
   return items.join("\n");
+}
+
+function formatPortInUseStartupError(conflict) {
+  const host = conflict?.host || "unknown";
+  const port = conflict?.port ?? "unknown";
+  const networkMode = conflict?.networkMode || "unknown";
+  const suggestions = Array.isArray(conflict?.suggestions) && conflict.suggestions.length
+    ? `\n\n${conflict.suggestions.map(item => `- ${item}`).join("\n")}`
+    : "";
+  return `PORT_IN_USE: ${host}:${port} is already in use (network mode: ${networkMode}).${suggestions}`;
+}
+
+function buildLaunchFailureDialogDetail(err, crashInfo) {
+  const structuredPortConflict = err?.startupError?.code === "PORT_IN_USE"
+    ? formatPortInUseStartupError(err.startupError)
+    : null;
+  const rootServerError = structuredPortConflict || extractRootServerStartupError(_serverLogs);
+  const tail = crashInfo.length > 800 ? "...\n" + crashInfo.slice(-800) : crashInfo;
+  if (!rootServerError) return tail;
+  if (tail.includes(rootServerError)) return tail;
+  return `${rootServerError}\n\n${tail}`;
 }
 
 function writeCrashLog(errorMessage) {
@@ -3434,13 +3510,12 @@ app.whenReady().then(async () => {
     }
     // 写入 crash.log 并获取详细日志
     const crashInfo = writeCrashLog(err.message);
-    // 截取最后 800 字符放进 dialog（太长会显示不全）
-    const tail = crashInfo.length > 800 ? "...\n" + crashInfo.slice(-800) : crashInfo;
+    const detail = buildLaunchFailureDialogDetail(err, crashInfo);
     dialog.showErrorBox(
       mt("dialog.launchFailedTitle", null, "Hanako Launch Failed"),
       mt("dialog.launchFailedBody", {
         version: app?.getVersion?.() || "unknown",
-        detail: tail,
+        detail,
         logPath: path.join(hanakoHome, "crash.log"),
       })
     );
