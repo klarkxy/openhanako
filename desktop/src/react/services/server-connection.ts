@@ -311,27 +311,10 @@ export async function connectDeviceServerConnection({
   credential: string;
   fetchImpl?: typeof fetch;
 }): Promise<ServerConnection> {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  const token = normalizeToken(credential);
-  if (!token) throw new Error('server access key required');
-
-  await requestJson(fetchImpl, `${normalizedBaseUrl}/api/web-auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ credential: token }),
-  });
-
-  const identity = await requestJson(fetchImpl, `${normalizedBaseUrl}/api/server/identity`, {
-    headers: { Authorization: `Bearer ${token}` },
-    credentials: 'include',
-  }) as ServerIdentity;
-
-  return createDeviceServerConnection({
-    baseUrl: normalizedBaseUrl,
-    credential: token,
-    identity,
-  });
+  void baseUrl;
+  void credential;
+  void fetchImpl;
+  throw new Error('multi-device connection is disabled');
 }
 
 export function refreshLocalServerConnection({
@@ -488,25 +471,8 @@ export function upsertServerConnection(
 export function readPersistedServerConnectionState(
   storage: ConnectionStorageLike | null | undefined = getDefaultStorage(),
 ): PersistedServerConnectionState {
-  if (!storage) return { serverConnections: {}, activeServerConnectionId: null };
-  try {
-    const raw = storage.getItem(PERSISTED_CONNECTIONS_KEY);
-    if (!raw) return { serverConnections: {}, activeServerConnectionId: null };
-    const parsed = JSON.parse(raw);
-    const registry: ServerConnectionRegistry = {};
-    for (const connection of Object.values(parsed?.serverConnections || {}) as ServerConnection[]) {
-      if (!connection || connection.kind === 'local') continue;
-      registry[connection.connectionId] = connection;
-      validateStudioConnectionTrust(connection);
-    }
-    const activeServerConnectionId = typeof parsed?.activeServerConnectionId === 'string'
-      && registry[parsed.activeServerConnectionId]
-      ? parsed.activeServerConnectionId
-      : null;
-    return { serverConnections: registry, activeServerConnectionId };
-  } catch {
-    return { serverConnections: {}, activeServerConnectionId: null };
-  }
+  storage?.removeItem(PERSISTED_CONNECTIONS_KEY);
+  return { serverConnections: {}, activeServerConnectionId: null };
 }
 
 export function writePersistedServerConnectionState(

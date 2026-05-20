@@ -4,6 +4,7 @@
  * 从 sessions route 提取，供 route 层与 plugin 系统共用。
  */
 import fs from "fs/promises";
+import os from "os";
 import path from "path";
 import { isToolCallBlock, getToolArgs } from "./llm-utils.js";
 import { SessionManager } from "../lib/pi-sdk/index.js";
@@ -18,6 +19,15 @@ export const TOOL_ARG_SUMMARY_KEYS = [
 ];
 
 const SESSION_TAIL_READ_THRESHOLD = 256 * 1024;
+
+export function expandHomePath(rawPath) {
+  if (typeof rawPath !== "string") return rawPath;
+  if (rawPath === "~") return os.homedir();
+  if (rawPath.startsWith("~/") || rawPath.startsWith("~\\")) {
+    return path.join(os.homedir(), rawPath.slice(2));
+  }
+  return rawPath;
+}
 
 /** 从文本中提取并剥离 <think>/<thinking> 标签 */
 export function stripThinkTags(raw) {
@@ -206,7 +216,7 @@ export function relativePathInsideBase(targetPath, baseDir) {
   if (typeof targetPath !== "string" || typeof baseDir !== "string") return null;
   if (!targetPath || !baseDir) return null;
 
-  const resolved = path.resolve(targetPath);
+  const resolved = path.resolve(expandHomePath(targetPath));
   const base = path.resolve(baseDir);
   const rel = path.relative(base, resolved);
   if (rel === "") return "";

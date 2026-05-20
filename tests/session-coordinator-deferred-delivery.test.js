@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import path from "path";
 
 import { SessionCoordinator } from "../core/session-coordinator.js";
 
@@ -99,6 +100,33 @@ describe("SessionCoordinator deferred custom delivery", () => {
 
     expect(result).toMatchObject({ ok: true, mode: "triggerTurn" });
     expect(coord.ensureSessionLoaded).toHaveBeenCalledWith("/sessions/cold.jsonl");
+    expect(session.sendCustomMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ customType: "hana-background-result", display: false }),
+      { triggerTurn: true },
+    );
+  });
+
+  it("expands a home-relative session path before cold-loading deferred delivery", async () => {
+    const coord = makeCoordinator();
+    const session = makeSession({ isStreaming: false });
+    coord.ensureSessionLoaded = vi.fn(async (sessionPath) => {
+      coord.sessions.set(sessionPath, {
+        session,
+        agentId: "test-agent",
+        lastTouchedAt: 0,
+      });
+      return session;
+    });
+
+    const homeRelativePath = path.join("~", "sessions", "tilde.jsonl");
+    const result = await coord.deliverCustomMessage(homeRelativePath, {
+      customType: "hana-background-result",
+      content: "<hana-background-result />",
+      display: false,
+    });
+
+    expect(result).toMatchObject({ ok: true, mode: "triggerTurn" });
+    expect(coord.ensureSessionLoaded).toHaveBeenCalledWith(expect.not.stringMatching(/^~/));
     expect(session.sendCustomMessage).toHaveBeenCalledWith(
       expect.objectContaining({ customType: "hana-background-result", display: false }),
       { triggerTurn: true },

@@ -41,7 +41,6 @@ import { createUploadRoute } from "./routes/upload.js";
 import { createProvidersRoute } from "./routes/providers.js";
 import { createAvatarRoute } from "./routes/avatar.js";
 import { createAgentsRoute } from "./routes/agents.js";
-import { createDevicesRoute } from "./routes/devices.js";
 import { createCharacterCardsRoute } from "./routes/character-cards.js";
 import { createDeskRoute } from "./routes/desk.js";
 import { createSkillsRoute } from "./routes/skills.js";
@@ -58,10 +57,6 @@ import { createCheckpointsRoute } from "./routes/checkpoints.js";
 import { createCommandsRoute } from "./routes/commands.js";
 import { createServerIdentityRoute } from "./routes/server-identity.js";
 import { createResourcesRoute } from "./routes/resources.js";
-import { createWebAuthRoute } from "./routes/web-auth.js";
-import { createMobileWorkbenchRoute } from "./routes/mobile-workbench.js";
-import { createMobileStaticRoute } from "./routes/mobile-static.js";
-import { createAccessRoute } from "./routes/access.js";
 import { configureProcessPiSdkEnv, ensureHanaPiSdkDirs, resolveHanakoHome } from "../shared/hana-runtime-paths.js";
 import { ensureWindowsUtf8Console } from "../shared/windows-console.js";
 // internal-browser WS is handled directly via raw ws.WebSocketServer in the
@@ -206,6 +201,9 @@ app.use("*", async (c, next) => {
   });
   if (!transport.connectionKind) {
     return c.json({ error: "invalid_transport", detail: transport.reason }, 403);
+  }
+  if (transport.connectionKind !== "local") {
+    return c.json({ error: "multi_device_disabled" }, 403);
   }
   const routePath = new URL(c.req.url).pathname;
   c.set("transportConnectionKind", transport.connectionKind);
@@ -450,18 +448,8 @@ const bridgeManagerRef = {
 };
 
 const { restRoute: chatRestRoute, wsRoute: chatWsRoute } = createChatRoute(engine, hub, { upgradeWebSocket });
-app.route("", createMobileStaticRoute({ distDir: fromRoot("desktop", "dist-renderer") }));
 app.route("/api", chatRestRoute);
 app.route("", chatWsRoute);
-app.route("/api", createWebAuthRoute({
-  hanakoHome: engine.hanakoHome,
-  authService: serverAuthService,
-  getConnectionKind: (c) => c.get("transportConnectionKind"),
-}));
-app.route("/api", createAccessRoute({
-  engine,
-  runtimeState: serverRuntimeState,
-}));
 app.route("/api", createSessionsRoute(engine, hub));
 app.route("/api", createModelsRoute(engine));
 app.route("/api", createConfigRoute(engine));
@@ -469,10 +457,8 @@ app.route("/api", createUploadRoute(engine));
 app.route("/api", createProvidersRoute(engine));
 app.route("/api", createAvatarRoute(engine));
 app.route("/api", createAgentsRoute(engine));
-app.route("/api", createDevicesRoute(engine));
 app.route("/api", createCharacterCardsRoute(engine));
 app.route("/api", createDeskRoute(engine, hub));
-app.route("/api", createMobileWorkbenchRoute(engine));
 app.route("/api", createSkillsRoute(engine));
 app.route("/api", createChannelsRoute(engine, hub));
 app.route("/api", createDmRoute(engine));

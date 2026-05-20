@@ -16,6 +16,7 @@ import { evaluateSessionHealth } from "./session-health.js";
 import { createModuleLogger } from "../lib/debug-log.js";
 import { BrowserManager } from "../lib/browser/browser-manager.js";
 import { t, getLocale } from "../server/i18n.js";
+import { expandHomePath } from "./message-utils.js";
 import {
   DEFAULT_SESSION_PERMISSION_MODE,
   SESSION_PERMISSION_MODES,
@@ -49,6 +50,10 @@ import {
 import { SessionListProjectionCache } from "./session-list-projection-cache.js";
 
 const log = createModuleLogger("session");
+
+function normalizeSessionPath(sessionPath) {
+  return expandHomePath(sessionPath);
+}
 
 /** 巡检/定时任务默认工具白名单（"*" = 与 chat 一致，全部放行） */
 export const PATROL_TOOLS_DEFAULT = "*";
@@ -673,9 +678,9 @@ export class SessionCoordinator {
     log.log(`session created (${elapsed}ms), model=${resolvedModel?.name || effectiveModel?.name || "?"}`);
 
     // 事件转发（附带 agentId，供订阅者按 agent 过滤）
-    const sessionPath = session.sessionManager?.getSessionFile?.();
+    const sessionPath = normalizeSessionPath(session.sessionManager?.getSessionFile?.());
     this._session = session;
-    this._currentSessionPath = sessionPath || null;
+    this._currentSessionPath = normalizeSessionPath(sessionPath) || null;
     this._sessionStarted = false;
     if (restore && sessionPath && restoredPermissionMode === null) {
       try {
@@ -705,7 +710,7 @@ export class SessionCoordinator {
     });
 
     // 存入 map（SessionEntry）— sessionEntry is the same object the resourceLoader proxy references
-    const mapKey = sessionPath || `_anon_${Date.now()}`;
+    const mapKey = normalizeSessionPath(sessionPath) || `_anon_${Date.now()}`;
     const old = this._sessions.get(mapKey);
     if (old) old.unsub();
 
@@ -865,12 +870,13 @@ export class SessionCoordinator {
       }
     }
 
-    return { session, sessionPath: sessionPath || mapKey, agentId: creatingAgentId };
+    return { session, sessionPath: normalizeSessionPath(sessionPath) || mapKey, agentId: creatingAgentId };
   }
 
   getSessionWorkspaceFolders(sessionPath = this.currentSessionPath) {
     if (!sessionPath) return [];
-    const entry = this._sessions.get(sessionPath) || this._hibernatedSessionMeta.get(sessionPath);
+    const key = normalizeSessionPath(sessionPath);
+    const entry = this._sessions.get(key) || this._hibernatedSessionMeta.get(key);
     return Array.isArray(entry?.workspaceFolders) ? [...entry.workspaceFolders] : [];
   }
 
@@ -885,7 +891,8 @@ export class SessionCoordinator {
     // 切到已有 session 时清空 pendingModel（用户的临时选择不应跟到别的 session）
     this._pendingModel = null;
 
-    const targetAgentId = this._d.agentIdFromSessionPath(sessionPath);
+    const key = normalizeSessionPath(sessionPath);
+    const targetAgentId = this._d.agentIdFromSessionPath(key);
     if (targetAgentId && targetAgentId !== this._d.getActiveAgentId()) {
       // Phase 1: 跨 agent 切换只切指针，不清旧 session
       await this._d.switchAgentOnly(targetAgentId);
@@ -896,7 +903,7 @@ export class SessionCoordinator {
     try {
       const metaPath = path.join(this._d.getAgent().sessionDir, "session-meta.json");
       const meta = await this._readMetaCached(metaPath);
-      const sessKey = path.basename(sessionPath);
+      const sessKey = path.basename(key);
       const metaEntry = meta[sessKey];
       if (metaEntry?.memoryEnabled === false) memoryEnabled = false;
     } catch (err) {
@@ -906,7 +913,7 @@ export class SessionCoordinator {
     }
 
     // 如果已在 map 中，切指针
-    const existing = this._sessions.get(sessionPath);
+    const existing = this._sessions.get(key);
     if (existing) {
       if (this._session && this._session !== existing.session) {
         const oldSp = this._session.sessionManager?.getSessionFile?.();
@@ -922,7 +929,7 @@ export class SessionCoordinator {
         }
       }
       this._session = existing.session;
-      this._currentSessionPath = sessionPath;
+      this._currentSessionPath = key;
       existing.lastTouchedAt = Date.now();
       const targetAgent = this._d.getAgentById(existing.agentId) || this._d.getAgent();
       targetAgent.setMemoryEnabled(memoryEnabled);
@@ -1094,7 +1101,7 @@ export class SessionCoordinator {
   }
 
   steerSession(sessionPath, text) {
-    const entry = this._sessions.get(sessionPath);
+    const entry = this._sessions.get(normalizeSessionPath(sessionPath));
     if (!entry?.session.isStreaming) return false;
     entry.lastTouchedAt = Date.now();
     entry.session.steer(getSteerPrefix() + text);
@@ -1103,10 +1110,11 @@ export class SessionCoordinator {
 
   async deliverCustomMessage(sessionPath, message) {
     if (!sessionPath) throw new Error("deliverCustomMessage: sessionPath is required");
-    let entry = this._sessions.get(sessionPath);
+    const key = normalizeSessionPath(sessionPath);
+    let entry = this._sessions.get(key);
     if (!entry) {
-      await this.ensureSessionLoaded(sessionPath);
-      entry = this._sessions.get(sessionPath);
+      await this.ensureSessionLoaded(key);
+      entry = this._sessions.get(key);
     }
     if (!entry?.session) {
       throw new Error(`deliverCustomMessage: session not loaded for ${sessionPath}`);
@@ -1126,15 +1134,16 @@ export class SessionCoordinator {
   }
 
   async abortSession(sessionPath) {
-    const pending = this._prePromptAbortControllers.get(sessionPath);
+    const key = normalizeSessionPath(sessionPath);
+    const pending = this._prePromptAbortControllers.get(key);
     if (pending) {
       pending.abort();
-      this._prePromptAbortControllers.delete(sessionPath);
+      this._prePromptAbortControllers.delete(key);
       return true;
     }
-    const entry = this._sessions.get(sessionPath);
+    const entry = this._sessions.get(key);
     if (!entry?.session.isStreaming) return false;
-    return this._forceReleaseStreamingSession(entry, sessionPath, "abort");
+    return this._forceReleaseStreamingSession(entry, key, "abort");
   }
 
   // ── Mid-session model switch ──
@@ -1648,13 +1657,14 @@ export class SessionCoordinator {
   }
 
   async hibernateSessionRuntime(sessionPath, reason = "memory_pressure") {
-    const entry = this._sessions.get(sessionPath);
+    const key = normalizeSessionPath(sessionPath);
+    const entry = this._sessions.get(key);
     if (!entry) return false;
-    if (!this._canHibernateSessionRuntime(entry, sessionPath)) return false;
+    if (!this._canHibernateSessionRuntime(entry, key)) return false;
 
-    const isFocus = this._session === entry.session || this.currentSessionPath === sessionPath;
-    if (isFocus) this._currentSessionPath = sessionPath;
-    this._hibernatedSessionMeta.set(sessionPath, {
+    const isFocus = this._session === entry.session || this.currentSessionPath === key;
+    if (isFocus) this._currentSessionPath = key;
+    this._hibernatedSessionMeta.set(key, {
       agentId: entry.agentId,
       memoryEnabled: entry.memoryEnabled,
       experienceEnabled: entry.experienceEnabled,
@@ -1670,12 +1680,12 @@ export class SessionCoordinator {
       hibernatedAt: Date.now(),
     });
     await this._teardownSessionEntry(entry, sessionPath, reason);
-    this._sessions.delete(sessionPath);
-    this._clearRuntimePressureTimer(sessionPath);
+    this._sessions.delete(key);
+    this._clearRuntimePressureTimer(key);
     if (isFocus) {
       this._session = null;
     }
-    log.log(`session runtime hibernated (${reason}): ${path.basename(sessionPath)}`);
+    log.log(`session runtime hibernated (${reason}): ${path.basename(key)}`);
     return true;
   }
 
@@ -1841,14 +1851,15 @@ export class SessionCoordinator {
   // ── Session 查询 ──
 
   getSessionByPath(sessionPath) {
-    return this._sessions.get(sessionPath)?.session ?? null;
+    return this._sessions.get(normalizeSessionPath(sessionPath))?.session ?? null;
   }
 
   getSessionContextUsage(sessionPath) {
     if (!sessionPath) return null;
-    const live = this._sessions.get(sessionPath)?.session?.getContextUsage?.();
+    const key = normalizeSessionPath(sessionPath);
+    const live = this._sessions.get(key)?.session?.getContextUsage?.();
     if (live) return live;
-    return this._hibernatedSessionMeta.get(sessionPath)?.contextUsage || null;
+    return this._hibernatedSessionMeta.get(key)?.contextUsage || null;
   }
 
   /**
@@ -1865,15 +1876,16 @@ export class SessionCoordinator {
    * @returns {Promise<object>} AgentSession 实例
    */
   async ensureSessionLoaded(sessionPath) {
-    const existing = this._sessions.get(sessionPath);
+    const key = normalizeSessionPath(sessionPath);
+    const existing = this._sessions.get(key);
     if (existing) {
       existing.lastTouchedAt = Date.now();
       return existing.session;
     }
 
-    const targetAgentId = this._d.agentIdFromSessionPath(sessionPath);
+    const targetAgentId = this._d.agentIdFromSessionPath(key);
     if (!targetAgentId) {
-      throw new Error(`ensureSessionLoaded: cannot resolve agentId for ${sessionPath}`);
+      throw new Error(`ensureSessionLoaded: cannot resolve agentId for ${key}`);
     }
     const agent = this._d.getAgentById(targetAgentId);
     if (!agent) {
@@ -1885,7 +1897,7 @@ export class SessionCoordinator {
     try {
       const metaPath = path.join(agent.sessionDir, "session-meta.json");
       const meta = await this._readMetaCached(metaPath);
-      const sessKey = path.basename(sessionPath);
+      const sessKey = path.basename(key);
       if (meta[sessKey]?.memoryEnabled === false) memoryEnabled = false;
     } catch (err) {
       if (err.code !== "ENOENT") {
@@ -1900,8 +1912,8 @@ export class SessionCoordinator {
     const prevSessionStarted = this._sessionStarted;
     try {
       // #521: attach 路径同样要做健康度评估，否则 bridge / RC 自动恢复时也会反复失败
-      this._emitSessionHealthWarning(sessionPath);
-      const sessionMgr = SessionManager.open(sessionPath, agent.sessionDir);
+      this._emitSessionHealthWarning(key);
+      const sessionMgr = SessionManager.open(key, agent.sessionDir);
       const cwd = sessionMgr.getCwd?.() || undefined;
       await this.createSession(sessionMgr, cwd, memoryEnabled, null, {
         restore: true,
@@ -1915,7 +1927,7 @@ export class SessionCoordinator {
       this._sessionStarted = prevSessionStarted;
     }
 
-    const entry = this._sessions.get(sessionPath);
+    const entry = this._sessions.get(key);
     if (!entry) throw new Error(`ensureSessionLoaded: session not in cache after createSession`);
     if (entry.agentId !== targetAgentId) {
       throw new Error(`ensureSessionLoaded: restored agentId mismatch (${entry.agentId} !== ${targetAgentId})`);
@@ -1924,12 +1936,13 @@ export class SessionCoordinator {
   }
 
   isSessionStreaming(sessionPath) {
-    return this._prePromptAbortControllers.has(sessionPath)
-      || !!this.getSessionByPath(sessionPath)?.isStreaming;
+    const key = normalizeSessionPath(sessionPath);
+    return this._prePromptAbortControllers.has(key)
+      || !!this.getSessionByPath(key)?.isStreaming;
   }
 
   isSessionSwitching(sessionPath) {
-    return !!this._sessions.get(sessionPath)?._switching;
+    return !!this._sessions.get(normalizeSessionPath(sessionPath))?._switching;
   }
 
   async abortSessionByPath(sessionPath) {

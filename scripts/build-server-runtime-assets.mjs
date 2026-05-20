@@ -13,7 +13,6 @@ export const SERVER_RUNTIME_ASSET_DIRS = [
 ];
 
 export const SERVER_RUNTIME_RENDERER_REQUIRED_FILES = [
-  "mobile.html",
   "manifest.webmanifest",
   "sw.js",
   "icon.png",
@@ -70,7 +69,7 @@ export function copyServerRuntimeAssets({ rootDir, outDir, fsImpl = fs }) {
     fsImpl,
     sourceAssetsDir: path.join(sourceRendererDir, "assets"),
     targetAssetsDir: path.join(targetRendererDir, "assets"),
-    mobileHtmlPath: path.join(sourceRendererDir, "mobile.html"),
+    mobileHtmlPath: null,
   });
   for (const dirName of SERVER_RUNTIME_RENDERER_DIRS) {
     const sourceDir = path.join(sourceRendererDir, dirName);
@@ -99,7 +98,9 @@ function copyMobileRuntimeAssets({ fsImpl, sourceAssetsDir, targetAssetsDir, mob
     if (!/\.(?:js|css)$/i.test(name)) addAsset(name);
   }
 
-  collectAssetReferences(fsImpl.readFileSync(mobileHtmlPath, "utf-8"), addAsset);
+  if (mobileHtmlPath && fsImpl.existsSync(mobileHtmlPath)) {
+    collectAssetReferences(fsImpl.readFileSync(mobileHtmlPath, "utf-8"), addAsset);
+  }
 
   while (queued.length) {
     const name = queued.shift();

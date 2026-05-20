@@ -39,8 +39,6 @@ const CSP_PROFILES: Record<string, string> = {
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' file:",
   'viewer-window.html':
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: file:",
-  'mobile.html':
-    "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; frame-src 'self' blob:",
 };
 
 function injectCsp(): Plugin {
@@ -229,7 +227,6 @@ export default defineConfig({
       },
       input: {
         main: path.resolve(__dirname, 'desktop/src/index.html'),
-        mobile: path.resolve(__dirname, 'desktop/src/mobile.html'),
         settings: path.resolve(__dirname, 'desktop/src/settings.html'),
         onboarding: path.resolve(__dirname, 'desktop/src/onboarding.html'),
         splash: path.resolve(__dirname, 'desktop/src/splash.html'),

@@ -35,11 +35,6 @@ describe("server runtime assets", () => {
     fs.mkdirSync(path.join(rendererDir, "lib"), { recursive: true });
     fs.mkdirSync(path.join(rendererDir, "themes"), { recursive: true });
     fs.mkdirSync(path.join(rendererDir, "locales"), { recursive: true });
-    fs.writeFileSync(
-      path.join(rendererDir, "mobile.html"),
-      "<!doctype html><link rel=\"stylesheet\" href=\"./assets/mobile.css\"><script type=\"module\" src=\"./assets/mobile.js\"></script><title>Mobile</title>",
-      "utf-8",
-    );
     fs.writeFileSync(path.join(rendererDir, "manifest.webmanifest"), "{}", "utf-8");
     fs.writeFileSync(path.join(rendererDir, "sw.js"), "self.addEventListener('fetch', () => {});", "utf-8");
     fs.writeFileSync(path.join(rendererDir, "icon.png"), "png", "utf-8");
@@ -91,19 +86,17 @@ describe("server runtime assets", () => {
       .toThrow(/required runtime asset missing: .*Butter\.png/);
   });
 
-  it("copies the mobile renderer bundle into the bundled server root", () => {
+  it("copies the server runtime renderer bundle into the bundled server root", () => {
     const copied = copyServerRuntimeAssets({ rootDir, outDir });
 
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "mobile.html"), "utf-8"))
-      .toContain("<title>Mobile</title>");
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "assets", "mobile.js"), "utf-8"))
-      .toContain("console.log('mobile')");
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "assets", "shared.js"), "utf-8"))
-      .toContain("console.log('shared')");
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "assets", "mobile.css"), "utf-8"))
-      .toContain("background");
-    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "assets", "paper.png"), "utf-8"))
-      .toBe("paper");
+    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "manifest.webmanifest"), "utf-8"))
+      .toBe("{}");
+    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "sw.js"), "utf-8"))
+      .toContain("addEventListener");
+    expect(fs.readFileSync(path.join(outDir, "desktop", "dist-renderer", "icon.png"), "utf-8"))
+      .toBe("png");
+    expect(fs.existsSync(path.join(outDir, "desktop", "dist-renderer", "assets", "mobile.js"))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, "desktop", "dist-renderer", "assets", "mobile.css"))).toBe(false);
     expect(copied).toContain(path.join("desktop", "dist-renderer") + path.sep);
   });
 

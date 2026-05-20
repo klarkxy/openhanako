@@ -113,33 +113,23 @@ describe("HTTP route security policy", () => {
       });
   });
 
-  it("treats mobile PWA assets and web-auth login as public bootstrap routes", async () => {
+  it("treats bridge onebot callback as public bootstrap route", async () => {
     const { authorizeHttpRoute, classifyHttpRoute } = await import("../server/http/route-security.js");
 
     for (const [method, path] of [
-      ["GET", "/mobile/"],
-      ["GET", "/mobile/assets/mobile.js"],
-      ["GET", "/mobile/manifest.webmanifest"],
-      ["GET", "/mobile/sw.js"],
-      ["GET", "/mobile/icon.png"],
-      ["GET", "/mobile/lib/i18n.js"],
-      ["GET", "/mobile/themes/warm-paper.css"],
-      ["GET", "/mobile/locales/zh.json"],
-      ["POST", "/api/web-auth/login"],
-      ["GET", "/api/web-auth/session"],
+      ["POST", "/api/bridge/onebot/event"],
     ]) {
       expect(classifyHttpRoute({ method, path })).toMatchObject({ kind: "public" });
       expect(authorizeHttpRoute({ method, path, principal: null })).toMatchObject({ allowed: true });
     }
   });
 
-  it("gates mobile workbench routes behind explicit file scopes", async () => {
+  it("gates desk and workspace routes behind explicit file scopes", async () => {
     const { authorizeHttpRoute } = await import("../server/http/route-security.js");
     const reader = devicePrincipal(["chat", "files.read"]);
     const writer = devicePrincipal(["chat", "files.read", "files.write"]);
 
     for (const [method, path] of [
-      ["GET", "/api/mobile/bootstrap"],
       ["GET", "/api/avatar/agent"],
       ["GET", "/api/agents/hana/avatar"],
       ["GET", "/api/models"],
@@ -149,10 +139,6 @@ describe("HTTP route security policy", () => {
       ["POST", "/api/session-permission-mode"],
       ["POST", "/api/session-thinking-level"],
       ["GET", "/api/browser/session-states"],
-      ["GET", "/api/mobile/workbench/files"],
-      ["GET", "/api/mobile/workbench/search"],
-      ["GET", "/api/mobile/workbench/content"],
-      ["HEAD", "/api/mobile/workbench/content"],
       ["GET", "/api/desk/path"],
       ["GET", "/api/desk/files"],
       ["GET", "/api/desk/search-files"],
@@ -163,16 +149,6 @@ describe("HTTP route security policy", () => {
         .toMatchObject({ allowed: true });
     }
 
-    expect(authorizeHttpRoute({
-      method: "POST",
-      path: "/api/mobile/workbench/actions",
-      principal: reader,
-    })).toMatchObject({ allowed: false, error: "insufficient_scope" });
-    expect(authorizeHttpRoute({
-      method: "POST",
-      path: "/api/mobile/workbench/actions",
-      principal: writer,
-    })).toMatchObject({ allowed: true });
     expect(authorizeHttpRoute({
       method: "POST",
       path: "/api/desk/files",

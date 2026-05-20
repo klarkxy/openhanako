@@ -13,9 +13,7 @@ import { TutorialStep } from './steps/TutorialStep';
 import {
   appendConnectionAuth,
   buildConnectionUrl,
-  connectDeviceServerConnection,
   createLocalServerConnection,
-  persistServerConnectionSelection,
   type ServerConnection,
 } from '../services/server-connection';
 
@@ -82,15 +80,6 @@ export function OnboardingApp({ preview, skipToTutorial }: OnboardingAppProps) {
     setApiKey(key);
   }, []);
 
-  const connectLanServer = useCallback(async (baseUrl: string, credential: string) => {
-    const connection = await connectDeviceServerConnection({ baseUrl, credential });
-    persistServerConnectionSelection(connection);
-    setServerConnection(connection);
-    if (!preview) {
-      await window.hana.onboardingComplete?.();
-    }
-  }, [preview]);
-
   useEffect(() => {
     (async () => {
       try {
@@ -125,7 +114,7 @@ export function OnboardingApp({ preview, skipToTutorial }: OnboardingAppProps) {
         ))}
       </div>
 
-      {step === 0 && <LocaleStep key={`step-0-${stepKey}`} preview={preview} hanaFetch={hanaFetch} avatarSrc={avatarSrc} initialLocale={locale} goToStep={goToStep} showError={showError} onLocaleChange={onLocaleChange} onConnectLanServer={connectLanServer} />}
+      {step === 0 && <LocaleStep key={`step-0-${stepKey}`} preview={preview} hanaFetch={hanaFetch} avatarSrc={avatarSrc} initialLocale={locale} goToStep={goToStep} showError={showError} onLocaleChange={onLocaleChange} />}
       {step === 1 && <NameStep key={`step-1-${stepKey}`} preview={preview} hanaFetch={hanaFetch} goToStep={goToStep} showError={showError} />}
       {step === 2 && <ProviderStep key={`step-2-${stepKey}`} preview={preview} hanaFetch={hanaFetch} goToStep={goToStep} showError={showError} onProviderReady={onProviderReady} />}
       {step === 3 && <ModelStep key={`step-3-${stepKey}`} preview={preview} hanaFetch={hanaFetch} providerName={providerName} providerUrl={providerUrl} providerApi={providerApi} apiKey={apiKey} goToStep={goToStep} showError={showError} />}

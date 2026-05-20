@@ -31,35 +31,18 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   const verb = String(method || "GET").toUpperCase();
   const routePath = normalizePath(path);
 
-  if (isMobileStaticRoute(verb, routePath)) return PUBLIC;
-  if (isWebAuthBootstrapRoute(verb, routePath)) return PUBLIC;
   if (verb === "POST" && routePath === "/api/bridge/onebot/event") return PUBLIC;
 
   if (routePath === "/api/health") return AUTHENTICATED_ONLY;
   if (routePath === "/api/server/identity") return AUTHENTICATED_ONLY;
 
   if (routePath === "/ws") return scoped("chat");
-  if (routePath === "/api/mobile/bootstrap") {
-    return verb === "GET" ? scoped("chat") : LOCAL_ONLY;
-  }
   if (
     routePath === "/api/avatar/agent"
     || routePath === "/api/avatar/user"
     || /^\/api\/agents\/[^/]+\/avatar$/.test(routePath)
   ) {
     return verb === "GET" ? scoped("chat") : LOCAL_ONLY;
-  }
-  if (routePath === "/api/mobile/workbench/files" || routePath === "/api/mobile/workbench/search") {
-    return verb === "GET" ? scoped("files.read") : LOCAL_ONLY;
-  }
-  if (routePath === "/api/mobile/workbench/content") {
-    return (verb === "GET" || verb === "HEAD") ? scoped("files.read") : LOCAL_ONLY;
-  }
-  if (
-    routePath === "/api/mobile/workbench/actions"
-    || routePath === "/api/mobile/workbench/upload"
-  ) {
-    return verb === "POST" ? scoped("files.write") : LOCAL_ONLY;
   }
   if (routePath === "/api/preferences/workspace-ui-state") {
     if (verb === "GET") return scoped("files.read");
@@ -153,28 +136,6 @@ export function scopeAllows(scopes, required) {
   if (scopes.includes(required)) return true;
   const [namespace] = required.split(".");
   return scopes.includes(namespace) || scopes.includes(`${namespace}.*`);
-}
-
-function isMobileStaticRoute(verb, routePath) {
-  if (verb !== "GET" && verb !== "HEAD") return false;
-  return routePath === "/mobile"
-    || routePath === "/mobile/"
-    || routePath === "/mobile/index.html"
-    || routePath === "/mobile/manifest.webmanifest"
-    || routePath === "/mobile/sw.js"
-    || routePath === "/mobile/icon.png"
-    || routePath.startsWith("/mobile/assets/")
-    || routePath.startsWith("/mobile/lib/")
-    || routePath.startsWith("/mobile/themes/")
-    || routePath.startsWith("/mobile/locales/")
-    || routePath.startsWith("/mobile/icons/");
-}
-
-function isWebAuthBootstrapRoute(verb, routePath) {
-  if (routePath === "/api/web-auth/login") return verb === "POST";
-  if (routePath === "/api/web-auth/session") return verb === "GET";
-  if (routePath === "/api/web-auth/logout") return verb === "POST";
-  return false;
 }
 
 function isSettingsReadRoute(verb, routePath) {
