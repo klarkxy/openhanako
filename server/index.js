@@ -24,7 +24,7 @@ import { redactLogLabel, redactLogText } from "../lib/log-redactor.js";
 import { safeJson } from "./hono-helpers.js";
 import { createOutboundProxyRuntime } from "../lib/net/outbound-proxy.js";
 import { createServerAuthService } from "../core/server-auth.js";
-import { loadServerNetworkConfig, resolveServerListenOptions } from "../core/server-network-config.js";
+import { resolveServerListenOptions } from "../core/server-network-config.js";
 import { isCorsOriginAllowed } from "./http/cors-policy.js";
 import { inferHttpConnectionKind } from "./http/transport-context.js";
 import { authorizeHttpRoute, isPublicHttpRoute } from "./http/route-security.js";
@@ -226,6 +226,7 @@ app.use("*", async (c, next) => {
     cookieHeader: c.req.header("cookie"),
     allowQueryToken: true,
     connectionKind: transport.connectionKind,
+    remoteAddress: c.env?.incoming?.socket?.remoteAddress || null,
   });
   if (!authPrincipal) return c.json({ error: "forbidden" }, 403);
   const authz = authorizeHttpRoute({
@@ -456,14 +457,6 @@ app.route("/api", createWebAuthRoute({
   hanakoHome: engine.hanakoHome,
   authService: serverAuthService,
   getConnectionKind: (c) => c.get("transportConnectionKind"),
-  getAllowInsecurePasswordLogin: () => {
-    try {
-      return loadServerNetworkConfig(engine.hanakoHome).allowInsecurePasswordLogin === true;
-    } catch {
-      return false;
-    }
-  },
-  getRuntimeContext: () => engine.getRuntimeContext(),
 }));
 app.route("/api", createAccessRoute({
   engine,

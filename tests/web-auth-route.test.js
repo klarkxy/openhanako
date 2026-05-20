@@ -93,27 +93,19 @@ describe("web auth route", () => {
     });
   });
 
-  it("allows local account password login only over local or secure transport", async () => {
+  it("requires token credential and rejects username/password payload", async () => {
     tmpDir = makeTmpDir();
-    const { setLocalAccountPassword } = await import("../core/local-user-account.js");
+    const { createDeviceCredential } = await import("../core/device-registry.js");
     const { createServerAuthService } = await import("../core/server-auth.js");
     const { createWebAuthRoute } = await import("../server/routes/web-auth.js");
-    fs.writeFileSync(path.join(tmpDir, "users.json"), JSON.stringify({
-      schemaVersion: 1,
-      defaultUserId: "user_local",
-      users: [{
-        userId: "user_local",
-        kind: "legacy_owner",
-        username: "hana-owner",
-        displayName: "Hana Owner",
-        createdAt: "2026-05-16T00:00:00.000Z",
-        updatedAt: "2026-05-16T00:00:00.000Z",
-      }],
-      createdAt: "2026-05-16T00:00:00.000Z",
-      updatedAt: "2026-05-16T00:00:00.000Z",
-    }), "utf-8");
-    setLocalAccountPassword(tmpDir, {
-      password: "correct horse battery staple",
+    const issued = createDeviceCredential(tmpDir, {
+      serverNodeId: "node_local",
+      userId: "user_local",
+      studioIds: ["studio_local"],
+      displayName: "Phone Browser",
+      deviceKind: "mobile",
+      trustState: "lan",
+      scopes: ["chat", "resources.read", "files.read", "files.write"],
       now: "2026-05-16T00:00:00.000Z",
     });
     const authService = createServerAuthService({
@@ -122,73 +114,44 @@ describe("web auth route", () => {
       runtimeContext,
     });
     const app = new Hono();
-    let connectionKind = "lan";
-    let allowInsecurePasswordLogin = false;
     app.route("/api", createWebAuthRoute({
       hanakoHome: tmpDir,
       authService,
-      getConnectionKind: () => connectionKind,
-      getAllowInsecurePasswordLogin: () => allowInsecurePasswordLogin,
-      getRuntimeContext: runtimeContext,
+      getConnectionKind: () => "lan",
       secureCookies: false,
       now: () => "2026-05-16T00:00:01.000Z",
     }));
 
-    const insecure = await app.request("/api/web-auth/login", {
+    const passwordPayload = await app.request("/api/web-auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: "hana-owner", password: "correct horse battery staple" }),
     });
-    expect(insecure.status).toBe(400);
-    expect(await insecure.json()).toMatchObject({ error: "password_login_requires_secure_context" });
+    expect(passwordPayload.status).toBe(400);
+    expect(await passwordPayload.json()).toMatchObject({ error: "credential_required" });
 
-    const spoofedHeader = await app.request("/api/web-auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Forwarded-Proto": "https" },
-      body: JSON.stringify({ username: "hana-owner", password: "correct horse battery staple" }),
-    });
-    expect(spoofedHeader.status).toBe(400);
-
-    allowInsecurePasswordLogin = true;
-    const lanInsecureAllowed = await app.request("/api/web-auth/login", {
+    const missingCredential = await app.request("/api/web-auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "hana-owner", password: "correct horse battery staple" }),
+      body: JSON.stringify({}),
     });
-    expect(lanInsecureAllowed.status).toBe(200);
-    expect(await lanInsecureAllowed.json()).toMatchObject({
+    expect(missingCredential.status).toBe(400);
+    expect(await missingCredential.json()).toMatchObject({ error: "credential_required" });
+
+    const login = await app.request("/api/web-auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: issued.secret }),
+    });
+    expect(login.status).toBe(200);
+    expect(await login.json()).toMatchObject({
       ok: true,
       tokenType: "Bearer",
       principal: {
-        kind: "account_user",
-        credentialKind: "password",
+        kind: "device",
+        credentialKind: "device_credential",
         userId: "user_local",
       },
     });
-    allowInsecurePasswordLogin = false;
-
-    const secure = await app.request("https://hana.example.test/api/web-auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "hana-owner", password: "correct horse battery staple" }),
-    });
-    expect(secure.status).toBe(200);
-    expect(secure.headers.get("set-cookie")).toContain("hana_session=");
-    expect(await secure.json()).toMatchObject({
-      principal: {
-        kind: "account_user",
-        credentialKind: "password",
-        userId: "user_local",
-        scopes: ["chat", "resources.read", "files.read", "files.write"],
-      },
-    });
-
-    connectionKind = "local";
-    const local = await app.request("/api/web-auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "hana-owner", password: "correct horse battery staple" }),
-    });
-    expect(local.status).toBe(200);
   });
 });

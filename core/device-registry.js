@@ -52,7 +52,10 @@ export function createDeviceCredential(hanakoHome, input) {
   return cloneIssuedCredential(issued);
 }
 
-export function authenticateDeviceCredential(hanakoHome, secret, { now = new Date().toISOString() } = {}) {
+export function authenticateDeviceCredential(hanakoHome, secret, {
+  now = new Date().toISOString(),
+  remoteAddress = null,
+} = {}) {
   if (!isNonEmptyString(secret)) return null;
   const registries = loadDeviceAccessRegistries(hanakoHome);
   const credential = registries.credentials.credentials.find((item) => (
@@ -66,6 +69,15 @@ export function authenticateDeviceCredential(hanakoHome, secret, { now = new Dat
 
   const device = registries.devices.devices.find((item) => item.deviceId === credential.deviceId);
   if (!device || device.status !== "active") return null;
+
+  const normalizedRemoteAddress = normalizeRemoteAddress(remoteAddress);
+  if (isNonEmptyString(credential.boundRemoteAddress)) {
+    if (!normalizedRemoteAddress) return null;
+    if (normalizedRemoteAddress !== credential.boundRemoteAddress) return null;
+  } else if (normalizedRemoteAddress) {
+    credential.boundRemoteAddress = normalizedRemoteAddress;
+    credential.boundAt = now;
+  }
 
   credential.lastUsedAt = now;
   device.lastSeenAt = now;
@@ -219,6 +231,8 @@ function issueDeviceCredential(registries, input, { now }) {
     secretPrefix: secret.slice(0, SECRET_PREFIX_LENGTH),
     status: "active",
     scopes,
+    boundRemoteAddress: null,
+    boundAt: null,
     createdAt: now,
     expiresAt: input.expiresAt ?? null,
     lastUsedAt: null,
@@ -316,10 +330,20 @@ function validateCredentialsRegistry(value, label) {
       throw new Error(`invalid ${label}: studioIds must be a non-empty array`);
     }
     if (!Array.isArray(credential.scopes)) throw new Error(`invalid ${label}: scopes must be an array`);
+    if (credential.boundRemoteAddress !== null && !isNonEmptyString(credential.boundRemoteAddress)) {
+      throw new Error(`invalid ${label}: boundRemoteAddress must be null or non-empty string`);
+    }
     if (!["active", "revoked", "rotated"].includes(credential.status)) {
       throw new Error(`invalid ${label}: status invalid`);
     }
   }
+}
+
+function normalizeRemoteAddress(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw.startsWith("::ffff:")) return raw.slice("::ffff:".length);
+  return raw;
 }
 
 function validatePairingSessionsRegistry(value, label) {

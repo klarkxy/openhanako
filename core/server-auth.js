@@ -20,6 +20,7 @@ export function createServerAuthService({
     cookieHeader = null,
     allowQueryToken = false,
     connectionKind = "local",
+    remoteAddress = null,
     now,
   } = {}) {
     const parsed = parseCredential({ authorization, queryToken, allowQueryToken, connectionKind });
@@ -40,7 +41,10 @@ export function createServerAuthService({
       return createLocalPrincipal(resolveRuntimeContext());
     }
 
-    const devicePrincipal = authenticateDeviceCredential(hanakoHome, parsed.token, { now });
+    const devicePrincipal = authenticateDeviceCredential(hanakoHome, parsed.token, {
+      now,
+      remoteAddress,
+    });
     if (devicePrincipal) {
       if (!principalAllowsConnection(devicePrincipal, connectionKind)) return null;
       return normalizePrincipal({

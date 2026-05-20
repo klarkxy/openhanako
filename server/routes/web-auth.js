@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { safeJson } from "../hono-helpers.js";
-import { verifyLocalAccountPassword } from "../../core/local-user-account.js";
 import {
   WEB_SESSION_COOKIE_NAME,
   createWebSession,
@@ -13,8 +12,6 @@ export function createWebAuthRoute({
   hanakoHome,
   authService,
   getConnectionKind,
-  getAllowInsecurePasswordLogin,
-  getRuntimeContext,
   secureCookies = false,
   now = () => new Date().toISOString(),
 } = {}) {
@@ -27,20 +24,16 @@ export function createWebAuthRoute({
     const credential = typeof body.credential === "string"
       ? body.credential.trim()
       : "";
+    if (!credential) {
+      return c.json({ error: "credential_required" }, 400);
+    }
 
     const connectionKind = resolveConnectionKind(c, getConnectionKind);
-    const principal = credential
-      ? authService.authenticateToken(credential, {
-        connectionKind,
-        now: now(),
-      })
-      : authenticatePasswordLogin(c, {
-        hanakoHome,
-        body,
-        connectionKind,
-        allowInsecurePasswordLogin: resolveAllowInsecurePasswordLogin(c, getAllowInsecurePasswordLogin),
-        getRuntimeContext,
-      });
+    const principal = authService.authenticateToken(credential, {
+      connectionKind,
+      remoteAddress: c.env?.incoming?.socket?.remoteAddress || null,
+      now: now(),
+    });
     if (principal?.error) return c.json({ error: principal.error }, principal.status || 400);
     if (!principal) return c.json({ error: "forbidden" }, 403);
 
@@ -87,53 +80,6 @@ export function createWebAuthRoute({
   });
 
   return route;
-}
-
-function authenticatePasswordLogin(c, {
-  hanakoHome,
-  body,
-  connectionKind,
-  allowInsecurePasswordLogin,
-  getRuntimeContext,
-}) {
-  const username = typeof body?.username === "string" ? body.username : "";
-  const password = typeof body?.password === "string" ? body.password : "";
-  if (!username && !password) return { error: "credential_required", status: 400 };
-  if (!username || !password) return null;
-  if (connectionKind !== "local" && !isSecureRequest(c) && allowInsecurePasswordLogin !== true) {
-    return { error: "password_login_requires_secure_context", status: 400 };
-  }
-  const verified = verifyLocalAccountPassword(hanakoHome, { username, password });
-  if (!verified.ok) return null;
-  const runtimeContext = typeof getRuntimeContext === "function" ? getRuntimeContext() : {};
-  return {
-    kind: "account_user",
-    credentialKind: "password",
-    connectionKind,
-    trustState: connectionKind === "custom_remote" ? "tunnel" : connectionKind,
-    serverId: runtimeContext?.serverId ?? null,
-    serverNodeId: runtimeContext?.serverNodeId ?? runtimeContext?.serverId ?? null,
-    userId: verified.userId,
-    studioId: runtimeContext?.studioId ?? null,
-    platformAccountId: runtimeContext?.platformAccountId ?? null,
-    officialServiceKind: runtimeContext?.officialServiceKind ?? null,
-    scopes: ["chat", "resources.read", "files.read", "files.write"],
-  };
-}
-
-function resolveAllowInsecurePasswordLogin(c, getAllowInsecurePasswordLogin) {
-  if (typeof getAllowInsecurePasswordLogin === "function") {
-    return getAllowInsecurePasswordLogin(c) === true;
-  }
-  return false;
-}
-
-function isSecureRequest(c) {
-  try {
-    return new URL(c.req.url).protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 function resolveConnectionKind(c, getConnectionKind) {

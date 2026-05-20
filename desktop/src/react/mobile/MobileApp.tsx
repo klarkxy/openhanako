@@ -18,7 +18,6 @@ import {
 } from './mobile-init';
 
 type AuthState = 'checking' | 'login' | 'ready';
-type LoginMode = 'device' | 'password';
 const MOBILE_REQUIRED_SCOPES = Object.freeze(['chat', 'resources.read', 'files.read', 'files.write']);
 const MOBILE_EDGE_GESTURE_WIDTH = 28;
 const MOBILE_EDGE_GESTURE_MIN_DISTANCE = 56;
@@ -39,10 +38,7 @@ type MobileEdgeGesture = {
 export function MobileApp(): React.ReactElement {
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [principal, setPrincipal] = useState<MobilePrincipal | null>(null);
-  const [loginMode, setLoginMode] = useState<LoginMode>('device');
   const [loginSecret, setLoginSecret] = useState('');
-  const [loginUsername, setLoginUsername] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
 
   const applyAuthenticatedPrincipal = useCallback(async (nextPrincipal: MobilePrincipal) => {
@@ -82,15 +78,11 @@ export function MobileApp(): React.ReactElement {
     event.preventDefault();
     setLoginError(null);
     try {
-      const body = loginMode === 'device'
-        ? { credential: loginSecret.trim() }
-        : { username: loginUsername.trim(), password: loginPassword };
       const data = await apiJson<WebAuthLoginResponse>('/api/web-auth/login', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify({ credential: loginSecret.trim() }),
       });
       setLoginSecret('');
-      setLoginPassword('');
       if (data?.principal) {
         await applyAuthenticatedPrincipal({
           ...data.principal,
@@ -111,15 +103,9 @@ export function MobileApp(): React.ReactElement {
   if (authState === 'login') {
     return (
       <MobileLoginScreen
-        mode={loginMode}
         secret={loginSecret}
-        username={loginUsername}
-        password={loginPassword}
         error={loginError}
-        onModeChange={(mode) => { setLoginMode(mode); setLoginError(null); }}
         onSecretChange={setLoginSecret}
-        onUsernameChange={setLoginUsername}
-        onPasswordChange={setLoginPassword}
         onSubmit={login}
       />
     );
@@ -314,68 +300,29 @@ function MobileLoadingScreen() {
 }
 
 function MobileLoginScreen({
-  mode,
   secret,
-  username,
-  password,
   error,
-  onModeChange,
   onSecretChange,
-  onUsernameChange,
-  onPasswordChange,
   onSubmit,
 }: {
-  mode: LoginMode;
   secret: string;
-  username: string;
-  password: string;
   error: string | null;
-  onModeChange: (mode: LoginMode) => void;
   onSecretChange: (value: string) => void;
-  onUsernameChange: (value: string) => void;
-  onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent) => void;
 }) {
-  const loginDisabled = mode === 'device'
-    ? !secret.trim()
-    : !username.trim() || !password;
+  const loginDisabled = !secret.trim();
 
   return (
     <main className="onboarding">
       <form className="onboarding-step active" onSubmit={onSubmit}>
         <img className="onboarding-avatar" src="./icon.png" alt="" />
         <h1 className="onboarding-title">手机访问 Hana</h1>
-        <p className="onboarding-subtitle">{mode === 'device'
-          ? '输入桌面端为这台设备生成的访问密钥。登录后会改用 HttpOnly 会话 cookie。'
-          : '使用桌面端设置的本地账号登录。局域网明文 HTTP 会被服务器拒绝，请使用本机、HTTPS 或可信 Tunnel。'}</p>
+        <p className="onboarding-subtitle">输入设备访问密钥登录。首次成功访问会自动绑定来源 IP。</p>
 
-        <div className="provider-grid" role="tablist" aria-label="登录方式">
-          <button type="button" role="tab" aria-selected={mode === 'device'} className={`provider-card${mode === 'device' ? ' selected' : ''}`} onClick={() => onModeChange('device')}>
-            访问密钥
-          </button>
-          <button type="button" role="tab" aria-selected={mode === 'password'} className={`provider-card${mode === 'password' ? ' selected' : ''}`} onClick={() => onModeChange('password')}>
-            用户名密码
-          </button>
-        </div>
-
-        {mode === 'device' ? (
-          <label className="custom-field">
-            <span className="ob-field-label">访问密钥</span>
-            <input className="ob-input" value={secret} onChange={(event) => onSecretChange(event.target.value)} autoComplete="one-time-code" spellCheck={false} />
-          </label>
-        ) : (
-          <>
-            <label className="custom-field">
-              <span className="ob-field-label">用户名</span>
-              <input className="ob-input" value={username} onChange={(event) => onUsernameChange(event.target.value)} autoComplete="username" spellCheck={false} />
-            </label>
-            <label className="custom-field">
-              <span className="ob-field-label">密码</span>
-              <input className="ob-input" value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" />
-            </label>
-            <p className="onboarding-subtitle">默认不允许通过明文 HTTP 进行密码登录。只有在服务端显式开启“允许 HTTP 密码登录”后才可使用。</p>
-          </>
-        )}
+        <label className="custom-field">
+          <span className="ob-field-label">访问密钥</span>
+          <input className="ob-input" value={secret} onChange={(event) => onSecretChange(event.target.value)} autoComplete="one-time-code" spellCheck={false} />
+        </label>
 
         {error && <div className="ob-status error">{error}</div>}
         <div className="onboarding-actions">

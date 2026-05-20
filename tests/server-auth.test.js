@@ -117,6 +117,54 @@ describe("server auth service", () => {
     });
   });
 
+  it("binds device credential to first remote address and blocks token reuse from other IPs", async () => {
+    tmpDir = makeTmpDir();
+    const { createDeviceCredential } = await import("../core/device-registry.js");
+    const { createServerAuthService } = await import("../core/server-auth.js");
+    const issued = createDeviceCredential(tmpDir, {
+      serverNodeId: "node_local",
+      userId: "user_local",
+      studioIds: ["studio_local"],
+      displayName: "Phone",
+      deviceKind: "mobile",
+      trustState: "lan",
+      scopes: ["chat", "resources.read"],
+      now: "2026-05-16T00:00:00.000Z",
+    });
+    const auth = createServerAuthService({
+      hanakoHome: tmpDir,
+      loopbackToken: "local-secret",
+      runtimeContext: runtimeContext(),
+    });
+
+    expect(auth.authenticateRequest({
+      authorization: `Bearer ${issued.secret}`,
+      connectionKind: "lan",
+      remoteAddress: "192.168.31.18",
+      now: "2026-05-16T00:00:01.000Z",
+    })).toMatchObject({
+      kind: "device",
+      userId: "user_local",
+    });
+
+    expect(auth.authenticateRequest({
+      authorization: `Bearer ${issued.secret}`,
+      connectionKind: "lan",
+      remoteAddress: "192.168.31.18",
+      now: "2026-05-16T00:00:02.000Z",
+    })).toMatchObject({
+      kind: "device",
+      userId: "user_local",
+    });
+
+    expect(auth.authenticateRequest({
+      authorization: `Bearer ${issued.secret}`,
+      connectionKind: "lan",
+      remoteAddress: "192.168.31.19",
+      now: "2026-05-16T00:00:03.000Z",
+    })).toBeNull();
+  });
+
   it("requires paired device credentials to match their transport trust state", async () => {
     tmpDir = makeTmpDir();
     const { createDeviceCredential } = await import("../core/device-registry.js");
