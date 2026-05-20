@@ -668,6 +668,13 @@ export class BridgeSessionManager {
           }
           this.writeIndex(index, agent);
         }
+
+        // Bridge 会话走独立执行链路，不经过 SessionCoordinator。
+        // 这里补上记忆 ticker 通知，让 bridge/owner 对话进入 rolling summary + 编译链路。
+        agent?._memoryTicker?.notifyTurn(sessionPath);
+        agent?._memoryTicker?.notifySessionEnd(sessionPath).catch((err) =>
+          console.error(`\x1b[90m[memory-ticker] bridge notifySessionEnd 失败: ${err.message}\x1b[0m`),
+        );
       }
       if (providerErrorMessage) {
         return { __bridgeError: true, message: providerErrorMessage };
