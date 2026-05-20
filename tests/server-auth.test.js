@@ -248,6 +248,20 @@ describe("server auth service", () => {
     });
 
     expect(auth.authenticateRequest({
+      authorization: `Bearer ${webSession.secret}`,
+      connectionKind: "lan",
+      now: "2026-05-16T00:00:03.000Z",
+    })).toMatchObject({
+      kind: "device",
+      credentialKind: "device_credential",
+      connectionKind: "lan",
+      trustState: "lan",
+      userId: "user_local",
+      studioId: "studio_local",
+      scopes: ["chat", "resources.read", "files.read", "files.write"],
+    });
+
+    expect(auth.authenticateRequest({
       queryToken: webSession.secret,
       allowQueryToken: true,
       connectionKind: "lan",

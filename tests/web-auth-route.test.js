@@ -74,12 +74,14 @@ describe("web auth route", () => {
     const body = await login.json();
     expect(body).toMatchObject({
       ok: true,
+      tokenType: "Bearer",
       principal: {
         kind: "device",
         credentialKind: "device_credential",
         scopes: ["chat", "resources.read", "files.read", "files.write"],
       },
     });
+    expect(body.accessToken).toMatch(/^hana_web_/);
 
     const session = await app.request("/api/web-auth/session", {
       headers: { Cookie: setCookie.split(";")[0] },
@@ -121,10 +123,12 @@ describe("web auth route", () => {
     });
     const app = new Hono();
     let connectionKind = "lan";
+    let allowInsecurePasswordLogin = false;
     app.route("/api", createWebAuthRoute({
       hanakoHome: tmpDir,
       authService,
       getConnectionKind: () => connectionKind,
+      getAllowInsecurePasswordLogin: () => allowInsecurePasswordLogin,
       getRuntimeContext: runtimeContext,
       secureCookies: false,
       now: () => "2026-05-16T00:00:01.000Z",
@@ -144,6 +148,24 @@ describe("web auth route", () => {
       body: JSON.stringify({ username: "hana-owner", password: "correct horse battery staple" }),
     });
     expect(spoofedHeader.status).toBe(400);
+
+    allowInsecurePasswordLogin = true;
+    const lanInsecureAllowed = await app.request("/api/web-auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "hana-owner", password: "correct horse battery staple" }),
+    });
+    expect(lanInsecureAllowed.status).toBe(200);
+    expect(await lanInsecureAllowed.json()).toMatchObject({
+      ok: true,
+      tokenType: "Bearer",
+      principal: {
+        kind: "account_user",
+        credentialKind: "password",
+        userId: "user_local",
+      },
+    });
+    allowInsecurePasswordLogin = false;
 
     const secure = await app.request("https://hana.example.test/api/web-auth/login", {
       method: "POST",

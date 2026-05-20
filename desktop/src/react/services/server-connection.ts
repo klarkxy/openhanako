@@ -108,6 +108,7 @@ interface BrowserServerConnectionPrincipal {
   studioId?: string | null;
   platformAccountId?: string | null;
   officialServiceKind?: string | null;
+  accessToken?: string | null;
   scopes?: string[] | null;
 }
 
@@ -244,7 +245,7 @@ export function createBrowserServerConnection({
     serverVersion: identity.version,
     baseUrl: base,
     wsUrl,
-    token: null,
+    token: normalizeToken(principal?.accessToken),
     authState: principal?.kind === 'account_user' ? 'user' : (identity.authState || 'paired'),
     trustState,
     credentialKind,

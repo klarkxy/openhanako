@@ -24,6 +24,7 @@ export interface MobilePrincipal {
   credentialId?: string | null;
   platformAccountId?: string | null;
   officialServiceKind?: string | null;
+  accessToken?: string | null;
   scopes?: string[];
 }
 

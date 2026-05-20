@@ -13,6 +13,7 @@ export function createWebAuthRoute({
   hanakoHome,
   authService,
   getConnectionKind,
+  getAllowInsecurePasswordLogin,
   getRuntimeContext,
   secureCookies = false,
   now = () => new Date().toISOString(),
@@ -37,6 +38,7 @@ export function createWebAuthRoute({
         hanakoHome,
         body,
         connectionKind,
+        allowInsecurePasswordLogin: resolveAllowInsecurePasswordLogin(c, getAllowInsecurePasswordLogin),
         getRuntimeContext,
       });
     if (principal?.error) return c.json({ error: principal.error }, principal.status || 400);
@@ -47,6 +49,7 @@ export function createWebAuthRoute({
       userAgent: c.req.header("user-agent"),
       now: now(),
       ttlMs: DEFAULT_SESSION_TTL_MS,
+      revokeExistingForPrincipal: true,
     });
     c.header("Set-Cookie", createSessionCookie(issued.secret, {
       maxAgeSeconds: Math.floor(DEFAULT_SESSION_TTL_MS / 1000),
@@ -55,6 +58,8 @@ export function createWebAuthRoute({
     return c.json({
       ok: true,
       expiresAt: issued.expiresAt,
+      accessToken: issued.secret,
+      tokenType: "Bearer",
       principal: sanitizePrincipal(principal),
     });
   });
@@ -88,13 +93,14 @@ function authenticatePasswordLogin(c, {
   hanakoHome,
   body,
   connectionKind,
+  allowInsecurePasswordLogin,
   getRuntimeContext,
 }) {
   const username = typeof body?.username === "string" ? body.username : "";
   const password = typeof body?.password === "string" ? body.password : "";
   if (!username && !password) return { error: "credential_required", status: 400 };
   if (!username || !password) return null;
-  if (connectionKind !== "local" && !isSecureRequest(c)) {
+  if (connectionKind !== "local" && !isSecureRequest(c) && allowInsecurePasswordLogin !== true) {
     return { error: "password_login_requires_secure_context", status: 400 };
   }
   const verified = verifyLocalAccountPassword(hanakoHome, { username, password });
@@ -113,6 +119,13 @@ function authenticatePasswordLogin(c, {
     officialServiceKind: runtimeContext?.officialServiceKind ?? null,
     scopes: ["chat", "resources.read", "files.read", "files.write"],
   };
+}
+
+function resolveAllowInsecurePasswordLogin(c, getAllowInsecurePasswordLogin) {
+  if (typeof getAllowInsecurePasswordLogin === "function") {
+    return getAllowInsecurePasswordLogin(c) === true;
+  }
+  return false;
 }
 
 function isSecureRequest(c) {

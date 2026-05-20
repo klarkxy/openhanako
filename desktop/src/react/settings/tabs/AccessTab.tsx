@@ -19,6 +19,7 @@ interface AccessSummary {
     mode: AccessMode;
     listenHost: string;
     configuredPort: number;
+    allowInsecurePasswordLogin: boolean;
     actualPort: number;
     runtimeMode: AccessMode;
     runtimeHost: string;
@@ -139,7 +140,11 @@ export function AccessTab() {
     showToast(t('settings.access.copied'), 'success');
   }, [showToast]);
 
-  const saveNetworkSettings = useCallback(async (nextMode: AccessMode, nextPort: string) => {
+  const saveNetworkSettings = useCallback(async (
+    nextMode: AccessMode,
+    nextPort: string,
+    nextAllowInsecurePasswordLogin?: boolean,
+  ) => {
     const listenPort = Number(nextPort);
     if (!Number.isInteger(listenPort) || listenPort < 1024 || listenPort > 65535) {
       showToast(t('settings.access.invalidPort'), 'error');
@@ -150,7 +155,11 @@ export function AccessTab() {
       const res = await hanaFetch('/api/access/network', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: nextMode, listenPort }),
+        body: JSON.stringify({
+          mode: nextMode,
+          listenPort,
+          allowInsecurePasswordLogin: nextAllowInsecurePasswordLogin ?? summary?.network.allowInsecurePasswordLogin ?? false,
+        }),
       });
       const data = await res.json();
       setSummary(prev => prev ? { ...prev, network: data.network } : prev);
@@ -163,11 +172,16 @@ export function AccessTab() {
     } finally {
       setSavingNetwork(false);
     }
-  }, [showToast, summary?.network.mode]);
+  }, [showToast, summary?.network.allowInsecurePasswordLogin, summary?.network.mode]);
 
   const saveNetwork = useCallback(async () => {
     await saveNetworkSettings(mode, port);
   }, [mode, port, saveNetworkSettings]);
+
+  const handleInsecurePasswordToggle = useCallback((on: boolean) => {
+    if (!summary || loadingSummary || savingNetwork) return;
+    void saveNetworkSettings(mode, port, on);
+  }, [loadingSummary, mode, port, saveNetworkSettings, savingNetwork, summary]);
 
   const handleLanToggle = useCallback((on: boolean) => {
     if (!summary || loadingSummary || savingNetwork) return;
@@ -331,6 +345,18 @@ export function AccessTab() {
               value={port}
               inputMode="numeric"
               onChange={(event) => setPort(event.target.value)}
+            />
+          }
+        />
+        <SettingsRow
+          label="允许 HTTP 密码登录"
+          hint="默认关闭。开启后，局域网 HTTP 可用账号密码登录，风险更高，仅建议私有网络使用。"
+          control={
+            <Toggle
+              label="允许 HTTP 密码登录"
+              on={summary ? summary.network.allowInsecurePasswordLogin === true : undefined}
+              onChange={handleInsecurePasswordToggle}
+              disabled={loadingSummary || savingNetwork}
             />
           }
         />

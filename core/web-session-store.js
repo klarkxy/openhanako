@@ -51,6 +51,9 @@ export function createWebSession(hanakoHome, input = {}) {
   };
 
   const registry = loadWebSessionRegistry(hanakoHome);
+  if (input.revokeExistingForPrincipal === true) {
+    revokeActiveSessionsForPrincipal(registry, session.principal, now);
+  }
   registry.sessions.push(session);
   registry.updatedAt = now;
   persistWebSessionRegistry(hanakoHome, registry);
@@ -62,16 +65,10 @@ export function createWebSession(hanakoHome, input = {}) {
   };
 }
 
-export function authenticateWebSession(hanakoHome, cookieHeader, { now = new Date().toISOString() } = {}) {
-  const secret = parseCookie(cookieHeader, WEB_SESSION_COOKIE_NAME);
+export function authenticateWebSessionToken(hanakoHome, secret, { now = new Date().toISOString() } = {}) {
   if (!isNonEmptyString(secret)) return null;
   const registry = loadWebSessionRegistry(hanakoHome);
-  const session = registry.sessions.find((item) => (
-    item.status === "active"
-    && isNonEmptyString(item.secretPrefix)
-    && secret.startsWith(item.secretPrefix)
-    && verifySecret(secret, item.secretSalt, item.secretHash)
-  ));
+  const session = findActiveSessionBySecret(registry, secret);
   if (!session) return null;
   if (session.expiresAt && Date.parse(session.expiresAt) <= Date.parse(now)) {
     session.status = "expired";
@@ -86,6 +83,11 @@ export function authenticateWebSession(hanakoHome, cookieHeader, { now = new Dat
   registry.updatedAt = now;
   persistWebSessionRegistry(hanakoHome, registry);
   return deepFreeze(clonePlain(session.principal));
+}
+
+export function authenticateWebSession(hanakoHome, cookieHeader, { now = new Date().toISOString() } = {}) {
+  const secret = parseCookie(cookieHeader, WEB_SESSION_COOKIE_NAME);
+  return authenticateWebSessionToken(hanakoHome, secret, { now });
 }
 
 export function revokeWebSession(hanakoHome, cookieHeader, { now = new Date().toISOString() } = {}) {
@@ -105,6 +107,35 @@ export function revokeWebSession(hanakoHome, cookieHeader, { now = new Date().to
   registry.updatedAt = now;
   persistWebSessionRegistry(hanakoHome, registry);
   return true;
+}
+
+function findActiveSessionBySecret(registry, secret) {
+  return registry.sessions.find((item) => (
+    item.status === "active"
+    && isNonEmptyString(item.secretPrefix)
+    && secret.startsWith(item.secretPrefix)
+    && verifySecret(secret, item.secretSalt, item.secretHash)
+  )) || null;
+}
+
+function revokeActiveSessionsForPrincipal(registry, principal, now) {
+  for (const session of registry.sessions) {
+    if (session.status !== "active") continue;
+    if (!isSamePrincipalIdentity(session.principal, principal)) continue;
+    session.status = "revoked";
+    session.updatedAt = now;
+    session.revokedAt = now;
+  }
+}
+
+function isSamePrincipalIdentity(a, b) {
+  if (!a || !b) return false;
+  return String(a.kind || "") === String(b.kind || "")
+    && String(a.userId || "") === String(b.userId || "")
+    && String(a.studioId || "") === String(b.studioId || "")
+    && String(a.deviceId || "") === String(b.deviceId || "")
+    && String(a.credentialId || "") === String(b.credentialId || "")
+    && String(a.serverNodeId || a.serverId || "") === String(b.serverNodeId || b.serverId || "");
 }
 
 export function parseCookie(cookieHeader, name) {

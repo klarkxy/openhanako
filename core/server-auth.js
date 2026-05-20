@@ -1,6 +1,6 @@
 import { authenticateDeviceCredential } from "./device-registry.js";
 import { normalizePrincipal } from "./security-principal.js";
-import { authenticateWebSession } from "./web-session-store.js";
+import { authenticateWebSession, authenticateWebSessionToken } from "./web-session-store.js";
 
 export function createServerAuthService({
   hanakoHome,
@@ -41,11 +41,24 @@ export function createServerAuthService({
     }
 
     const devicePrincipal = authenticateDeviceCredential(hanakoHome, parsed.token, { now });
-    if (!devicePrincipal) return null;
-    if (!principalAllowsConnection(devicePrincipal, connectionKind)) return null;
+    if (devicePrincipal) {
+      if (!principalAllowsConnection(devicePrincipal, connectionKind)) return null;
+      return normalizePrincipal({
+        ...devicePrincipal,
+        connectionKind: connectionKind === "local" ? devicePrincipal.connectionKind : connectionKind,
+      });
+    }
+
+    if (parsed.source === "query") return null;
+
+    const webPrincipal = authenticateWebSessionToken(hanakoHome, parsed.token, { now });
+    if (!webPrincipal) return null;
+    if (!principalAllowsConnection(webPrincipal, connectionKind)) return null;
     return normalizePrincipal({
-      ...devicePrincipal,
-      connectionKind: connectionKind === "local" ? devicePrincipal.connectionKind : connectionKind,
+      ...webPrincipal,
+      connectionKind: connectionKind === "local"
+        ? (webPrincipal.connectionKind || connectionKind)
+        : connectionKind,
     });
   }
 

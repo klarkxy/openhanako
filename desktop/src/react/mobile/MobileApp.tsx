@@ -45,23 +45,27 @@ export function MobileApp(): React.ReactElement {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  const bootstrap = useCallback(async () => {
-    const session = await readMobileAuthSession();
-    if (!session.authenticated || !session.principal) {
-      setAuthState('login');
-      return;
-    }
-    if (!principalHasRequiredScopes(session.principal, MOBILE_REQUIRED_SCOPES)) {
+  const applyAuthenticatedPrincipal = useCallback(async (nextPrincipal: MobilePrincipal) => {
+    if (!principalHasRequiredScopes(nextPrincipal, MOBILE_REQUIRED_SCOPES)) {
       await apiJson('/api/web-auth/logout', { method: 'POST' }).catch(() => null);
       setPrincipal(null);
       setLoginError('当前登录缺少工作台权限，请重新输入访问密钥。');
       setAuthState('login');
       return;
     }
-    await initializeMobileRuntime(session.principal);
-    setPrincipal(session.principal);
+    await initializeMobileRuntime(nextPrincipal);
+    setPrincipal(nextPrincipal);
     setAuthState('ready');
   }, []);
+
+  const bootstrap = useCallback(async () => {
+    const session = await readMobileAuthSession();
+    if (!session.authenticated || !session.principal) {
+      setAuthState('login');
+      return;
+    }
+    await applyAuthenticatedPrincipal(session.principal);
+  }, [applyAuthenticatedPrincipal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,13 +85,20 @@ export function MobileApp(): React.ReactElement {
       const body = loginMode === 'device'
         ? { credential: loginSecret.trim() }
         : { username: loginUsername.trim(), password: loginPassword };
-      await apiJson('/api/web-auth/login', {
+      const data = await apiJson<WebAuthLoginResponse>('/api/web-auth/login', {
         method: 'POST',
         body: JSON.stringify(body),
       });
       setLoginSecret('');
       setLoginPassword('');
-      await bootstrap();
+      if (data?.principal) {
+        await applyAuthenticatedPrincipal({
+          ...data.principal,
+          accessToken: data.accessToken || null,
+        });
+      } else {
+        await bootstrap();
+      }
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : '登录失败');
     }
@@ -362,7 +373,7 @@ function MobileLoginScreen({
               <span className="ob-field-label">密码</span>
               <input className="ob-input" value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" />
             </label>
-            <p className="onboarding-subtitle">远程明文链路不接收账号密码，避免把长期凭证暴露在局域网或 Tunnel 中。</p>
+            <p className="onboarding-subtitle">默认不允许通过明文 HTTP 进行密码登录。只有在服务端显式开启“允许 HTTP 密码登录”后才可使用。</p>
           </>
         )}
 
@@ -373,6 +384,13 @@ function MobileLoginScreen({
       </form>
     </main>
   );
+}
+
+interface WebAuthLoginResponse {
+  ok?: boolean;
+  accessToken?: string | null;
+  tokenType?: string | null;
+  principal?: MobilePrincipal | null;
 }
 
 function closeMobileDrawers() {

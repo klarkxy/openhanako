@@ -78,12 +78,17 @@ export function createAccessRoute({
       const existing = loadServerNetworkConfig(engine.hanakoHome);
       const mode = normalizeNetworkMode(body?.mode);
       const listenPort = normalizePort(body?.listenPort ?? body?.configuredPort ?? existing.listenPort);
+      const allowInsecurePasswordLogin = normalizeBoolean(
+        body?.allowInsecurePasswordLogin,
+        existing.allowInsecurePasswordLogin,
+      );
       const listenHost = mode === "lan" ? "0.0.0.0" : "127.0.0.1";
       const network = saveServerNetworkConfig(engine.hanakoHome, {
         ...existing,
         mode,
         listenHost,
         listenPort,
+        allowInsecurePasswordLogin,
       }, { now: now() });
       if (typeof runtimeState.applyNetworkConfig === "function") {
         runtimeState.applyNetworkConfig(network);
@@ -94,7 +99,11 @@ export function createAccessRoute({
       recordSecurityAuditEvent(c, engine, {
         action: "access.network.update",
         target: "server-network",
-        metadata: { mode: network.mode, listenPort: network.listenPort },
+        metadata: {
+          mode: network.mode,
+          listenPort: network.listenPort,
+          allowInsecurePasswordLogin: network.allowInsecurePasswordLogin === true,
+        },
       });
       return c.json({
         ok: true,
@@ -243,6 +252,7 @@ function createNetworkSummary(network, runtimeState, listLanAddresses) {
     mode: network.mode,
     listenHost: network.listenHost,
     configuredPort: network.listenPort,
+    allowInsecurePasswordLogin: network.allowInsecurePasswordLogin === true,
     actualPort,
     runtimeMode,
     runtimeHost,
@@ -257,6 +267,12 @@ function createNetworkSummary(network, runtimeState, listLanAddresses) {
     candidateLanMobileUrl,
     lanMobileUrl,
   };
+}
+
+function normalizeBoolean(value, fallback) {
+  if (value === undefined || value === null) return fallback === true;
+  if (value === true || value === false) return value;
+  throw new Error("allowInsecurePasswordLogin must be boolean");
 }
 
 function buildServerUrl(host, port) {
