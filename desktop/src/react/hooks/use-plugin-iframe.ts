@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { DEFAULT_PLUGIN_UI_CAPABILITIES } from '../plugin-ui/capabilities';
+import { switchTab } from '../components/channels/ChannelTabBar';
 import {
   clampPluginIframeSize,
   getPluginIframeOrigin,
@@ -71,7 +72,7 @@ export function usePluginIframe(routeUrl: string | null, options: UsePluginIfram
       }
       if (message.kind === 'navigate-tab' && isAllowedPluginNavigationTab(message.tab)) {
         const tab = message.tab;
-        import('../components/channels/ChannelTabBar').then(m => m.switchTab(tab));
+        switchTab(tab);
       }
       if (message.kind === 'resize') {
         const iframe = iframeRef.current;

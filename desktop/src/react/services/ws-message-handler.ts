@@ -21,6 +21,7 @@ import {
 } from '../stores/channel-actions';
 import { showError } from '../utils/ui-helpers';
 import { handleAppEvent } from './app-event-actions';
+import { refreshPluginUI } from '../stores/plugin-ui-actions';
 import {
   replayStreamResume,
   isStreamResumeRebuilding,
@@ -443,7 +444,7 @@ export function handleServerMessage(msg: any): void {
       break;
 
     case 'plugin_ui_changed':
-      import('../stores/plugin-ui-actions').then(m => m.refreshPluginUI());
+      refreshPluginUI();
       break;
 
     case 'app_event':

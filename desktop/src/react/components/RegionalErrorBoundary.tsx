@@ -1,4 +1,6 @@
 import { Component, type ReactNode } from 'react';
+import { errorBus } from '../../../../shared/error-bus.js';
+import { AppError } from '../../../../shared/errors.js';
 import styles from './RegionalErrorBoundary.module.css';
 
 const tr = (key: string, vars?: Record<string, string | number>): string => window.t?.(key, vars) ?? key;
@@ -54,17 +56,10 @@ export class RegionalErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[RegionalErrorBoundary]', this.props.region, error, info.componentStack);
     this.scheduleAutoRetry();
-    // Import dynamically to avoid circular deps and TS issues with JS imports
-    // @ts-expect-error -- shared JS module, no type declarations
-    import('../../../../shared/error-bus.js').then(({ errorBus }: { errorBus: { report: (e: unknown, opts?: unknown) => void } }) => {
-      // @ts-expect-error -- shared JS module, no type declarations
-      import('../../../../shared/errors.js').then(({ AppError }: { AppError: new (code: string, opts?: Record<string, unknown>) => Error }) => {
-        errorBus.report(new AppError('RENDER_CRASH', {
-          cause: error,
-          context: { region: this.props.region, componentStack: info.componentStack?.slice(0, 500) },
-        }));
-      });
-    }).catch(() => { /* best effort - error reporting itself failed */ });
+    errorBus.report(new AppError('RENDER_CRASH', {
+      cause: error,
+      context: { region: this.props.region, componentStack: info.componentStack?.slice(0, 500) },
+    }));
   }
 
   componentDidUpdate(_prevProps: Props, prevState: State) {

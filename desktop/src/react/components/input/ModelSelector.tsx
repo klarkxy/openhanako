@@ -4,6 +4,7 @@ import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { useI18n } from '../../hooks/use-i18n';
 import type { Model } from '../../types';
 import type { SessionModel } from '../../stores/chat-types';
+import { createNewSession } from '../../stores/session-actions';
 import styles from './InputArea.module.css';
 
 export function ModelSelector({ models, sessionModel, isStreaming = false }: {
@@ -90,7 +91,6 @@ export function ModelSelector({ models, sessionModel, isStreaming = false }: {
           body: JSON.stringify({ modelId, provider }),
         });
         if (currentSessionPath && !pendingNewSession) {
-          const { createNewSession } = await import('../../stores/session-actions');
           await createNewSession();
         }
         const res = await hanaFetch('/api/models');

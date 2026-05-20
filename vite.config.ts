@@ -4,6 +4,17 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 
+function isIgnorableBuildWarning(message: string): boolean {
+  if (!message) return false;
+  if (message.includes("can't be bundled without type=\"module\" attribute")) {
+    return true;
+  }
+  if (message.includes('dynamic import will not move module into another chunk')) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * CSP 集中管理：
  * 所有窗口的 CSP 策略统一定义在此，Vite 构建/开发时注入。
@@ -128,7 +139,7 @@ function useSourceThemeInDev(): Plugin {
       order: 'pre',
       handler(html) {
         return html.replace(
-          /<script\s+src="lib\/theme\.js"><\/script>/g,
+          /<script\s+type="module"\s+src="lib\/theme\.js"><\/script>/g,
           '<script type="module" src="/shared/theme.ts"></script>',
         );
       },
@@ -210,7 +221,12 @@ export default defineConfig({
   build: {
     outDir: '../dist-renderer',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
+      onwarn(warning, warn) {
+        if (isIgnorableBuildWarning(String(warning?.message || ''))) return;
+        warn(warning);
+      },
       input: {
         main: path.resolve(__dirname, 'desktop/src/index.html'),
         mobile: path.resolve(__dirname, 'desktop/src/mobile.html'),
@@ -226,6 +242,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  // @ts-expect-error -- Vitest-only config is accepted by the test runner but not Vite's base type.
   test: {
     root: path.resolve(__dirname),
   },
