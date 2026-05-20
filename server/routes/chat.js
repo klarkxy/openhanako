@@ -223,9 +223,23 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
     return client;
   }
 
+  // 给所有携带 sessionPath 的事件强制注入 studioId（来自 server runtime context），
+  // 让下游 wsClientCanReceiveEvent 的 sameStudio 校验有真实归属可比，不再用
+  // receiver principal 的 studioId 做 fallback —— 避免 multi-studio 部署时
+  // A studio 设备订阅 B studio session 后收到事件。
+  function hardenStudio(msg) {
+    if (!msg || typeof msg !== "object") return msg;
+    if (msg.studioId) return msg;
+    if (!msg.sessionPath) return msg;
+    const studioId = engine.getRuntimeContext?.()?.studioId;
+    if (!studioId) return msg;
+    return { ...msg, studioId };
+  }
+
   function broadcast(msg) {
+    const hardenedMsg = hardenStudio(msg);
     for (const [clientWs, client] of clients) {
-      if (wsClientCanReceiveEvent(client, msg)) wsSend(clientWs, msg);
+      if (wsClientCanReceiveEvent(client, hardenedMsg)) wsSend(clientWs, hardenedMsg);
     }
   }
 
@@ -447,7 +461,7 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
         if (d.thumbnail) statusMsg.thumbnail = d.thumbnail;
         emitStreamEvent(sessionPath, ss, statusMsg);
         if (statusMsg.running) startBrowserThumbPoll();
-        else stopBrowserThumbPoll();
+        else if (!BrowserManager.instance().hasAnyRunning) stopBrowserThumbPoll();
       }
 
       if (["write", "edit", "bash"].includes(event.toolName)) {
@@ -457,6 +471,18 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
       broadcast({ type: "jian_update", content: event.content });
     } else if (event.type === "devlog") {
       broadcast({ type: "devlog", text: event.text, level: event.level });
+    } else if (event.type === "browser_status") {
+      const statusMsg = {
+        type: "browser_status",
+        running: !!event.running,
+        url: event.url || null,
+        sessionPath,
+      };
+      if (event.thumbnail) statusMsg.thumbnail = event.thumbnail;
+      if (event.error) statusMsg.error = event.error;
+      broadcast(statusMsg);
+      if (statusMsg.running) startBrowserThumbPoll();
+      else if (!BrowserManager.instance().hasAnyRunning) stopBrowserThumbPoll();
     } else if (event.type === "browser_bg_status") {
       broadcast({ type: "browser_bg_status", running: event.running, url: event.url, sessionPath });
     } else if (event.type === "computer_overlay") {

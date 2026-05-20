@@ -51,7 +51,7 @@ function StatusText({ ok, text }: { ok: boolean; text: string }) {
 
 export function ComputerUseTab() {
   const [data, setData] = useState<ComputerUseStatusResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const showToast = useSettingsStore((state) => state.showToast);
@@ -78,7 +78,8 @@ export function ComputerUseTab() {
     return data?.status?.providers?.find((provider) => provider.providerId === id) || null;
   }, [data]);
 
-  const enabled = data?.settings?.enabled === true;
+  // data 未到位时传 undefined 给 Toggle，走加载态；加载完成后用真实 boolean。
+  const enabled = data ? data.settings?.enabled === true : undefined;
   const available = selectedProvider?.status?.available === true;
   const availabilityIssue = selectedProvider?.status?.reason || selectedProvider?.status?.error || '';
   const permissions = selectedProvider?.status?.permissions || [];
@@ -95,6 +96,7 @@ export function ComputerUseTab() {
     : t('settings.computerUse.idle');
 
   const saveEnabled = async (next: boolean) => {
+    if (!data) return;
     setSaving(true);
     try {
       const res = await hanaFetch('/api/preferences/computer-use', {
@@ -111,6 +113,8 @@ export function ComputerUseTab() {
         },
       }));
       await load();
+    } catch (err: unknown) {
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
     } finally {
       setSaving(false);
     }
@@ -167,7 +171,7 @@ export function ComputerUseTab() {
         <SettingsRow
           label={t('settings.computerUse.enabled')}
           hint={t('settings.computerUse.enabledHint')}
-          control={<Toggle on={enabled} onChange={(next) => saveEnabled(next)} disabled={saving || loading} />}
+          control={<Toggle on={enabled} onChange={(next) => saveEnabled(next)} disabled={saving} />}
         />
         <SettingsRow
           label={t('settings.computerUse.provider')}

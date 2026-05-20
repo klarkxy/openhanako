@@ -168,6 +168,49 @@ describe("desk route", () => {
     }
   });
 
+  it("rejects path-like names for create, mkdir, and rename instead of truncating them", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
+    try {
+      const cwd = path.join(tempRoot, "workspace");
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.writeFileSync(path.join(cwd, "old.md"), "old", "utf-8");
+
+      const engine = {
+        deskCwd: cwd,
+        homeCwd: cwd,
+      };
+
+      const { createDeskRoute } = await import("../server/routes/desk.js");
+      const app = new Hono();
+      app.route("/api", createDeskRoute(engine, null));
+
+      const createRes = await app.request("/api/desk/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", dir: cwd, name: "../evil.md", content: "" }),
+      });
+      const mkdirRes = await app.request("/api/desk/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mkdir", dir: cwd, name: "nested/folder" }),
+      });
+      const renameRes = await app.request("/api/desk/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", dir: cwd, oldName: "old.md", newName: "nested/new.md" }),
+      });
+
+      expect(await createRes.json()).toHaveProperty("error", "invalid name");
+      expect(await mkdirRes.json()).toHaveProperty("error", "invalid name");
+      expect(await renameRes.json()).toHaveProperty("error", "invalid name");
+      expect(fs.existsSync(path.join(cwd, "evil.md"))).toBe(false);
+      expect(fs.existsSync(path.join(cwd, "nested"))).toBe(false);
+      expect(fs.existsSync(path.join(cwd, "old.md"))).toBe(true);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("searches workspace file names recursively without exposing hidden or dependency folders", async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
     try {
@@ -203,6 +246,91 @@ describe("desk route", () => {
         parentSubdir: "docs",
         isDir: false,
       }));
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects upload action with absolute source paths for non-local-owner principals", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
+    try {
+      const cwd = path.join(tempRoot, "workspace");
+      const externalDir = path.join(tempRoot, "outside");
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.mkdirSync(externalDir, { recursive: true });
+      const sensitiveFile = path.join(externalDir, "secret.txt");
+      fs.writeFileSync(sensitiveFile, "secret bytes", "utf-8");
+
+      const engine = {
+        deskCwd: cwd,
+        homeCwd: cwd,
+      };
+
+      const { createDeskRoute } = await import("../server/routes/desk.js");
+      const app = new Hono();
+      app.use("*", async (c, next) => {
+        c.set("authPrincipal", Object.freeze({
+          kind: "device",
+          connectionKind: "lan",
+          credentialKind: "device_credential",
+          principalId: "device:phone-1",
+          scopes: ["chat", "resources.read", "files.read", "files.write"],
+        }));
+        await next();
+      });
+      app.route("/api", createDeskRoute(engine, null));
+
+      const res = await app.request("/api/desk/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "upload", paths: [sensitiveFile] }),
+      });
+
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data).toEqual(expect.objectContaining({ error: expect.stringContaining("local") }));
+      expect(fs.existsSync(path.join(cwd, "secret.txt"))).toBe(false);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("allows upload action for local-owner principal", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
+    try {
+      const cwd = path.join(tempRoot, "workspace");
+      const externalDir = path.join(tempRoot, "drag-source");
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.mkdirSync(externalDir, { recursive: true });
+      const draggedFile = path.join(externalDir, "note.md");
+      fs.writeFileSync(draggedFile, "dragged content", "utf-8");
+
+      const engine = {
+        deskCwd: cwd,
+        homeCwd: cwd,
+      };
+
+      const { createDeskRoute } = await import("../server/routes/desk.js");
+      const app = new Hono();
+      app.use("*", async (c, next) => {
+        c.set("authPrincipal", Object.freeze({
+          kind: "local_user",
+          connectionKind: "local",
+          credentialKind: "loopback_token",
+          scopes: ["*"],
+        }));
+        await next();
+      });
+      app.route("/api", createDeskRoute(engine, null));
+
+      const res = await app.request("/api/desk/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "upload", paths: [draggedFile] }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(fs.existsSync(path.join(cwd, "note.md"))).toBe(true);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

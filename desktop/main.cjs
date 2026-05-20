@@ -1792,6 +1792,25 @@ function _notifyViewerUrl(url) {
   }
 }
 
+async function closeBrowserSessionViaServer(sessionPath) {
+  if (!sessionPath) throw new Error("No active browser session");
+  if (!serverPort || !serverToken) throw new Error("Server is not ready");
+  const res = await fetch(`http://127.0.0.1:${serverPort}/api/browser/close-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${serverToken}`,
+    },
+    body: JSON.stringify({ sessionPath }),
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch {}
+    throw new Error(`Browser close request failed with HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
+}
+
 function encodeCapturedPageToJpegBase64(image, quality, label = "screenshot") {
   if (!image || (typeof image.isEmpty === "function" && image.isEmpty())) {
     const emptyImageMessage = label === "screenshot"
@@ -2643,7 +2662,11 @@ wrapIpcBestEffortHandler("close-browser-viewer", () => {
   if (browserViewerWindow && !browserViewerWindow.isDestroyed()) browserViewerWindow.close();
 });
 wrapIpcBestEffortHandler("browser-emergency-stop", () => {
-  // 紧急停止：销毁当前浏览器实例，释放 AI 控制
+  // 有 session 归属时必须经过 server 的 BrowserManager，保持 UI 和运行时状态一致。
+  if (_currentBrowserSession) {
+    return closeBrowserSessionViaServer(_currentBrowserSession);
+  }
+  // 兼容无 sessionPath 的旧浏览器实例：没有 server 状态可同步，只能本地清理。
   if (_browserWebView) {
     if (browserViewerWindow && !browserViewerWindow.isDestroyed()) {
       try { browserViewerWindow.contentView.removeChildView(_browserWebView); } catch {}

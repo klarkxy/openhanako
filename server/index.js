@@ -25,6 +25,7 @@ import { safeJson } from "./hono-helpers.js";
 import { createOutboundProxyRuntime } from "../lib/net/outbound-proxy.js";
 import { createServerAuthService } from "../core/server-auth.js";
 import { resolveServerListenOptions } from "../core/server-network-config.js";
+import { isCorsOriginAllowed } from "./http/cors-policy.js";
 import { inferHttpConnectionKind } from "./http/transport-context.js";
 import { authorizeHttpRoute, isPublicHttpRoute } from "./http/route-security.js";
 
@@ -182,13 +183,14 @@ const serverRuntimeState = {
 const app = new Hono();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
-// CORS（默认仅允许 localhost，HANA_CORS_ORIGIN 可放宽）+ 鉴权
+// CORS（默认允许 localhost 开发前端和 production Electron file:// 前端；HANA_CORS_ORIGIN 可收紧到单一来源）+ 鉴权
 const corsAllowedOrigin = process.env.HANA_CORS_ORIGIN;
 app.use("*", async (c, next) => {
   const origin = c.req.header("origin") || "";
-  const isAllowed = corsAllowedOrigin
-    ? origin === corsAllowedOrigin
-    : /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  const isAllowed = isCorsOriginAllowed({
+    origin,
+    configuredOrigin: corsAllowedOrigin,
+  });
   if (origin && isAllowed) {
     c.header("Access-Control-Allow-Origin", origin);
     c.header("Access-Control-Allow-Credentials", "true");
@@ -505,7 +507,10 @@ app.get("/api/health", async (c) => {
   }
   return c.json({
     status: "ok",
+    version: appVersion,
+    agentId: engine.currentAgentId || null,
     agent: engine.agentName,
+    agentYuan: engine.agent?.config?.agent?.yuan || "hanako",
     user: engine.userName,
     model: engine.currentModel?.name,
     avatars,
@@ -750,7 +755,10 @@ try {
   console.log(`[server] Hanako Server 运行在 http://${host}:${actualPort}`);
   dlog.log("server", `listening on :${actualPort}`);
 
-  // 写 server-info 文件，供 Electron 检测复用或外部工具查询
+  // 写 server-info 文件，供 Electron 检测复用或外部工具查询。
+  // 文件含 128-bit loopback SERVER_TOKEN (本机最高权限凭据)，
+  // 必须 owner-only 可读 (0o600)，否则共享主机上的另一 UID / 沙箱外的
+  // 非授权进程能读到 token 后冒充 owner 调任意 LOCAL_ONLY 路由。
   const serverInfoPath = path.join(hanakoHome, "server-info.json");
   try {
     fs.writeFileSync(serverInfoPath, JSON.stringify({
@@ -761,7 +769,9 @@ try {
       networkMode: serverRuntimeState.mode,
       token: SERVER_TOKEN,
       version: appVersion,
-    }));
+    }), { mode: 0o600 });
+    // mode-on-create 在某些 fs 上不可靠（已有文件不会重置 mode），显式 chmod 兜底
+    try { fs.chmodSync(serverInfoPath, 0o600); } catch {}
   } catch (e) {
     console.error("[server] 写入 server-info.json 失败:", e.message);
   }
@@ -774,8 +784,8 @@ try {
   // 或杀毒扫描拖垮主启动握手。
   startBridgeManager({ autoStart: true });
 
-  // 独立运行模式：启动 CLI（TTY 环境下自动进入交互模式）
-  if (process.stdin.isTTY) {
+  // Legacy explicit attach mode. Normal headless server runs stay quiet.
+  if (process.stdin.isTTY && (process.argv.includes("--cli") || process.argv.includes("--chat"))) {
     startCLI({
       port: actualPort,
       token: SERVER_TOKEN,

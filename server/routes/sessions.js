@@ -779,6 +779,7 @@ export function createSessionsRoute(engine, hub = null) {
     if (!sessionPath) return c.json({ error: "missing sessionPath" });
     const bm = BrowserManager.instance();
     await bm.closeBrowserForSession(sessionPath);
+    hub?.eventBus?.emit?.({ type: "browser_status", running: false, url: null }, sessionPath);
     return c.json({ ok: true, sessions: bm.getBrowserSessionStates() });
   });
 

@@ -733,6 +733,60 @@ describe("createWin32Exec", () => {
     );
   });
 
+  it("passes full AppContainer network grants by default for sandboxed commands", async () => {
+    classifyWin32Command.mockReturnValue({ runner: "bash", reason: "complex-shell" });
+    const bundledShell = "C:\\Hanako\\resources\\git\\bin\\bash.exe";
+    const helper = "C:\\Hanako\\resources\\sandbox\\windows\\hana-win-sandbox.exe";
+    existsSync.mockImplementation((p) => p === bundledShell || p === helper);
+    spawnSync.mockImplementation((cmd, args) => {
+      if (cmd === bundledShell && args?.[0] === "-lc") {
+        return { status: 0, stdout: "__hana_probe_ok__\n", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: "" };
+    });
+
+    const originalResourcesPath = process.resourcesPath;
+    Object.defineProperty(process, "resourcesPath", {
+      value: "C:\\Hanako\\resources",
+      configurable: true,
+    });
+
+    const createWin32Exec = await loadExecFactory();
+    const exec = createWin32Exec({
+      sandbox: {
+        helperPath: helper,
+        grants: {
+          readPaths: [],
+          writePaths: ["C:\\work"],
+        },
+      },
+    });
+
+    try {
+      await exec("curl https://example.com", "C:\\work", {
+        onData: () => {},
+        signal: undefined,
+        timeout: 5,
+        env: { PATH: "C:\\Windows\\System32" },
+      });
+    } finally {
+      Object.defineProperty(process, "resourcesPath", {
+        value: originalResourcesPath,
+        configurable: true,
+      });
+    }
+
+    const helperArgs = spawnAndStream.mock.calls[0][1];
+    expect(helperArgs).toEqual(expect.arrayContaining([
+      "--network",
+      "internet-client",
+      "--network",
+      "internet-client-server",
+      "--network",
+      "private-network-client-server",
+    ]));
+  });
+
   it("does not fall back to system Git Bash for sandboxed POSIX commands", async () => {
     classifyWin32Command.mockReturnValue({ runner: "bash", reason: "complex-shell" });
     const systemBash = "C:\\Program Files\\Git\\bin\\bash.exe";

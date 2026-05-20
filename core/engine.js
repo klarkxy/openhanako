@@ -1470,7 +1470,7 @@ export class HanaEngine {
       hanakoHome: this.hanakoHome,
       executionBoundary,
       getSandboxEnabled: () => this._readPreferences().sandbox !== false,
-      getSandboxNetworkEnabled: () => this._readPreferences().sandbox_network === true,
+      getSandboxNetworkEnabled: () => this._readPreferences().sandbox_network !== false,
       getExternalReadPaths,
       getSessionPath,
       recordFileOperation: (entry) => this.registerSessionFile(entry),
