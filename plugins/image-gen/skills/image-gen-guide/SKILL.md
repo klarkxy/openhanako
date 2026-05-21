@@ -1,54 +1,54 @@
 ---
 name: image-gen-guide
-description: 使用图片/视频生成工具时必读。包含工具参数、非阻塞工作流、任务路由。
+description: Required reading when using image/video generation tools. Covers tool parameters, non-blocking workflow, and task routing.
 ---
 
-# 媒体生成工具指南
+# Media Generation Tool Guide
 
-## 非阻塞工作流
+## Non-Blocking Workflow
 
-生成是异步的。提交后工具立即返回一张卡片，你**不需要等待结果**，也**不需要调用 stage_files**。图片/视频文件由 image-gen 插件在后台完成时登记为 SessionFile；卡片只呈现任务状态和结果引用，文件生命周期仍归 StageFile 管。
+Generation is asynchronous. After submitting, the tool immediately returns a card. You **do not need to wait** and **do not need to call stage_files**. The image/video files are registered as SessionFile by the image-gen plugin when complete in the background. The card only shows task status and result references; file lifecycle is managed by StageFile.
 
-1. 调用工具，传入 prompt 和参数
-2. **告诉用户正在生成，完成后会自动显示在卡片中**
-3. **继续对话**，不要等待
-4. 收到 `<hana-background-result>` 通知时，自然地告知用户结果
+1. Call the tool with prompt and parameters
+2. **Tell the user it's generating and will appear in the card when done**
+3. **Continue the conversation** — do not wait
+4. When receiving `<hana-background-result>`, naturally inform the user
 
-## 工具参数
+## Tool Parameters
 
 ### image-gen_generate-image
 
-- `prompt`（必填）：图片描述，中英文均可
-- `count`：并发生成张数（1-9），用户说"多来几张"/"再抽几张"时用
-- `image`：参考图路径（图生图、图片编辑、风格迁移时传入）
-- `ratio`：长宽比（1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 21:9）
-- `resolution`：分辨率（2k, 4k）
-- `quality`：画质（low, medium, high）
-- `provider`：指定生图 provider（可选，默认自动选择）。可用 provider 来自 Hana Provider Registry 的 `media.imageGeneration` capability，不从聊天模型列表推断
+- `prompt` (required): Image description, Chinese or English
+- `count`: Batch generation count (1-9); use when user says "generate more"
+- `image`: Reference image path (for image-to-image, editing, style transfer)
+- `ratio`: Aspect ratio (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 21:9)
+- `resolution`: Resolution (2k, 4k)
+- `quality`: Image quality (low, medium, high)
+- `provider`: Specify image generation provider (optional, auto-selects by default). Available providers come from Hana Provider Registry's `media.imageGeneration` capability, not inferred from chat model list.
 
 ### image-gen_generate-video
 
-- `prompt`（必填）：视频描述，中英文均可
-- `image`：参考图路径（图生视频）
-- `duration`：时长（秒）
-- `ratio`：长宽比
-- `provider`：指定 provider（可选）
+- `prompt` (required): Video description, Chinese or English
+- `image`: Reference image path (image-to-video)
+- `duration`: Video duration in seconds
+- `ratio`: Aspect ratio
+- `provider`: Specify provider (optional)
 
-## 任务路由
+## Task Routing
 
-| 用户意图 | 示例 | 工具 | 备注 |
-|---------|------|------|------|
-| 凭空生成图片 | "画一只猫" | generate-image | prompt 描述画面 |
-| 编辑/修改图片 | "把帽子去掉" | generate-image + image 参数 | prompt 写编辑指令 |
-| 参考图生新图 | "参考这个风格画一套icon" | generate-image + image 参数 | prompt 说明参考什么 + 要生成什么 |
-| 生成视频 | "做一个猫的短视频" | generate-video | prompt 描述画面和运动 |
-| 图片变视频 | "让这张图动起来" | generate-video + image 参数 | prompt 描述运动和变化 |
-| 不是生成请求 | "这张图画的是什么" | 不调用 | 只是看图/聊天 |
+| User Intent | Example | Tool | Notes |
+|------------|---------|------|-------|
+| Generate image from scratch | "Draw a cat" | generate-image | prompt describes the scene |
+| Edit/modify image | "Remove the hat" | generate-image + image param | prompt writes edit instructions |
+| Reference image to new image | "Use this style to make an icon set" | generate-image + image param | prompt explains what to reference and generate |
+| Generate video | "Make a short cat video" | generate-video | prompt describes scene and motion |
+| Image to video | "Make this image move" | generate-video + image param | prompt describes motion and change |
+| Not a generation request | "What's in this picture?" | Don't call | Just viewing/chatting |
 
-## 注意
+## Notes
 
-- 生成消耗 provider 额度，大批量前建议提醒用户
-- 不同 provider 支持的参数不同，工具会按 provider 的媒体能力和 adapter 处理
-- Provider 可能来自内置 provider、插件贡献，或 CLI wrapper。不要假设它一定是聊天 provider
-- 视频生成通常比图片慢（几十秒到几分钟），但同样不阻塞
-- 图中需要出现文字时，把文字内容放在**双引号**里
+- Generation consumes provider quota. Warn the user before large batches.
+- Different providers support different parameters; the tool handles them based on provider media capabilities and adapters.
+- Providers may come from built-in providers, plugin contributions, or CLI wrappers. Don't assume it's always a chat provider.
+- Video generation is typically slower than images (tens of seconds to minutes), but likewise non-blocking.
+- When text needs to appear in images, wrap the text content in **double quotes**.
