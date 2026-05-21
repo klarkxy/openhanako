@@ -43,8 +43,6 @@ export const STANDARD_TOOL_NAMES = [
   "wait",
   "stop_task",
   "terminal",
-  "query_token_usage",
-  "reset_token_stats",
 ];
 
 export const GLOBAL_TOOL_NAMES = [

@@ -2,7 +2,6 @@ import { AppError } from '../shared/errors.js';
 import { errorBus } from '../shared/error-bus.js';
 import { normalizeProviderPayload } from './provider-compat.js';
 import { logLlmUsage, normalizeLlmUsage } from '../lib/llm/usage-observer.js';
-import { recordTokenUsage } from '../lib/token-stats/index.js';
 
 /**
  * core/llm-client.js — 统一的非流式 LLM 调用入口
@@ -372,7 +371,5 @@ export async function callText({
     usage: data?.usage,
     costRates: modelObj?.cost,
   });
-  recordTokenUsage(null, data?.usage, modelId, provider);
-
   return returnUsage ? { text, usage } : text;
 }
