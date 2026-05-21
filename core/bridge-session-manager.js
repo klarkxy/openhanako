@@ -418,7 +418,7 @@ export class BridgeSessionManager {
       if (this.isSessionStreaming(sessionKey)) continue;
       const decision = shouldRunFreshCompact({ meta: entry, now });
       if (decision.run) {
-        targets.push({ sessionKey, reason: decision.reason || "daily" });
+        targets.push({ sessionKey, sessionPath, reason: decision.reason || "daily" });
       }
     }
     return targets;
@@ -670,6 +670,13 @@ export class BridgeSessionManager {
         agent?._memoryTicker?.notifySessionEnd(sessionPath).catch((err) =>
           console.error(`\x1b[90m[memory-ticker] bridge notifySessionEnd 失败: ${err.message}\x1b[0m`),
         );
+      }
+      if (!isGuest && sessionPath) {
+        try {
+          agent.memoryTicker?.notifyTurn?.(sessionPath);
+        } catch (err) {
+          log.warn(`bridge memory notifyTurn failed (${sessionKey}): ${err?.message || err}`);
+        }
       }
       if (providerErrorMessage) {
         return { __bridgeError: true, message: providerErrorMessage };
