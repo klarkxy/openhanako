@@ -642,7 +642,7 @@ export class Agent {
       this._subagentTool,
       this._checkDeferredTool,
       this._currentStatusTool,
-      ...this._friendsContactTools,
+      ...(this._friendsContactTools || []),
       this._terminalTool,
       createWaitTool(),
     ].filter(Boolean);
