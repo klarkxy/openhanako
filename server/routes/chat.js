@@ -13,6 +13,7 @@ import { debugLog, createModuleLogger } from "../../lib/debug-log.js";
 import { t } from "../i18n.js";
 import { getLastAssistantUsage } from "../../lib/pi-sdk/index.js";
 import { logLlmUsage } from "../../lib/llm/usage-observer.js";
+import { recordTokenUsage } from "../../lib/token-stats/index.js";
 import { BrowserManager } from "../../lib/browser/browser-manager.js";
 import {
   createSessionStreamState,
@@ -703,6 +704,12 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
               usage,
               costRates: model?.cost,
             });
+            const tokenDataDir = engine.hanakoHome
+              ? path.join(engine.hanakoHome, "plugin-data", "token-stats")
+              : null;
+            if (tokenDataDir) {
+              recordTokenUsage(tokenDataDir, usage, model?.id ?? null, model?.provider ?? null);
+            }
             hub.eventBus.emit({
               type: "token_usage",
               usage,

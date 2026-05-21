@@ -38,6 +38,7 @@ import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
 import { createTextFileTool } from "../lib/tools/text-file-tool.js";
 import { createFriendsContactsTools } from "../lib/tools/friends-contacts-tools.js";
+import { createQueryUsageTool, createResetStatsTool } from "../lib/token-stats/index.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
 import { assertAgentConfigPatchYuan, getAgentConfigRepairState } from "./yuan-registry.js";
@@ -120,6 +121,8 @@ export class Agent {
     this._currentStatusTool = null;
     this._terminalTool = null;
     this._textFileTool = null;
+    this._queryUsageTool = null;
+    this._resetStatsTool = null;
 
     /**
      * 外部回调注入（由 AgentManager._createAgentInstance 填充）。
@@ -370,6 +373,13 @@ export class Agent {
       getCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
     this._friendsContactTools = createFriendsContactsTools({ agent: this });
+
+    // Token 用量统计工具
+    const tokenStatsDataDir = this._cb?.getEngine?.()?.hanakoHome
+      ? path.join(this._cb.getEngine().hanakoHome, "plugin-data", "token-stats")
+      : path.join(this.agentDir, "..", "..", "plugin-data", "token-stats");
+    this._queryUsageTool = createQueryUsageTool(tokenStatsDataDir);
+    this._resetStatsTool = createResetStatsTool(tokenStatsDataDir);
 
     // 10. 设置修改工具
     this._updateSettingsTool = createUpdateSettingsTool({
@@ -644,6 +654,8 @@ export class Agent {
       this._currentStatusTool,
       ...(this._friendsContactTools || []),
       this._terminalTool,
+      this._queryUsageTool,
+      this._resetStatsTool,
       createWaitTool(),
     ].filter(Boolean);
   }
