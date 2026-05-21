@@ -55,6 +55,9 @@ const {
   withForcedLocalProxyBypass,
 } = require("../shared/network-proxy.cjs");
 const {
+  resolveWorkspaceOutputDir,
+} = require("../shared/workspace-output.cjs");
+const {
   applyGpuStartupPolicy,
   buildGpuStartupDiagnostics,
   markGpuStartupFailed,
@@ -68,6 +71,9 @@ const {
 const {
   buildWin32ServerEnv,
 } = require("./src/shared/server-process-env.cjs");
+const {
+  sanitizeWindowState,
+} = require("./src/shared/window-state.cjs");
 
 const APP_USER_MODEL_ID = "com.hanako.app"; // Keep in sync with package.json build.appId.
 
@@ -1209,7 +1215,12 @@ function saveWindowState() {
 
 // ── 创建主窗口 ──
 function createMainWindow() {
-  const saved = loadWindowState();
+  const saved = sanitizeWindowState(loadWindowState(), screen.getAllDisplays(), {
+    defaultWidth: 960,
+    defaultHeight: 820,
+    minWidth: 420,
+    minHeight: 500,
+  });
   const initialTheme = themeRegistry.DEFAULT_THEME;
 
   const opts = {
@@ -3158,7 +3169,7 @@ wrapIpcHandler("screenshot-render", (_event, payload) => {
       const pad = (n) => String(n).padStart(2, "0");
       const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
       const base = payload.saveDir || path.join(os.homedir(), "Desktop");
-      const dir = path.join(base, "截图");
+      const dir = resolveWorkspaceOutputDir(base, "screenshots", payload.locale || "zh");
       const segmentTotal = Number(payload.segmentTotal);
       const segmentIndex = Number(payload.segmentIndex);
       const segmentSuffix = Number.isInteger(segmentTotal) && segmentTotal > 1 && Number.isInteger(segmentIndex) && segmentIndex > 0

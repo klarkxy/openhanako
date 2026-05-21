@@ -9,12 +9,13 @@
 
 import fs from "fs";
 import path from "path";
-import { createHeartbeat, HEARTBEAT_ACTIVITY_DIR } from "../lib/desk/heartbeat.js";
+import { createHeartbeat } from "../lib/desk/heartbeat.js";
 import { createCronScheduler } from "../lib/desk/cron-scheduler.js";
 import { getLocale } from "../server/i18n.js";
 import { createFreshCompactDailyScheduler } from "../lib/fresh-compact/daily-scheduler.js";
 import { FreshCompactMaintainer } from "./fresh-compact-maintainer.js";
 import { createModuleLogger } from "../lib/debug-log.js";
+import { WORKSPACE_OUTPUT_ROOT_DIRNAME } from "../shared/workspace-output.js";
 
 const log = createModuleLogger("scheduler");
 const freshCompactLog = createModuleLogger("fresh-compact");
@@ -138,7 +139,7 @@ export class Scheduler {
           catch { return []; }
           const items = await Promise.all(
             entries
-              .filter(e => !e.name.startsWith(".") && e.name !== HEARTBEAT_ACTIVITY_DIR)
+              .filter(e => !e.name.startsWith(".") && e.name !== WORKSPACE_OUTPUT_ROOT_DIRNAME)
               .map(async (e) => {
                 const fp = path.join(dir, e.name);
                 let mtime = 0;
