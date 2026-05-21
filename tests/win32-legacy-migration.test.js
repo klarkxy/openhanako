@@ -194,7 +194,7 @@ describe("Windows legacy sandbox migration", () => {
   it("skips once the cleanup marker has been written", async () => {
     const markerPath = path.join(makeTempDir(), "marker.json");
     fs.mkdirSync(path.dirname(markerPath), { recursive: true });
-    fs.writeFileSync(markerPath, JSON.stringify({ version: 2, status: "completed", completedAt: "2026-05-21T00:00:00.000Z" }));
+    fs.writeFileSync(markerPath, JSON.stringify({ version: 3, status: "completed", completedAt: "2026-05-22T00:00:00.000Z" }));
     const spawn = vi.fn();
 
     const result = await runWin32LegacySandboxMigration({
@@ -211,6 +211,32 @@ describe("Windows legacy sandbox migration", () => {
 
     expect(result).toMatchObject({ status: "skipped", reason: "already-completed" });
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("reruns cleanup for v2 markers so legacy capability SID ACLs are migrated", async () => {
+    const markerPath = path.join(makeTempDir(), "marker.json");
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    fs.writeFileSync(markerPath, JSON.stringify({ version: 2, status: "completed", completedAt: "2026-05-21T00:00:00.000Z" }));
+    const spawn = fakeSpawnFactory({ code: 0 });
+
+    const result = await runWin32LegacySandboxMigration({
+      platform: "win32",
+      cleanup: true,
+      helperPath: "C:\\Hanako\\hana-win-sandbox.exe",
+      markerPath,
+      targets: {
+        aclPaths: ["C:\\work"],
+        profileNames: [],
+      },
+      spawn,
+    });
+
+    expect(result.status).toBe("clean");
+    expect(spawn).toHaveBeenCalledOnce();
+    expect(JSON.parse(fs.readFileSync(markerPath, "utf8"))).toMatchObject({
+      version: 3,
+      status: "completed",
+    });
   });
 
   it("maps helper exit codes and startup failures to stable statuses", async () => {

@@ -63,14 +63,20 @@ describe("Windows sandbox helper build script", () => {
     expect(source).toContain("startup.StartupInfo.lpDesktop");
   });
 
-  it("uses capability-style Hana write SIDs and exposes stale write ACL cleanup", () => {
+  it("uses ordinary Hana write SIDs while retaining legacy capability ACL cleanup", () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),
       "utf8"
     );
+    const currentSidFunction = source.match(
+      /static std::wstring sidForWritableRoot\(const std::wstring& root\) \{[\s\S]*?\n\}/
+    )?.[0] || "";
 
-    expect(source).toContain("S-1-15-3-4096-");
+    expect(currentSidFunction).toContain("S-1-5-21-");
+    expect(currentSidFunction).not.toContain("S-1-15-3-4096-");
+    expect(source).toContain("sidForWritableRootLegacyCapabilityNamespace");
     expect(source).toContain("sidForWritableRootLegacyAccountNamespace");
+    expect(source).toContain("S-1-15-3-4096-");
     expect(source).toContain("--cleanup-hana-write-acl");
     expect(source).toContain("hana-write-acl-cleaned");
   });

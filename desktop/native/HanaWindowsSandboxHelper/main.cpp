@@ -200,6 +200,10 @@ static std::wstring hashSidForWritableRoot(const std::wstring& root, const std::
 }
 
 static std::wstring sidForWritableRoot(const std::wstring& root) {
+    return hashSidForWritableRoot(root, L"S-1-5-21-", L"hana-win32-write-root-v3:");
+}
+
+static std::wstring sidForWritableRootLegacyCapabilityNamespace(const std::wstring& root) {
     return hashSidForWritableRoot(root, L"S-1-15-3-4096-", L"hana-win32-write-root-v2:");
 }
 
@@ -925,6 +929,7 @@ static MigrationResult cleanupHanaWriteAcls(const std::vector<std::wstring>& pat
     for (const auto& path : paths) {
         std::vector<std::wstring> sidStrings = {
             sidForWritableRoot(path),
+            sidForWritableRootLegacyCapabilityNamespace(path),
             sidForWritableRootLegacyAccountNamespace(path),
         };
         std::vector<PSID> ownedSids;
