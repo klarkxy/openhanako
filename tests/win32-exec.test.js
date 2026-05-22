@@ -54,8 +54,85 @@ describe("createWin32Exec", () => {
 
     expect(spawnAndStream).toHaveBeenCalledWith(
       "cmd.exe",
-      ["/d", "/s", "/c", "ipconfig /all"],
-      expect.objectContaining({ cwd: "C:\\work" })
+      ["/d", "/s", "/c", "chcp 65001 >NUL & ipconfig /all"],
+      expect.objectContaining({
+        cwd: "C:\\work",
+        env: expect.objectContaining({
+          PYTHONUTF8: "1",
+          PYTHONIOENCODING: "utf-8",
+        }),
+      })
+    );
+  });
+
+  it("preserves explicit Python encoding settings while adding other UTF-8 defaults", async () => {
+    classifyWin32Command.mockReturnValue({ runner: "cmd", reason: "cmd-builtin" });
+    const createWin32Exec = await loadExecFactory();
+    const exec = createWin32Exec();
+
+    await exec("type sample.txt", "C:\\work", {
+      onData: () => {},
+      signal: undefined,
+      timeout: 5,
+      env: {
+        PATH: "C:\\Windows\\System32",
+        PYTHONUTF8: "0",
+      },
+    });
+
+    expect(spawnAndStream).toHaveBeenCalledWith(
+      "cmd.exe",
+      ["/d", "/s", "/c", "chcp 65001 >NUL & type sample.txt"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PYTHONUTF8: "0",
+          PYTHONIOENCODING: "utf-8",
+        }),
+      })
+    );
+  });
+
+  it("routes sandboxed Windows native commands through cmd with UTF-8 defaults", async () => {
+    classifyWin32Command.mockReturnValue({ runner: "cmd", reason: "windows-native-utility" });
+    const helper = "C:\\Hanako\\resources\\sandbox\\windows\\hana-win-sandbox.exe";
+    existsSync.mockImplementation((p) => p === helper);
+    const createWin32Exec = await loadExecFactory();
+    const exec = createWin32Exec({
+      sandbox: {
+        helperPath: helper,
+        grants: {
+          readPaths: [],
+          writePaths: ["C:\\work"],
+        },
+      },
+    });
+
+    await exec('findstr /N "Hello" sample.txt', "C:\\work", {
+      onData: () => {},
+      signal: undefined,
+      timeout: 5,
+      env: { PATH: "C:\\Windows\\System32" },
+    });
+
+    const helperArgs = spawnAndStream.mock.calls[0][1];
+    expect(helperArgs).toEqual(expect.arrayContaining([
+      "--",
+      "cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      'chcp 65001 >NUL & findstr /N "Hello" sample.txt',
+    ]));
+    expect(spawnAndStream).toHaveBeenCalledWith(
+      helper,
+      helperArgs,
+      expect.objectContaining({
+        cwd: "C:\\work",
+        env: expect.objectContaining({
+          PYTHONUTF8: "1",
+          PYTHONIOENCODING: "utf-8",
+        }),
+      })
     );
   });
 

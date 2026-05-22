@@ -83,6 +83,9 @@
     "bridgeShort": "接入社交平台",
     "pinned": "置顶"
   },
+  "titlebar": {
+    "currentChatTitle": "当前对话标题"
+  },
   "session": {
     "untitled": "新对话",
     "messageCount": "{n} 条消息",

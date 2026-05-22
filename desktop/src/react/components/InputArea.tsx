@@ -1140,6 +1140,14 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       className={`${styles['input-surface']}${surface === 'mobile' ? ` ${styles['input-surface-mobile']}` : ''}`}
       ref={inputSurfaceRef}
     >
+      <InputContextRow
+        attachedFiles={attachedFiles}
+        removeAttachedFile={removeAttachedFile}
+        hasQuotedSelection={!!quotedSelection}
+        sessionTodos={sessionTodos}
+        onCompleteTodos={handleCompleteTodos}
+        completingTodos={completingTodos}
+      />
       <InputStatusBars
         slashBusy={slashBusy}
         slashBusyLabel={slashCommands.find(c => c.name === slashBusy)?.busyLabel || t('common.executing')}
@@ -1157,14 +1165,6 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
         inlineError={inlineError}
         slashResult={slashResult}
         onResultClick={slashResult?.deskDir ? handleSlashResultClick : undefined}
-      />
-      <InputContextRow
-        attachedFiles={attachedFiles}
-        removeAttachedFile={removeAttachedFile}
-        hasQuotedSelection={!!quotedSelection}
-        sessionTodos={sessionTodos}
-        onCompleteTodos={handleCompleteTodos}
-        completingTodos={completingTodos}
       />
       <div className={styles['slash-menu-anchor']} ref={slashMenuRef}>
         {slashMenuOpen && filteredCommands.length > 0 && (

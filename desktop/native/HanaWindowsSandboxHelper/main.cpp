@@ -81,6 +81,7 @@ static const DWORD WRITE_ALLOW_MASK =
     FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE | FILE_DELETE_CHILD;
 static const DWORD WRITE_DENY_MASK =
     FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | DELETE | FILE_DELETE_CHILD;
+static const wchar_t* WRITE_RESTRICTED_CODE_SID = L"S-1-5-33";
 
 static void fail(const std::wstring& message) {
     std::wcerr << L"hana-win-sandbox: " << message << std::endl;
@@ -200,6 +201,10 @@ static std::wstring hashSidForWritableRoot(const std::wstring& root, const std::
 }
 
 static std::wstring sidForWritableRoot(const std::wstring& root) {
+    return hashSidForWritableRoot(root, L"S-1-5-21-", L"hana-win32-write-root-v3:");
+}
+
+static std::wstring sidForWritableRootLegacyCapabilityNamespace(const std::wstring& root) {
     return hashSidForWritableRoot(root, L"S-1-15-3-4096-", L"hana-win32-write-root-v2:");
 }
 
@@ -518,17 +523,61 @@ static PACL buildDaclWithRootSids(const std::vector<WritableRoot>& roots, PACL b
     return dacl;
 }
 
+static bool sidAlreadyListed(const std::vector<SID_AND_ATTRIBUTES>& sids, PSID sid) {
+    if (!sid) return true;
+    return std::any_of(sids.begin(), sids.end(), [sid](const SID_AND_ATTRIBUTES& existing) {
+        return existing.Sid && EqualSid(existing.Sid, sid);
+    });
+}
+
+static bool appendRestrictingSid(std::vector<SID_AND_ATTRIBUTES>& sids, PSID sid) {
+    if (!sid || sidAlreadyListed(sids, sid)) return true;
+    SID_AND_ATTRIBUTES attr = {};
+    attr.Sid = sid;
+    attr.Attributes = 0;
+    sids.push_back(attr);
+    return true;
+}
+
+static bool appendRestrictingSid(
+    std::vector<SID_AND_ATTRIBUTES>& sids,
+    const std::wstring& sidString,
+    std::vector<PSID>& ownedSids
+) {
+    PSID sid = nullptr;
+    if (!ConvertStringSidToSidW(sidString.c_str(), &sid)) {
+        fail(L"cannot create restricting SID " + sidString + L": " + win32Message(GetLastError()));
+        return false;
+    }
+    if (sidAlreadyListed(sids, sid)) {
+        LocalFree(sid);
+        return true;
+    }
+    ownedSids.push_back(sid);
+    return appendRestrictingSid(sids, sid);
+}
+
+static void freeOwnedSids(std::vector<PSID>& sids) {
+    for (PSID sid : sids) {
+        if (sid) LocalFree(sid);
+    }
+    sids.clear();
+}
+
 static HANDLE createRestrictedWriteToken(const std::vector<WritableRoot>& roots) {
     std::vector<SID_AND_ATTRIBUTES> restrictingSids;
+    std::vector<PSID> ownedRestrictingSids;
     for (const auto& root : roots) {
         if (!root.sid) continue;
-        SID_AND_ATTRIBUTES attr = {};
-        attr.Sid = root.sid;
-        attr.Attributes = 0;
-        restrictingSids.push_back(attr);
+        appendRestrictingSid(restrictingSids, root.sid);
+    }
+    if (!appendRestrictingSid(restrictingSids, WRITE_RESTRICTED_CODE_SID, ownedRestrictingSids)) {
+        freeOwnedSids(ownedRestrictingSids);
+        return nullptr;
     }
     if (restrictingSids.empty()) {
         fail(L"no writable root SIDs available for restricted token");
+        freeOwnedSids(ownedRestrictingSids);
         return nullptr;
     }
 
@@ -537,6 +586,7 @@ static HANDLE createRestrictedWriteToken(const std::vector<WritableRoot>& roots)
         TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID;
     if (!OpenProcessToken(GetCurrentProcess(), desired, &baseToken)) {
         fail(L"OpenProcessToken failed: " + win32Message(GetLastError()));
+        freeOwnedSids(ownedRestrictingSids);
         return nullptr;
     }
     TokenDefaultDaclSnapshot baseDefaultDacl;
@@ -556,6 +606,7 @@ static HANDLE createRestrictedWriteToken(const std::vector<WritableRoot>& roots)
         &restrictedToken
     );
     CloseHandle(baseToken);
+    freeOwnedSids(ownedRestrictingSids);
     if (!ok) {
         fail(L"CreateRestrictedToken failed: " + win32Message(GetLastError()));
         return nullptr;
@@ -925,6 +976,7 @@ static MigrationResult cleanupHanaWriteAcls(const std::vector<std::wstring>& pat
     for (const auto& path : paths) {
         std::vector<std::wstring> sidStrings = {
             sidForWritableRoot(path),
+            sidForWritableRootLegacyCapabilityNamespace(path),
             sidForWritableRootLegacyAccountNamespace(path),
         };
         std::vector<PSID> ownedSids;

@@ -11,6 +11,8 @@ import { renderMarkdown } from './markdown';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- API 历史消息 JSON 结构动态，难以静态收窄 */
 
+const LEGACY_STEER_PREFIX_RE = /^(?:（插话，无需 MOOD）|\(Interjection, no MOOD needed\))\n?/;
+
 // ── API 响应类型 ──
 
 export interface HistoryApiResponse {
@@ -151,7 +153,7 @@ export function buildItemsFromHistory(data: HistoryApiResponse): ChatListItem[] 
     if (m.role === 'user') {
       // strip steer 前缀（内部标记，不应展示给用户）
       const rawContent = (m.content || '')
-        .replace(/^（插话，无需 MOOD）\n?/, '')
+        .replace(LEGACY_STEER_PREFIX_RE, '')
         .replace(/^<t>[^<]*<\/t>\s*/, '');
 
       // 过滤系统注入的后台任务通知（steer 消息），不展示给用户

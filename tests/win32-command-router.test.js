@@ -21,6 +21,22 @@ describe("classifyWin32Command", () => {
     expect(classifyWin32Command("dir C:\\", { resolveNativePath }).runner).toBe("cmd");
   });
 
+  it("routes Windows find syntax to cmd instead of POSIX find", () => {
+    expect(classifyWin32Command('find /c /v "" sample.txt', { resolveNativePath })).toEqual(
+      expect.objectContaining({ runner: "cmd", reason: "windows-find-command" })
+    );
+  });
+
+  it("routes Windows text utilities to cmd", () => {
+    expect(classifyWin32Command('findstr /N "Hello" sample.txt', { resolveNativePath })).toEqual(
+      expect.objectContaining({ runner: "cmd", reason: "windows-native-utility" })
+    );
+  });
+
+  it("keeps POSIX find expressions on the bash path", () => {
+    expect(classifyWin32Command('find . -name "*.txt"', { resolveNativePath }).runner).toBe("bash");
+  });
+
   it("routes explicit Windows shells to cmd", () => {
     expect(classifyWin32Command("cmd /c dir", { resolveNativePath }).runner).toBe("cmd");
     expect(classifyWin32Command('powershell -Command "ipconfig /all"', { resolveNativePath }).runner).toBe("cmd");

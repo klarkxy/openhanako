@@ -367,13 +367,60 @@
     background: var(--overlay-light);
 }
 
-:global(.cm-codeblock-lang) {
+:global(.cm-codeblock-toolbar) {
     float: right;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-right: var(--space-xs);
+    font-family: var(--font-ui);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+:global(.cm-codeblock-lang) {
     font-family: var(--font-mono);
     font-size: 0.7rem;
     color: var(--text-muted);
     pointer-events: none;
     user-select: none;
+}
+
+:global(.cm-codeblock-copy-btn) {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-height: 24px;
+    padding: 0 var(--space-sm);
+    border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+    color: var(--text-muted);
+    font-family: var(--font-ui);
+    font-size: 0.7rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.62;
+    transition:
+        opacity var(--duration-fast) var(--ease-out),
+        color var(--duration-fast) var(--ease-out),
+        border-color var(--duration-fast) var(--ease-out),
+        background-color var(--duration-fast) var(--ease-out);
+}
+
+:global(.cm-codeblock-copy-btn:hover),
+:global(.cm-codeblock-copy-btn:focus-visible),
+:global(.cm-codeblock-copy-btn[data-copied="true"]) {
+    opacity: 1;
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
+    background: color-mix(in srgb, var(--bg-card) 92%, var(--accent) 8%);
+}
+
+:global(.cm-codeblock-copy-icon) {
+    width: 13px;
+    height: 13px;
+    flex: 0 0 auto;
 }
 
 :global(.cm-image-widget) {

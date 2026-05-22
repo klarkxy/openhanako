@@ -83,6 +83,9 @@
     "bridgeShort": "接入",
     "pinned": "置頂"
   },
+  "titlebar": {
+    "currentChatTitle": "目前對話標題"
+  },
   "session": {
     "untitled": "新對話",
     "messageCount": "{n} 則訊息",

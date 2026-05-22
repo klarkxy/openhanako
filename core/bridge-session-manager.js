@@ -38,11 +38,6 @@ import {
 
 const log = createModuleLogger("bridge-session");
 
-function getSteerPrefix() {
-  const isZh = getLocale().startsWith("zh");
-  return isZh ? "（插话，无需 MOOD）\n" : "(Interjection, no MOOD needed)\n";
-}
-
 function assertVideoInputSupported(model, videos) {
   if (!videos?.length) return;
   if (!modelSupportsVideoInput(model)) {
@@ -704,7 +699,7 @@ export class BridgeSessionManager {
   steerSession(sessionKey, text) {
     const session = this._activeSessions.get(sessionKey);
     if (!session?.isStreaming) return false;
-    session.steer(getSteerPrefix() + text);
+    session.steer(text);
     return true;
   }
 

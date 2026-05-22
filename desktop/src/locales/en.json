@@ -83,6 +83,9 @@
     "bridgeShort": "Bridge",
     "pinned": "Pinned"
   },
+  "titlebar": {
+    "currentChatTitle": "Current chat title"
+  },
   "session": {
     "untitled": "New Chat",
     "messageCount": "{n} messages",

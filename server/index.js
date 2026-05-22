@@ -66,6 +66,11 @@ import { createCheckpointsRoute } from "./routes/checkpoints.js";
 import { createCommandsRoute } from "./routes/commands.js";
 import { createServerIdentityRoute } from "./routes/server-identity.js";
 import { createResourcesRoute } from "./routes/resources.js";
+import { createWebAuthRoute } from "./routes/web-auth.js";
+import { createMobileWorkbenchRoute } from "./routes/mobile-workbench.js";
+import { createMobileStaticRoute } from "./routes/mobile-static.js";
+import { createHtmlPreviewRoute } from "./routes/html-preview.js";
+import { createAccessRoute } from "./routes/access.js";
 import { configureProcessPiSdkEnv, ensureHanaPiSdkDirs, resolveHanakoHome } from "../shared/hana-runtime-paths.js";
 import { ensureWindowsUtf8Console } from "../shared/windows-console.js";
 // internal-browser WS is handled directly via raw ws.WebSocketServer in the
@@ -567,6 +572,8 @@ const bridgeManagerRef = {
 };
 
 const { restRoute: chatRestRoute, wsRoute: chatWsRoute } = createChatRoute(engine, hub, { upgradeWebSocket });
+app.route("", createMobileStaticRoute({ distDir: fromRoot("desktop", "dist-renderer") }));
+app.route("", createHtmlPreviewRoute());
 app.route("/api", chatRestRoute);
 app.route("", chatWsRoute);
 app.route("/api", createSessionsRoute(engine, hub));

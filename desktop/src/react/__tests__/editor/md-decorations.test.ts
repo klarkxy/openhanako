@@ -4,7 +4,7 @@
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildMarkdownDecorations,
   collectLivePreviewRanges,
@@ -170,6 +170,42 @@ describe('collectLivePreviewRanges', () => {
 
     expect(img?.getAttribute('src')).toBe('file:///vault/notes/attachments/diagram.png');
     expect(img?.getAttribute('alt')).toBe('diagram.png');
+
+    view.destroy();
+  });
+
+  it('shows a copy button on inactive fenced code blocks in the markdown editor', () => {
+    window.t = ((key: string) => key === 'attach.copy' ? '复制' : key) as typeof window.t;
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: [
+          'intro',
+          '```ts',
+          'const x = 1;',
+          '```',
+        ].join('\n'),
+        extensions: [
+          markdown({ base: markdownLanguage }),
+          markdownDecoPlugin,
+        ],
+      }),
+    });
+
+    const button = parent.querySelector<HTMLButtonElement>('.cm-codeblock-copy-btn');
+
+    expect(button).toBeInstanceOf(HTMLButtonElement);
+    button?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    button?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(writeText).toHaveBeenCalledWith('const x = 1;');
 
     view.destroy();
   });

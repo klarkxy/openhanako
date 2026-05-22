@@ -3,6 +3,7 @@
    ======================================== */
 
 :global(.settings-panel) {
+    --paper-texture-attachment: scroll;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -23,7 +24,7 @@
     background-image: url(../../assets/textures/rice-paper.png);
     background-repeat: repeat;
     background-size: 160px;
-    background-attachment: fixed;
+    background-attachment: var(--paper-texture-attachment, scroll);
 }
 
 /* ── 纸质纹理：Card 层（所有 bg-card 元素，混合模式由全局 token 控制） ── */
@@ -49,7 +50,7 @@
     background-image: url(../../assets/textures/rice-paper.png);
     background-repeat: repeat;
     background-size: 160px;
-    background-attachment: fixed;
+    background-attachment: var(--paper-texture-attachment, scroll);
     background-blend-mode: var(--paper-texture-card-blend-mode);
 }
 
@@ -4988,63 +4989,6 @@ a.about-link:hover {
     background: rgba(var(--coral-rgb), 0.08);
 }
 
-.memory-action-btn.secondary {
-    flex: none;
-}
-
-/* 更多下拉 */
-.memory-action-dropdown {
-    position: relative;
-}
-
-.memory-more-arrow {
-    flex-shrink: 0;
-    transition: transform var(--duration-slow);
-}
-
-.memory-action-dropdown.open .memory-more-arrow {
-    transform: rotate(180deg);
-}
-
-.memory-more-popup {
-    display: none;
-    position: absolute;
-    bottom: 100%;
-    right: 0;
-    min-width: 140px;
-    background: var(--bg-card, var(--bg));
-    border-radius: var(--radius-card, 10px);
-    box-shadow: 0 4px 16px var(--shadow);
-    z-index: 60;
-    margin-bottom: 4px;
-    overflow: hidden;
-    animation: hana-fade-up var(--duration-fast) var(--ease-out);
-}
-
-.memory-action-dropdown.open .memory-more-popup {
-    display: flex;
-    flex-direction: column;
-}
-
-.memory-more-option {
-    padding: 0.5rem var(--space-md);
-    font-size: 0.82rem;
-    border: none;
-    background: none;
-    color: var(--text);
-    cursor: pointer;
-    text-align: left;
-    transition: background var(--duration-fast);
-}
-
-.memory-more-option:hover {
-    background: var(--overlay-subtle);
-}
-
-.memory-more-option + .memory-more-option {
-    border-top: 1px solid var(--overlay-light);
-}
-
 /* 清除确认浮层 */
 .memory-confirm-overlay {
     display: none;
@@ -6350,8 +6294,6 @@ a.about-link:hover {
 .memory-viewer,
 .memory-confirm-overlay,
 .memory-confirm-card,
-.memory-action-dropdown,
-.memory-more-popup,
 .character-card-preview-overlay,
 .character-card-preview-shell,
 .character-card-detail-panel,

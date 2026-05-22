@@ -83,6 +83,9 @@
     "bridgeShort": "連携",
     "pinned": "ピン留め"
   },
+  "titlebar": {
+    "currentChatTitle": "現在のチャットタイトル"
+  },
   "session": {
     "untitled": "新しいチャット",
     "messageCount": "{n} 件のメッセージ",

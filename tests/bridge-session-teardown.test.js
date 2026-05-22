@@ -117,6 +117,19 @@ describe("BridgeSessionManager teardown", () => {
     fs.rmSync(rootDir, { recursive: true, force: true });
   });
 
+  it("passes bridge steer text to the SDK without adding an internal prefix", () => {
+    const agent = makeAgent(rootDir);
+    const manager = new BridgeSessionManager(makeDeps(agent));
+    const session = {
+      isStreaming: true,
+      steer: vi.fn(),
+    };
+    manager.activeSessions.set("telegram:dm:owner", session);
+
+    expect(manager.steerSession("telegram:dm:owner", "先停一下，直接回答这个")).toBe(true);
+    expect(session.steer).toHaveBeenCalledWith("先停一下，直接回答这个");
+  });
+
   it("executeExternalMessage 结束后走 emit -> unsub -> dispose", async () => {
     const agent = makeAgent(rootDir);
     const mgrPath = path.join(agent.sessionDir, "bridge", "owner", "s1.jsonl");

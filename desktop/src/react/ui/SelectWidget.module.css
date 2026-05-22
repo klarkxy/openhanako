@@ -123,6 +123,6 @@
   background-image: url(../../assets/textures/rice-paper.png);
   background-repeat: repeat;
   background-size: 160px;
-  background-attachment: fixed;
+  background-attachment: var(--paper-texture-attachment, fixed);
   background-blend-mode: var(--paper-texture-card-blend-mode);
 }

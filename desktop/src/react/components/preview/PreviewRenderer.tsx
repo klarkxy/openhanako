@@ -5,11 +5,12 @@
  * 每种 previewItem 类型对应一个 JSX 分支或子组件。
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdownPreview } from '../../utils/markdown';
 import { parseCSV, injectCopyButtons } from '../../utils/format';
 import { fileIconSvg } from '../../utils/icons';
 import { openFilePreview } from '../../utils/file-preview';
+import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { useStore } from '../../stores';
 import { useMermaidDiagrams } from '../../hooks/use-mermaid-diagrams';
 import type { PreviewItem } from '../../types';
@@ -57,6 +58,58 @@ function LegacyMediaFallback({ previewItem }: { previewItem: PreviewItem }) {
 
 interface PreviewRendererProps {
   previewItem: PreviewItem;
+}
+
+// ── HtmlPreview ──
+// srcDoc/blob 会继承主窗口 CSP，无法安全地为 Tailwind 等 CDN 单独放权。
+// HTML preview 改走短期 server 文档：iframe 继续 sandbox，响应自己携带 preview 专用 CSP。
+
+function HtmlPreview({ previewItem }: { previewItem: PreviewItem }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSrc(null);
+    setError(null);
+
+    hanaFetch('/api/preview/html', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: previewItem.title,
+        content: previewItem.content,
+      }),
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (!data || typeof data.previewUrl !== 'string' || !data.previewUrl) {
+          throw new Error('invalid html preview response');
+        }
+        if (!cancelled) setSrc(data.previewUrl);
+      })
+      .catch((err) => {
+        console.error('[PreviewRenderer] HTML preview registration failed:', err);
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewItem.content, previewItem.title]);
+
+  if (error) {
+    return <pre className="preview-code">{error}</pre>;
+  }
+
+  return (
+    <iframe
+      title={previewItem.title}
+      sandbox="allow-scripts"
+      referrerPolicy="no-referrer"
+      src={src || undefined}
+    />
+  );
 }
 
 // ── MarkdownPreview ──
@@ -171,12 +224,7 @@ function FileInfoPreview({ previewItem }: { previewItem: PreviewItem }) {
 export function PreviewRenderer({ previewItem }: PreviewRendererProps) {
   switch (previewItem.type) {
     case 'html':
-      return (
-        <iframe
-          sandbox="allow-scripts"
-          srcDoc={previewItem.content}
-        />
-      );
+      return <HtmlPreview previewItem={previewItem} />;
 
     case 'markdown':
       return <MarkdownPreview content={previewItem.content} filePath={previewItem.filePath} />;

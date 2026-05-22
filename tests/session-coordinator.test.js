@@ -213,6 +213,47 @@ describe("SessionCoordinator", () => {
     expect(result.messages[0].content[0].text).toContain("image_overview");
   });
 
+  it("passes desktop steer text to the SDK without adding an internal prefix", () => {
+    const sessionPath = path.join(tempDir, "steer.jsonl");
+    const session = {
+      isStreaming: true,
+      steer: vi.fn(),
+    };
+    const coordinator = new SessionCoordinator({
+      agentsDir: tempDir,
+      getAgent: () => null,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: { name: "test-model" },
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: () => "medium",
+      }),
+      getResourceLoader: () => null,
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: () => {},
+      getHomeCwd: () => tempDir,
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => null,
+      listAgents: () => [],
+    });
+    coordinator._sessions.set(sessionPath, {
+      session,
+      agentId: "hana",
+      lastTouchedAt: 0,
+      visibleInSessionList: true,
+    });
+
+    expect(coordinator.steerSession(sessionPath, "先别展开，直接给结论")).toBe(true);
+    expect(session.steer).toHaveBeenCalledWith("先别展开，直接给结论");
+  });
+
   it("lists sessions from a lightweight projection without delegating to the Pi SDK full scan", async () => {
     const agentsDir = path.join(tempDir, "agents");
     const agentDir = path.join(agentsDir, "hana");

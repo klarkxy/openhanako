@@ -140,6 +140,7 @@ describe("HTTP route security policy", () => {
       ["GET", "/api/session-permission-mode"],
       ["POST", "/api/session-permission-mode"],
       ["POST", "/api/session-thinking-level"],
+      ["POST", "/api/confirm/confirm_1"],
       ["GET", "/api/browser/session-states"],
       ["GET", "/api/desk/path"],
       ["GET", "/api/desk/files"],
@@ -185,6 +186,31 @@ describe("HTTP route security policy", () => {
       method: "PUT",
       path: "/api/preferences/workspace-ui-state",
       principal: writer,
+    })).toMatchObject({ allowed: true });
+  });
+
+  it("allows scoped clients to register isolated HTML previews without exposing the rendered document API", async () => {
+    const { authorizeHttpRoute, classifyHttpRoute } = await import("../server/http/route-security.js");
+    const reader = devicePrincipal(["files.read"]);
+    const chatOnly = devicePrincipal(["chat"]);
+
+    expect(authorizeHttpRoute({
+      method: "POST",
+      path: "/api/preview/html",
+      principal: reader,
+    })).toMatchObject({ allowed: true });
+    expect(authorizeHttpRoute({
+      method: "POST",
+      path: "/api/preview/html",
+      principal: chatOnly,
+    })).toMatchObject({ allowed: false, error: "insufficient_scope" });
+
+    expect(classifyHttpRoute({ method: "GET", path: "/preview/html/pv_123" }))
+      .toMatchObject({ kind: "public" });
+    expect(authorizeHttpRoute({
+      method: "GET",
+      path: "/preview/html/pv_123?previewToken=preview_only",
+      principal: null,
     })).toMatchObject({ allowed: true });
   });
 

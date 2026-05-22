@@ -50,6 +50,31 @@ describe('buildItemsFromHistory user image restoration', () => {
     expect(first.data.text).toBe('hello from phone');
   });
 
+  it('隐藏旧插话消息里的中英文内部前缀', () => {
+    const items = buildItemsFromHistory({
+      messages: [
+        {
+          id: 'u1',
+          role: 'user',
+          content: '（插话，无需 MOOD）\n先别展开',
+        },
+        {
+          id: 'u2',
+          role: 'user',
+          content: '(Interjection, no MOOD needed)\njust answer directly',
+        },
+      ],
+    });
+
+    const first = items[0];
+    const second = items[1];
+    expect(first.type).toBe('message');
+    expect(second.type).toBe('message');
+    if (first.type !== 'message' || second.type !== 'message') throw new Error('expected messages');
+    expect(first.data.text).toBe('先别展开');
+    expect(second.data.text).toBe('just answer directly');
+  });
+
   it('把 attached_image 标记恢复成图片附件，并从正文隐藏', () => {
     const items = buildItemsFromHistory({
       messages: [{
