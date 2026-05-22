@@ -3190,9 +3190,27 @@ wrapIpcHandler("screenshot-render", (_event, payload) => {
 });
 
 // 文件监听（artifact 编辑 — 外部变更刷新用）
+// 使用 chokidar 替代 fs.watch：chokidar 能正确处理原子保存（write-temp + rename）
+// 等跨平台场景，避免 Windows 上 fs.watch 在文件被替换后停止追踪的问题。
 const _watchedRendererIds = new Set();
 const _fileWatchRegistry = createFileWatchRegistry({
-  watch: (filePath, options, onChange) => fs.watch(filePath, options, onChange),
+  watch: (filePath, _options, onChange) => {
+    const watcher = chokidar.watch(filePath, {
+      ignoreInitial: true,
+      awaitWriteFinish: false,
+      disableGlobbing: true,
+    });
+    watcher.on('all', (event) => {
+      // 将 chokidar 事件映射为 fs.watch 风格的事件类型，
+      // 保持 file-watch-registry 的接口兼容。
+      if (event === 'change' || event === 'add') {
+        onChange('change');
+      } else if (event === 'unlink') {
+        onChange('rename');
+      }
+    });
+    return watcher;
+  },
   notifySubscriber: (subscriberId, filePath) => {
     const wc = webContents.fromId(subscriberId);
     if (!wc || wc.isDestroyed()) {

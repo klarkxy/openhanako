@@ -422,6 +422,63 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
       };
     }, [filePath, readOnly]);
 
+    // Polling fallback：定期检查文件 mtime，作为事件监听的兜底。
+    // 当 fs.watch / chokidar 因平台差异未能触发时，保证文件最终仍会被刷新。
+    useEffect(() => {
+      if (!filePath || readOnly) return;
+
+      let polling = true;
+      const POLL_INTERVAL_MS = 3000;
+
+      const poll = async () => {
+        if (!polling) return;
+        try {
+          const snapshot = await window.platform?.readFileSnapshot?.(filePath);
+          if (!snapshot?.version || !polling) return;
+
+          const known = diskVersionRef.current;
+          // 仅当 mtime 变化时才重读内容，避免无意义的 DOM 操作
+          if (known && known.mtimeMs === snapshot.version.mtimeMs && known.size === snapshot.version.size) {
+            return;
+          }
+          diskVersionRef.current = snapshot.version;
+
+          const newContent = snapshot.content;
+          if (newContent == null) return;
+          if (newContent === lastSavedContentRef.current || selfWriteContentsRef.current.has(newContent)) {
+            lastSavedContentRef.current = newContent;
+            return;
+          }
+
+          const view = viewRef.current;
+          if (!view) return;
+          const current = view.state.doc.toString();
+          if (current === newContent) return;
+
+          docRevisionRef.current += 1;
+          if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+          }
+          lastSavedContentRef.current = newContent;
+          replaceDocumentPreservingSelection(view, newContent);
+          contentCbRef.current?.(newContent, diskVersionRef.current);
+        } catch {
+          // 轮询静默失败，下次 tick 重试
+        }
+      };
+
+      const timer = setInterval(poll, POLL_INTERVAL_MS);
+      // 首轮延迟稍短，快速发现启动时的外部变更
+      const firstTimer = setTimeout(poll, 1000);
+
+      return () => {
+        polling = false;
+        clearInterval(timer);
+        clearTimeout(firstTimer);
+      };
+    }, [filePath, readOnly]);
+
     return <div className={`preview-editor mode-${mode}`} ref={containerRef} />;
   },
 );
