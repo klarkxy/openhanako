@@ -270,8 +270,7 @@
 }
 
 :global(.preview-editor .cm-content) {
-    max-width: 720px;
-    margin: 0 auto;
+    width: 100%;
     padding: 0 var(--space-md);
 }
 
@@ -372,7 +371,7 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-xs);
-    margin-right: var(--space-xs);
+    margin-right: 0;
     font-family: var(--font-ui);
     user-select: none;
     -webkit-user-select: none;
@@ -389,23 +388,24 @@
 :global(.cm-codeblock-copy-btn) {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: var(--space-xs);
+    position: relative;
+    width: 2rem;
     min-height: 24px;
-    padding: 0 var(--space-sm);
-    border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-    border-radius: var(--radius-sm);
-    background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+    padding: 0;
+    border: 0;
+    border-radius: 0 var(--radius-sm) 0 var(--radius-sm);
+    background: transparent;
     color: var(--text-muted);
     font-family: var(--font-ui);
     font-size: 0.7rem;
     line-height: 1;
     cursor: pointer;
-    opacity: 0.62;
+    opacity: 0.45;
     transition:
         opacity var(--duration-fast) var(--ease-out),
-        color var(--duration-fast) var(--ease-out),
-        border-color var(--duration-fast) var(--ease-out),
-        background-color var(--duration-fast) var(--ease-out);
+        color var(--duration-fast) var(--ease-out);
 }
 
 :global(.cm-codeblock-copy-btn:hover),
@@ -413,14 +413,32 @@
 :global(.cm-codeblock-copy-btn[data-copied="true"]) {
     opacity: 1;
     color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
-    background: color-mix(in srgb, var(--bg-card) 92%, var(--accent) 8%);
 }
 
 :global(.cm-codeblock-copy-icon) {
     width: 13px;
     height: 13px;
     flex: 0 0 auto;
+}
+
+:global(.cm-codeblock-copy-label) {
+    position: absolute;
+    top: 50%;
+    right: calc(100% + var(--space-xs));
+    transform: translateY(-50%);
+    padding: 0.1rem 0.35rem;
+    border-radius: var(--radius-sm);
+    background: var(--bg-glass, var(--bg-card));
+    color: var(--accent);
+    font-size: 0.68rem;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+:global(.cm-codeblock-copy-btn[data-copied="true"] .cm-codeblock-copy-label) {
+    opacity: 1;
 }
 
 :global(.cm-image-widget) {

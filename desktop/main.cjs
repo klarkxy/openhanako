@@ -74,6 +74,11 @@ const {
 const {
   sanitizeWindowState,
 } = require("./src/shared/window-state.cjs");
+const {
+  decorateScreenshotMarkdownIt,
+  escapeAttr,
+  renderScreenshotCodeArticle,
+} = require("./src/shared/screenshot-markdown.cjs");
 
 const APP_USER_MODEL_ID = "com.hanako.app"; // Keep in sync with package.json build.appId.
 
@@ -2525,6 +2530,7 @@ function _getScreenshotMd() {
     const taskLists = require("markdown-it-task-lists");
     _screenshotMd.use(taskLists, { enabled: false, label: true });
   } catch { /* task-lists not available */ }
+  decorateScreenshotMarkdownIt(_screenshotMd);
   return _screenshotMd;
 }
 
@@ -2577,14 +2583,17 @@ function buildScreenshotHTML(payload) {
 
   function renderBlock(b) {
     if (b.type === "html") return b.content;
-    if (b.type === "markdown") return md.render(b.content);
-    if (b.type === "image") return `<img src="${b.content}" class="chat-image" />`;
+    if (b.type === "markdown") return md.render(b.content, { sourceFilePath: payload.filePath || null });
+    if (b.type === "image") return `<img src="${escapeAttr(b.content)}" class="chat-image" />`;
     return "";
   }
 
   let bodyHTML = "";
   if (payload.mode === "article" && payload.markdown) {
-    bodyHTML = `<article>${md.render(payload.markdown)}</article>`;
+    const articleHTML = payload.articleType === "code"
+      ? renderScreenshotCodeArticle(payload.markdown, payload.language)
+      : md.render(payload.markdown, { sourceFilePath: payload.filePath || null });
+    bodyHTML = `<article>${articleHTML}</article>`;
   } else if (payload.messages) {
     const parts = [];
     for (const msg of payload.messages) {
@@ -2664,6 +2673,15 @@ async function screenshotCapture(htmlContent, width) {
     await offscreen.webContents.executeJavaScript(
       `document.fonts.ready.then(() => true)`
     );
+    await offscreen.webContents.executeJavaScript(`
+      Promise.all(Array.from(document.images).map((img) => {
+        if (img.complete) return true;
+        return new Promise((resolve) => {
+          img.addEventListener('load', resolve, { once: true });
+          img.addEventListener('error', resolve, { once: true });
+        });
+      })).then(() => true)
+    `);
     await new Promise(r => setTimeout(r, 300));
 
     const totalHeight = await offscreen.webContents.executeJavaScript(`
@@ -3150,6 +3168,20 @@ wrapIpcBestEffortHandler("write-file-binary", (_event, filePath, base64Data) => 
     fs.writeFileSync(resolved, Buffer.from(base64Data, "base64"));
     return true;
   } catch { return false; }
+});
+
+wrapIpcBestEffortHandler("copy-file", (_event, sourcePath, destinationPath) => {
+  if (!sourcePath || !destinationPath) return false;
+  if (!path.isAbsolute(sourcePath) || !path.isAbsolute(destinationPath)) return false;
+  try {
+    const stat = fs.lstatSync(sourcePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) return false;
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    fs.copyFileSync(sourcePath, destinationPath);
+    return true;
+  } catch {
+    return false;
+  }
 });
 
 wrapIpcHandler("screenshot-render", (_event, payload) => {

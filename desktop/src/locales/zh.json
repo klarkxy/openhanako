@@ -2327,5 +2327,6 @@
   "preview.exitMarkdownPreview": "回到编辑",
   "preview.openInNewWindow": "在新窗口查看",
   "preview.openInNewWindowUnsupported": "此类型不支持新窗口查看",
-  "preview.markdownEditorStatus": "选中 {selected} 字 · 共 {total} 字"
+  "preview.markdownEditorStatus": "选中 {selected} 字 · 共 {total} 字",
+  "preview.markdownAttachmentInsertFailed": "插入附件失败"
 }

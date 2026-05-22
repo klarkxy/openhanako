@@ -92,6 +92,48 @@ describe("Windows sandbox helper build script", () => {
     expect(source).toContain("WRITE_RESTRICTED_CODE_SID");
   });
 
+  it("adds standard object-namespace SIDs to the restricted token", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),
+      "utf8"
+    );
+
+    expect(source).toContain("EVERYONE_SID");
+    expect(source).toContain("S-1-1-0");
+    expect(source).toContain("appendEveryoneRestrictingSid");
+    expect(source).toContain("appendCurrentLogonRestrictingSid");
+    expect(source).toContain("TokenGroups");
+    expect(source).toContain("SE_GROUP_LOGON_ID");
+  });
+
+  it("exposes a token diagnostic mode with a named-object namespace probe", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),
+      "utf8"
+    );
+
+    expect(source).toContain("--diagnose-token");
+    expect(source).toContain("diagnoseRestrictedToken");
+    expect(source).toContain("restricting-sid-count");
+    expect(source).toContain("probeNamedObjectNamespace");
+    expect(source).toContain("ImpersonateLoggedOnUser");
+    expect(source).toContain("CreateMutexW");
+  });
+
+  it("keeps synthetic writable-root SIDs as the file write ACL grant surface", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),
+      "utf8"
+    );
+    const applyWriteAcls = source.match(
+      /static bool applyWriteAcls\([\s\S]*?\n\}/
+    )?.[0] || "";
+
+    expect(applyWriteAcls).toContain("ensureAce(root.path, root.sid, GRANT_ACCESS");
+    expect(applyWriteAcls).not.toContain("EVERYONE_SID");
+    expect(applyWriteAcls).not.toContain("SE_GROUP_LOGON_ID");
+  });
+
   it("restores temporary write ACL changes after sandboxed commands", () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),

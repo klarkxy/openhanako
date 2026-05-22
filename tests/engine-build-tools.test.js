@@ -184,6 +184,55 @@ describe("HanaEngine.buildTools", () => {
     }));
   });
 
+  it("passes the explicit buildTools session path into plugin tool runtime context", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-build-tools-plugin-session-"));
+    const agentDir = path.join(tmpDir, "agents", "focus");
+    const workspace = path.join(tmpDir, "workspace");
+    const bridgeSessionPath = path.join(agentDir, "sessions", "bridge", "owner", "chat.jsonl");
+    const execute = vi.fn(async () => ({ content: [{ type: "text", text: "ok" }] }));
+    const agent = {
+      id: "focus",
+      agentDir,
+      config: {},
+      tools: [],
+    };
+
+    const engine = Object.create(HanaEngine.prototype);
+    engine.hanakoHome = tmpDir;
+    engine._runtimeContext = {
+      serverId: "server_engine",
+      serverNodeId: "node_engine",
+      studioId: "studio_engine",
+    };
+    engine.getAgent = vi.fn(() => agent);
+    engine._pluginManager = {
+      getAllTools: () => [{
+        name: "plugin_tool",
+        execute,
+      }],
+    };
+    engine._prefs = { getFileBackup: () => ({ enabled: false }) };
+    engine._readPreferences = () => ({ sandbox: true });
+    engine._confirmStore = null;
+    engine._emitEvent = vi.fn();
+    engine.getSessionPermissionMode = vi.fn(() => "operate");
+    engine._agentMgr = { agent };
+
+    const { customTools } = engine.buildTools(workspace, [], {
+      agentDir,
+      workspace,
+      getSessionPath: () => bridgeSessionPath,
+      getPermissionMode: () => "operate",
+    });
+    const pluginTool = customTools.find((tool) => tool.name === "plugin_tool");
+
+    await pluginTool.execute("call-1", { ok: true }, {});
+
+    expect(execute).toHaveBeenCalledWith("call-1", { ok: true }, expect.objectContaining({
+      sessionPath: bridgeSessionPath,
+    }));
+  });
+
   it("registers files created or modified by write and edit tools in the active session", async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-build-tools-touch-"));
     const agentDir = path.join(tmpDir, "agents", "focus");

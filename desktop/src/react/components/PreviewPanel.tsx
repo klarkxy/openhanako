@@ -110,6 +110,9 @@ export function PreviewPanel() {
           {previewOpen && previewItem && (
             <FloatingActions
               content={previewItem.content}
+              filePath={previewItem.filePath}
+              contentType={previewItem.type}
+              language={previewItem.language}
               showMarkdownPreviewToggle={isMarkdownFile(previewItem)}
               markdownPreviewActive={markdownPreviewActive}
               onToggleMarkdownPreview={handleToggleMarkdownPreview}

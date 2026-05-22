@@ -200,6 +200,34 @@ describe("loadAll", () => {
     delete globalThis.__hanaScopePluginLifecycle;
   });
 
+  it("prefers explicit runtime sessionPath over focus fallback for plugin tools", async () => {
+    const dir = path.join(pluginsDir, "session-path-plugin");
+    fs.mkdirSync(path.join(dir, "tools"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "tools", "scope.js"), `
+      export const name = "scope";
+      export const description = "Return session path";
+      export const parameters = {};
+      export async function execute(_input, ctx) {
+        return ctx.sessionPath || "";
+      }
+    `);
+    const pm = new PluginManager({
+      pluginsDir,
+      dataDir,
+      bus: await makeBus(),
+      getSessionPath: () => "/sessions/focus.jsonl",
+    });
+    pm.scan();
+    await pm.loadAll();
+
+    const tool = pm.getAllTools()[0];
+    const result = await tool.execute("call-1", {}, {
+      sessionPath: "/sessions/bridge-owner.jsonl",
+    });
+
+    expect(result.content[0].text).toBe("/sessions/bridge-owner.jsonl");
+  });
+
   it("provides register() on instance and cleans up on unload", async () => {
     const dir = path.join(pluginsDir, "reg-test");
     fs.mkdirSync(dir, { recursive: true });

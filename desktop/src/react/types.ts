@@ -248,6 +248,8 @@ export interface PlatformApi {
   selectPlugin?(): Promise<string | null>;
   readFile(path: string): Promise<string | null>;
   writeFile(filePath: string, content: string): Promise<boolean>;
+  writeFileBinary?(filePath: string, base64Data: string): Promise<boolean>;
+  copyFile?(sourcePath: string, destinationPath: string): Promise<boolean>;
   readFileSnapshot?(path: string): Promise<TextFileSnapshot | null>;
   writeFileIfUnchanged?(filePath: string, content: string, expectedVersion?: FileVersion | null): Promise<VersionedWriteResult>;
   watchFile(filePath: string): Promise<boolean>;

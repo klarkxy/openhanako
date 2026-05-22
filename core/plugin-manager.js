@@ -572,12 +572,13 @@ export class PluginManager {
           ...(mod.promptGuidelines ? { promptGuidelines: mod.promptGuidelines } : {}),
           execute: async (_toolCallId, params, runtimeCtx) => {
             await this.activatePlugin(entry.id, { event: `onToolCall:${mod.name}`, toolName: mod.name }, { pluginKey: entry.pluginKey });
-            // 优先从 Pi SDK runtime ctx 获取 sessionPath，fallback 到焦点回调（过渡期）
-            const sessionPath = runtimeCtx?.sessionManager?.getSessionFile?.()
-              || this._getSessionPath?.();
+            const sessionPath = runtimeCtx?.sessionPath
+              || runtimeCtx?.sessionManager?.getSessionFile?.()
+              || (!runtimeCtx ? this._getSessionPath?.() : null)
+              || null;
             const sessionCtx = { sessionPath };
             const mergedCtx = runtimeCtx
-              ? { ...ctx, ...sessionCtx, ...runtimeCtx }
+              ? { ...ctx, ...runtimeCtx, ...sessionCtx }
               : { ...ctx, ...sessionCtx };
             const raw = await origExecute(params, mergedCtx);
             // Pi SDK 期望 { content: ContentBlock[], details? }

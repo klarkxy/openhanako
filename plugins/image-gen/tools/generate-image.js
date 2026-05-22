@@ -43,6 +43,24 @@ function errorMessage(err) {
   return err?.message || String(err || "未知错误");
 }
 
+function normalizeSessionPath(ctx) {
+  const sessionPath = typeof ctx?.sessionPath === "string" ? ctx.sessionPath.trim() : "";
+  return sessionPath || null;
+}
+
+function bridgeDeliveryTarget(ctx) {
+  const bridge = ctx?.bridgeContext;
+  if (bridge?.isBridgeSession !== true || !bridge.platform || !bridge.chatId) return null;
+  return {
+    kind: "bridge",
+    platform: bridge.platform,
+    chatId: bridge.chatId,
+    ...(bridge.sessionKey ? { sessionKey: bridge.sessionKey } : {}),
+    ...(bridge.agentId ? { agentId: bridge.agentId } : {}),
+    ...(bridge.chatType ? { chatType: bridge.chatType } : {}),
+  };
+}
+
 export async function resolveImageAdapter(input, registry, submitCtx) {
   if (input.provider) return registry.get(input.provider);
 
@@ -104,6 +122,11 @@ export async function execute(input, ctx) {
     return { content: [{ type: "text", text: "图片生成插件未初始化" }] };
   }
 
+  const sessionPath = normalizeSessionPath(ctx);
+  if (!sessionPath) {
+    return { content: [{ type: "text", text: "图片生成需要明确的会话归属，当前工具调用缺少 sessionPath" }] };
+  }
+
   // Build adapter context
   const generatedDir = path.join(ctx.dataDir, "generated");
   const submitCtx = { dataDir: ctx.dataDir, bus: ctx.bus, log: ctx.log, generatedDir, config: ctx.config };
@@ -127,6 +150,13 @@ export async function execute(input, ctx) {
   };
 
   const submitted = [];
+  const deliveryTarget = bridgeDeliveryTarget(ctx);
+  const deferredMeta = {
+    type: "image-generation",
+    mediaKind: "image",
+    prompt: input.prompt,
+    ...(deliveryTarget ? { deliveryTarget } : {}),
+  };
 
   for (let i = 0; i < count; i++) {
     const taskId = createTaskId();
@@ -137,7 +167,8 @@ export async function execute(input, ctx) {
       type: "image",
       prompt: input.prompt,
       params,
-      sessionPath: ctx.sessionPath,
+      sessionPath,
+      ...(deliveryTarget ? { deliveryTarget } : {}),
       submitState: "submitting",
       adapterTaskId: null,
     });
@@ -146,8 +177,8 @@ export async function execute(input, ctx) {
     try {
       await ctx.bus.request("deferred:register", {
         taskId,
-        sessionPath: ctx.sessionPath,
-        meta: { type: "image-generation", mediaKind: "image", prompt: input.prompt },
+        sessionPath,
+        meta: deferredMeta,
       });
     } catch (err) {
       ctx.log.warn(`deferred:register failed for ${taskId}:`, err);
@@ -158,8 +189,8 @@ export async function execute(input, ctx) {
       await ctx.bus.request("task:register", {
         taskId,
         type: "media-generation",
-        parentSessionPath: ctx.sessionPath,
-        meta: { type: "image-generation", prompt: input.prompt },
+        parentSessionPath: sessionPath,
+        meta: deferredMeta,
       });
     } catch {}
 

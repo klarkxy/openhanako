@@ -155,7 +155,7 @@ body,
   }
 
   .mobile-desktop-root .main-content.welcome-mode .chat-area {
-    padding-top: calc(var(--titlebar-h) + 12vh);
+    padding-top: calc(var(--titlebar-h) + 12vh + 1lh);
   }
 
   .mobile-desktop-root .jian-sidebar-inner {

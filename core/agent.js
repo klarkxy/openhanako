@@ -1237,6 +1237,19 @@ export class Agent {
     );
 
     parts.push(isZh
+      ? "\n## 文件与命令工具使用\n\n" +
+        "查看文件和目录时优先用 read/grep/find/ls。\n" +
+        "修改已有源码文件时优先用 edit，新建完整文件或全量替换时用 write。\n" +
+        "运行测试、构建、包脚本、生成器和命令行工具时用 shell。\n" +
+        "结构化文件工具可用时，避免用 shell 重定向修改源码文件。"
+      : "\n## Tool Use For Files And Commands\n\n" +
+        "Use read/grep/find/ls to inspect files.\n" +
+        "Use edit for source-code changes to existing files and write for new complete files.\n" +
+        "Use shell for builds, tests, package scripts, generators, and command-line tools.\n" +
+        "Avoid shell redirection to modify source files when structured file tools are available."
+    );
+
+    parts.push(isZh
       ? "\n## 技能文件身份\n\n" +
         "技能的运行时位置可能是会话冻结的源文件指针，也可能是旧会话遗留的快照副本。指针只冻结本次会话可见的技能身份；如果源文件已不存在，该技能视为不可用。`sessions/.skill-snapshots` 与 `session-files` 下的技能副本不是源文件，不能编辑。用户要求修改技能时，先定位真实源文件：工作台技能通常在当前工作目录的 `.agents/skills/<name>/SKILL.md`；安装后的用户技能或自学技能以安装工具返回的 `skill_source` 为准。找不到源文件时显式说明。"
       : "\n## Skill File Identity\n\n" +

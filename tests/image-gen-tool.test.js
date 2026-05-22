@@ -93,6 +93,16 @@ describe("generate-image tool — initialization guard", () => {
     const result = await execute({ prompt: "a cat" }, ctx);
     expect(result.content[0].text).toContain("未初始化");
   });
+
+  it("requires an explicit sessionPath before starting a background task", async () => {
+    const mediaGen = makeMediaGen();
+    const ctx = { ...makeCtx(mediaGen), sessionPath: null };
+
+    const result = await execute({ prompt: "a cat" }, ctx);
+
+    expect(result.content[0].text).toContain("缺少 sessionPath");
+    expect(mediaGen.store.add).not.toHaveBeenCalled();
+  });
 });
 
 describe("generate-image tool — adapter resolution", () => {
@@ -279,6 +289,36 @@ describe("generate-image tool — single submit returns media placeholder metada
     expect(deferredCall[1].taskId).toBe(taskId);
     expect(deferredCall[1].meta.type).toBe("image-generation");
     expect(deferredCall[1].meta.mediaKind).toBe("image");
+  });
+
+  it("marks bridge-originated tasks for bridge delivery instead of desktop parent delivery", async () => {
+    const { registry, store, poller } = makeMediaGen({
+      submit: vi.fn(async () => ({ taskId: "t-bridge-deferred" })),
+    });
+    const busRequest = vi.fn(async () => ({}));
+    const ctx = {
+      ...makeCtx({ registry, store, poller }, { request: busRequest }),
+      bridgeContext: {
+        isBridgeSession: true,
+        platform: "wechat",
+        chatId: "wx-user",
+        sessionKey: "wx_dm_wx-user@hanako",
+        agentId: "hanako",
+        chatType: "dm",
+      },
+    };
+
+    await execute({ prompt: "ocean" }, ctx);
+
+    const deferredCall = busRequest.mock.calls.find(([type]) => type === "deferred:register");
+    expect(deferredCall[1].meta.deliveryTarget).toEqual({
+      kind: "bridge",
+      platform: "wechat",
+      chatId: "wx-user",
+      sessionKey: "wx_dm_wx-user@hanako",
+      agentId: "hanako",
+      chatType: "dm",
+    });
   });
 
   it("adds task to poller", async () => {

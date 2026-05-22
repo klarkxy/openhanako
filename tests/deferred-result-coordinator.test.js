@@ -107,4 +107,28 @@ describe("DeferredResultCoordinator", () => {
       deliverySuppressed: true,
     });
   });
+
+  it("leaves bridge-targeted results for bridge delivery instead of suppressing them as non-desktop sessions", async () => {
+    sessionCoordinator.isRunnableSessionPath = vi.fn(() => false);
+    store._tasks.set("task-bridge", {
+      status: "resolved",
+      sessionPath: "/agents/hanako/sessions/bridge/owner/chat.jsonl",
+      meta: {
+        type: "image-generation",
+        deliveryTarget: { kind: "bridge", platform: "wechat", chatId: "wx-user" },
+      },
+      deferredAt: Date.now(),
+      result: { sessionFiles: [{ id: "sf_bridge" }] },
+      reason: null,
+      delivered: false,
+    });
+
+    await coordinator.flushUndelivered();
+
+    expect(sessionCoordinator.deliverCustomMessage).not.toHaveBeenCalled();
+    expect(store.query("task-bridge")).toMatchObject({
+      delivered: false,
+    });
+    expect(store.query("task-bridge").deliverySuppressed).toBeUndefined();
+  });
 });

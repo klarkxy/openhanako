@@ -41,6 +41,8 @@
 
     // 文件写入 / 监听 / 派生 viewer 窗口 → Web 不支持
     writeFile: async () => false,
+    writeFileBinary: async () => false,
+    copyFile: async () => false,
     writeFileIfUnchanged: async () => ({ ok: false }),
     watchFile: async () => false,
     unwatchFile: async () => false,

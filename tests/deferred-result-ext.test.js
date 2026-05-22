@@ -63,6 +63,23 @@ describe("DeferredResultExtension", () => {
     expect(opts.triggerTurn).toBe(true);
   });
 
+  it("does not fallback-deliver bridge-owned tasks through Pi session_start", async () => {
+    store.defer("t1", "/s/a", {
+      type: "image-generation",
+      deliveryTarget: { kind: "bridge", platform: "wechat", chatId: "wx-user" },
+    });
+    store.resolve("t1", { files: ["img.png"] });
+
+    pi._trigger("session_start", {}, { sessionManager: { getSessionFile: () => "/s/a" } });
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(pi.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ customType: "hana-background-result" }),
+      expect.anything(),
+    );
+    expect(store.query("t1").delivered).toBe(false);
+  });
+
   it("does NOT send notification for a different session", () => {
     pi._trigger("session_start", {}, { sessionManager: { getSessionFile: () => "/s/a" } });
     store.defer("t1", "/s/b", { type: "image-generation" });

@@ -32,6 +32,15 @@ import { linkClickHandler } from '../editor/link-handler';
 import { tableDecoField } from '../editor/table-field';
 import { csvTableField } from '../editor/csv-field';
 import { requestUserEditCheckpoint, type UserEditCheckpointReason } from '../utils/checkpoints';
+import {
+  arrayBufferToBase64,
+  buildMarkdownAttachmentPlan,
+  type MarkdownAttachmentPlan,
+} from '../utils/markdown-attachments';
+import {
+  clearAppFileDragPayload,
+  readAppFileDragPayload,
+} from '../utils/app-file-drag';
 import type { FileVersion } from '../types';
 
 /* ── Types ── */
@@ -128,6 +137,93 @@ function replaceDocumentPreservingSelection(view: EditorView, content: string): 
   return true;
 }
 
+interface MarkdownAttachmentSource {
+  file?: File;
+  path?: string;
+  name: string;
+  mimeType?: string | null;
+}
+
+function dataTransferHasFiles(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false;
+  if (dataTransfer.files?.length) return true;
+  return Array.from(dataTransfer.types || []).includes('Files');
+}
+
+function filesFromDataTransfer(dataTransfer: DataTransfer | null): File[] {
+  if (!dataTransfer) return [];
+  const files = Array.from(dataTransfer.files || []);
+  if (files.length > 0) return files;
+
+  return Array.from(dataTransfer.items || [])
+    .filter(item => item.kind === 'file')
+    .map(item => item.getAsFile())
+    .filter((file): file is File => !!file);
+}
+
+function attachmentSourcesFromFiles(files: File[]): MarkdownAttachmentSource[] {
+  return files
+    .filter(file => !file.name.endsWith('/'))
+    .map(file => ({
+      file,
+      path: window.platform?.getFilePath?.(file) || undefined,
+      name: file.name,
+      mimeType: file.type || null,
+    }));
+}
+
+function attachmentSourcesFromAppDrag(dataTransfer: DataTransfer | null): MarkdownAttachmentSource[] | null {
+  const payload = readAppFileDragPayload(dataTransfer);
+  if (!payload) return null;
+  return payload.files
+    .filter(file => !file.isDirectory && !!file.path)
+    .map(file => ({
+      path: file.path,
+      name: file.name || file.path,
+      mimeType: file.mimeType || null,
+    }));
+}
+
+async function writeMarkdownAttachment(source: MarkdownAttachmentSource, plan: MarkdownAttachmentPlan): Promise<void> {
+  let copied = false;
+  if (source.path && typeof window.platform?.copyFile === 'function') {
+    copied = await window.platform.copyFile(source.path, plan.attachmentPath);
+  }
+  if (copied) return;
+
+  if (!source.file) {
+    throw new Error(`cannot copy attachment: ${source.name}`);
+  }
+  if (typeof window.platform?.writeFileBinary !== 'function') {
+    throw new Error('writeFileBinary unavailable');
+  }
+  const base64 = arrayBufferToBase64(await source.file.arrayBuffer());
+  const ok = await window.platform.writeFileBinary(plan.attachmentPath, base64);
+  if (ok === false) {
+    throw new Error(`failed to write attachment: ${source.name}`);
+  }
+}
+
+function insertMarkdownAt(view: EditorView, markdown: string, position: number | null): void {
+  const selection = view.state.selection.main;
+  const from = position ?? selection.from;
+  const to = position ?? selection.to;
+  view.dispatch({
+    changes: { from, to, insert: markdown },
+    selection: EditorSelection.cursor(from + markdown.length),
+    scrollIntoView: true,
+    annotations: Transaction.userEvent.of('input.paste'),
+  });
+}
+
+function dropPosition(view: EditorView, event: DragEvent): number | null {
+  try {
+    return view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /* ── File change emitter (global singleton) ── */
 
 const _fileChangeEmitter = new EventTarget();
@@ -199,6 +295,31 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
       } finally {
         lastCheckpointAtRef.current = now;
       }
+    }, []);
+
+    const insertMarkdownAttachments = useCallback(async (
+      view: EditorView,
+      sources: MarkdownAttachmentSource[],
+      position: number | null = null,
+    ) => {
+      const fp = filePathRef.current;
+      if (!fp) throw new Error('markdown file path required');
+      if (sources.length === 0) return;
+
+      const plans: MarkdownAttachmentPlan[] = [];
+      for (let i = 0; i < sources.length; i += 1) {
+        const source = sources[i];
+        const plan = buildMarkdownAttachmentPlan({
+          markdownFilePath: fp,
+          originalName: source.name,
+          mimeType: source.mimeType,
+          index: i,
+        });
+        await writeMarkdownAttachment(source, plan);
+        plans.push(plan);
+      }
+
+      insertMarkdownAt(view, plans.map(plan => plan.markdown).join('\n'), position);
     }, []);
 
     const emitStatsIfChanged = useCallback((view: EditorView) => {
@@ -291,6 +412,41 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
         bracketMatching(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
         EditorView.lineWrapping,
+        ...(isMd && !readOnly ? [
+          EditorView.domEventHandlers({
+            dragover(event) {
+              const appSources = attachmentSourcesFromAppDrag(event.dataTransfer);
+              if (!filePathRef.current || (!appSources && !dataTransferHasFiles(event.dataTransfer))) return false;
+              event.preventDefault();
+              if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+              return true;
+            },
+            drop(event, view) {
+              const payload = readAppFileDragPayload(event.dataTransfer);
+              const appSources = payload
+                ? attachmentSourcesFromAppDrag(event.dataTransfer)
+                : null;
+              const sources = appSources ?? attachmentSourcesFromFiles(filesFromDataTransfer(event.dataTransfer));
+              if (!filePathRef.current || sources.length === 0) return false;
+              event.preventDefault();
+              event.stopPropagation();
+              if (payload) clearAppFileDragPayload(payload.dragId);
+              const position = dropPosition(view, event);
+              void insertMarkdownAttachments(view, sources, position)
+                .catch(err => showSaveError('preview.markdownAttachmentInsertFailed', err));
+              return true;
+            },
+            paste(event, view) {
+              const sources = attachmentSourcesFromFiles(filesFromDataTransfer(event.clipboardData));
+              if (!filePathRef.current || sources.length === 0) return false;
+              event.preventDefault();
+              event.stopPropagation();
+              void insertMarkdownAttachments(view, sources)
+                .catch(err => showSaveError('preview.markdownAttachmentInsertFailed', err));
+              return true;
+            },
+          }),
+        ] : []),
         // 只读模式：禁用编辑 + 关闭 autosave；不挂 file watch（调用方自理）
         ...(readOnly
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
@@ -358,7 +514,7 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
         view.destroy();
         viewRef.current = null;
       };
-    }, [mode, language, readOnly, filePath, emitStatsIfChanged]); // eslint-disable-line react-hooks/exhaustive-deps -- 仅在 mode/language/readOnly/filePath 变化时重建 CodeMirror，content/refs 故意省略以避免销毁重建
+    }, [mode, language, readOnly, filePath, emitStatsIfChanged, insertMarkdownAttachments]); // eslint-disable-line react-hooks/exhaustive-deps -- 仅在 mode/language/readOnly/filePath 变化时重建 CodeMirror，content/refs 故意省略以避免销毁重建
 
     // content prop change → update editor (skip if already in sync)
     useEffect(() => {

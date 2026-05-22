@@ -3,6 +3,9 @@ import styles from './FloatingActions.module.css';
 
 interface Props {
   content: string;
+  filePath?: string;
+  contentType?: string;
+  language?: string | null;
   showMarkdownPreviewToggle?: boolean;
   markdownPreviewActive?: boolean;
   onToggleMarkdownPreview?: () => void;
@@ -10,6 +13,9 @@ interface Props {
 
 export function FloatingActions({
   content,
+  filePath,
+  contentType,
+  language,
   showMarkdownPreviewToggle = false,
   markdownPreviewActive = false,
   onToggleMarkdownPreview,
@@ -30,8 +36,12 @@ export function FloatingActions({
 
   const handleScreenshot = useCallback(async () => {
     const { takeArticleScreenshot } = await import('../../utils/screenshot');
-    await takeArticleScreenshot(content);
-  }, [content]);
+    await takeArticleScreenshot(content, {
+      filePath,
+      articleType: contentType,
+      language,
+    });
+  }, [content, contentType, filePath, language]);
 
   const t = window.t ?? ((p: string) => p);
 

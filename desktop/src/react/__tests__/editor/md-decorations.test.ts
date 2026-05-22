@@ -174,8 +174,12 @@ describe('collectLivePreviewRanges', () => {
     view.destroy();
   });
 
-  it('shows a copy button on inactive fenced code blocks in the markdown editor', () => {
-    window.t = ((key: string) => key === 'attach.copy' ? '复制' : key) as typeof window.t;
+  it('shows a copy button on inactive fenced code blocks in the markdown editor', async () => {
+    window.t = ((key: string) => {
+      if (key === 'attach.copy') return '复制';
+      if (key === 'attach.copied') return '已复制';
+      return key;
+    }) as typeof window.t;
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -202,10 +206,17 @@ describe('collectLivePreviewRanges', () => {
     const button = parent.querySelector<HTMLButtonElement>('.cm-codeblock-copy-btn');
 
     expect(button).toBeInstanceOf(HTMLButtonElement);
+    expect(button?.querySelector('svg.cm-codeblock-copy-icon')).toBeInstanceOf(SVGSVGElement);
+    expect(button?.querySelector('.cm-codeblock-copy-label')?.textContent).toBe('复制');
+    expect(button?.getAttribute('aria-label')).toBe('复制');
     button?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     button?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await Promise.resolve();
 
     expect(writeText).toHaveBeenCalledWith('const x = 1;');
+    expect(button?.dataset.copied).toBe('true');
+    expect(button?.querySelector('.cm-codeblock-copy-label')?.textContent).toBe('已复制');
+    expect(button?.getAttribute('aria-label')).toBe('已复制');
 
     view.destroy();
   });

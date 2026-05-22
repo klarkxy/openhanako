@@ -1438,6 +1438,10 @@ export class HanaEngine {
       agentId = opts.agentDir ? path.basename(opts.agentDir) : (this.agent?.id || "");
       toolAgent = opts.agentDir ? this.getAgent(agentId) : this.agent;
     }
+    const getSessionPath = typeof opts.getSessionPath === "function"
+      ? opts.getSessionPath
+      : (() => null);
+
     // Append plugin tools
     const pluginTools = this._pluginManager?.getAllTools() || [];
     const executionBoundary = this._runtimeContext
@@ -1448,11 +1452,19 @@ export class HanaEngine {
       : {};
     const wrappedPluginTools = pluginTools.map(t => ({
       ...t,
-      execute: (toolCallId, params, runtimeCtx) => t.execute(toolCallId, params, {
-        ...runtimeCtx,
-        agentId,
-        ...executionScope,
-      }),
+      execute: (toolCallId, params, runtimeCtx = {}) => {
+        const sessionPath = runtimeCtx?.sessionPath
+          || runtimeCtx?.sessionManager?.getSessionFile?.()
+          || getSessionPath()
+          || null;
+        return t.execute(toolCallId, params, {
+          ...runtimeCtx,
+          ...(sessionPath ? { sessionPath } : {}),
+          ...(opts.bridgeContext ? { bridgeContext: opts.bridgeContext } : {}),
+          agentId,
+          ...executionScope,
+        });
+      },
     }));
     const pluginDevTools = this._pluginDevService && this._prefs.getPluginDevToolsEnabled?.() === true
       ? createPluginDevTools({
@@ -1473,7 +1485,6 @@ export class HanaEngine {
     const effectiveAgentDir = opts.agentDir || this.agent.agentDir;
     const effectiveWorkspace = opts.workspace !== undefined ? opts.workspace : this.homeCwd;
     const workspaceFolders = opts.workspaceFolders || [];
-    const getSessionPath = opts.getSessionPath || (() => null);
     const fileReadSessionPaths = Array.isArray(opts.fileReadSessionPaths)
       ? opts.fileReadSessionPaths.filter((sp) => typeof sp === "string" && sp.trim())
       : [];

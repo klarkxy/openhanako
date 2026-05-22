@@ -720,6 +720,38 @@ describe("BridgeSessionManager teardown", () => {
     expect(buildOpts.getPermissionMode()).toBe("operate");
   });
 
+  it("owner bridge tools expose the bridge session path instead of relying on desktop focus", async () => {
+    const agent = makeAgent(rootDir);
+    const buildTools = vi.fn(() => ({
+      tools: [],
+      customTools: [],
+    }));
+    const deps = {
+      ...makeDeps(agent),
+      buildTools,
+    };
+    const mgrPath = path.join(agent.sessionDir, "bridge", "owner", "s-owner-tools.jsonl");
+    const manager = new BridgeSessionManager(deps);
+    sessionManagerCreateMock.mockReturnValue({ getSessionFile: () => mgrPath });
+
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        model: { input: ["text"] },
+        prompt: vi.fn(async () => {}),
+        subscribe: vi.fn(() => () => {}),
+        dispose: vi.fn(),
+        sessionManager: { getSessionFile: () => mgrPath },
+        extensionRunner: { hasHandlers: vi.fn(() => false) },
+      },
+    });
+
+    await manager.executeExternalMessage("hello", "bridge-k-owner-tools", null, { agentId: "agent-a" });
+
+    expect(buildTools).toHaveBeenCalledOnce();
+    const buildOpts = buildTools.mock.calls[0][2];
+    expect(buildOpts.getSessionPath()).toBe(mgrPath);
+  });
+
   it("guest bridge sessions pass canonical off thinking level to the SDK", async () => {
     const agent = makeAgent(rootDir);
     agent.config.models.chat = { id: "minimax-m2.5", provider: "scnet" };

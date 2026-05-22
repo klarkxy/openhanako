@@ -127,14 +127,21 @@ export class Poller {
       this._bus.request("deferred:register", {
         taskId: task.taskId,
         sessionPath: task.sessionPath,
-        meta: { type: task.type === "video" ? "video-generation" : "image-generation", prompt: task.prompt },
+        meta: {
+          type: task.type === "video" ? "video-generation" : "image-generation",
+          prompt: task.prompt,
+          ...(task.deliveryTarget ? { deliveryTarget: task.deliveryTarget } : {}),
+        },
       }).catch(() => {}); // ignore if no active session yet
       // Re-register in TaskRegistry so the task is visible and cancellable
       this._bus.request("task:register", {
         taskId: task.taskId,
         type: "media-generation",
         parentSessionPath: task.sessionPath,
-        meta: { type: task.type === "video" ? "video-generation" : "image-generation" },
+        meta: {
+          type: task.type === "video" ? "video-generation" : "image-generation",
+          ...(task.deliveryTarget ? { deliveryTarget: task.deliveryTarget } : {}),
+        },
       }).catch(() => {});
     }
     if (pending.length > 0) {
