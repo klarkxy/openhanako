@@ -2445,7 +2445,7 @@ export class SessionCoordinator {
    *
    * opts:
    *   agentId, cwd, model, persist (string 目录路径 | falsy),
-   *   toolFilter, builtinFilter, signal,
+   *   toolFilter, builtinFilter, extraCustomTools, signal,
    *   fileReadSessionPaths (string[] = parent session SessionFile scopes inherited as read-only),
    *   subagentContext (true = 走 subagent 专用 prompt：跳过记忆三段和团队名单),
    *   emitEvents (true 时将 session 事件转发到 EventBus),
@@ -2554,6 +2554,9 @@ export class SessionCoordinator {
       const actCustomTools = patrolAllowed === "*"
         ? allCustomTools.filter(t => !heartbeatBlocked.has(t.name))
         : allCustomTools.filter(t => new Set(patrolAllowed).has(t.name) && !heartbeatBlocked.has(t.name));
+      const extraCustomTools = Array.isArray(opts.extraCustomTools)
+        ? opts.extraCustomTools.filter(t => t && typeof t.name === "string" && t.name.trim())
+        : [];
 
       const actTools = opts.builtinFilter
         ? allBuiltinTools.filter(t => opts.builtinFilter.includes(t.name))
@@ -2605,7 +2608,7 @@ export class SessionCoordinator {
         ),
         resourceLoader: execResourceLoader,
         tools: actTools,
-        customTools: actCustomTools,
+        customTools: [...actCustomTools, ...extraCustomTools],
       });
 
       const childSessionPath = session.sessionManager?.getSessionFile?.() || null;

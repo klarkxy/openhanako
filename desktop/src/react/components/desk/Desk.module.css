@@ -884,6 +884,16 @@
     content: "— ";
 }
 
+.execLogRaw {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: 0.66rem;
+    line-height: 1.45;
+    color: var(--text-light);
+}
+
 .execLogDelete {
     margin-left: auto;
     flex-shrink: 0;
