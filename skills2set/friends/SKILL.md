@@ -1,46 +1,46 @@
 ---
 name: friends
-description: "维护宿主内置通讯录。适用于录入、修改、删除、整理、查询联系人，以及将 QQ、微信、飞书、Telegram 等平台账号解析为自己、家人、朋友、陌生人四级关系策略。"
+description: "Maintain the host's built-in contact book. Suitable for adding, modifying, deleting, organizing, and querying contacts, as well as resolving platform accounts (QQ, WeChat, Feishu, Telegram, etc.) into a four-tier relationship policy: self, family, friend, and stranger."
 ---
 
-# 通讯录
+# Contact Book
 
-通讯录现在是宿主内置的联系人管理与关系策略能力，不再依赖独立插件。
+The contact book is now a built-in contact management and relationship policy capability of the host, no longer dependent on standalone plugins.
 
-它负责两件事：
+It handles two things:
 
-- 维护“自己 / 家人 / 朋友 / 陌生人”四级联系人。
-- 把平台账号解析成关系级别和策略快照，供 bridge 权限分流使用。
+- Maintaining a four-tier contact system: **self / family / friend / stranger**.
+- Resolving platform accounts into relationship tiers and policy snapshots for bridge permission routing.
 
-当前可用工具：
+Available tools:
 
 - `friends_list_contacts`
 - `friends_upsert_contact`
 - `friends_resolve_contact`
 - `friends_remove_contact`
 
-推荐使用时机：
+Recommended use cases:
 
-- 用户要录入、整理、修改联系人。
-- 用户要把 QQ / 飞书 / 微信 / Telegram 账号映射到同一个人。
-- 需要判断一个平台账号属于自己、家人、朋友还是陌生人。
+- The user wants to add, organize, or modify contacts.
+- The user wants to map QQ / Feishu / WeChat / Telegram accounts to the same person.
+- Need to determine whether a platform account belongs to self, family, friend, or stranger.
 
-关系含义：
+Relationship meanings:
 
-- `self`：本人，完整权限。
-- `family`：家人，与本人同权限，但口气和称呼应按家人关系处理。
-- `friend`：可透露有限的工作摘要，但不允许工作空间操作。
-- `stranger`：只能寒暄，不透露内部信息。
+- `self`: The user themselves — full permissions.
+- `family`: Family member — same permissions as self, but tone and address should reflect family relation.
+- `friend`: May be given limited work summaries, but workspace operations are not allowed.
+- `stranger`: Small talk only; no internal information disclosed.
 
-使用要点：
+Usage tips:
 
-- 录入联系人时，优先补全 `accounts`，因为 bridge 权限分流主要靠平台账号匹配。
-- 同一个人可以有多个 `accounts`，例如 QQ 私聊号、微信群 chatId、Telegram userId。
-- 用户要“看看现在通讯录里有什么”时，先用 `friends_list_contacts`。
-- 用户提供了新身份信息时，用 `friends_upsert_contact` 更新，而不是先删后建。
-- 用户问“这个账号是谁”或“这个 QQ 号属于哪一级”时，用 `friends_resolve_contact`。
-- 用户明确要删除某个联系人时，再调用 `friends_remove_contact`。
+- When adding a contact, prefer to fill in `accounts` first, since bridge permission routing primarily relies on platform account matching.
+- The same person can have multiple `accounts`, e.g., QQ private chat ID, WeChat group chatId, Telegram userId.
+- When the user asks "what's in the contact book", start with `friends_list_contacts`.
+- When the user provides new identity information, use `friends_upsert_contact` to update rather than delete-then-create.
+- When the user asks "who does this account belong to" or "which tier is this QQ number in", use `friends_resolve_contact`.
+- Only call `friends_remove_contact` when the user explicitly asks to delete a contact.
 
-宿主界面入口：
+Host UI entry point:
 
-- 设置页已有独立“通讯录”标签，可直接管理同一份数据。
+- A dedicated "Contacts" tab already exists in the settings page, where the same data can be managed directly.

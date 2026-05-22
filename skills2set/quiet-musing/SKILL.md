@@ -1,92 +1,92 @@
 ---
 name: quiet-musing
-description: "复杂问题推理框架。遇到多步骤、高不确定性、需要权衡取舍的任务时启用。触发场景：分析复杂问题、做决策、权衡方案、调试疑难 bug、架构设计、策略规划、想清楚再做、帮我分析一下、这个问题比较复杂、深度思考。不要在简单问答、闲聊、单步操作时启用。"
+description: "A reasoning framework for complex problems. Enable it for multi-step tasks, high-uncertainty situations, or when trade-offs need to be weighed. Trigger scenarios: analyzing complex problems, making decisions, weighing options, debugging tricky bugs, architectural design, strategic planning, 'think before you act', 'analyze this for me', 'this is quite complex', 'deep thinking'. Do NOT enable for simple Q&A, casual conversation, or single-step operations."
 ---
 
-# 深度推理协议
+# Deep Reasoning Protocol
 
-遇到复杂问题时的思考和执行框架。与 MOOD 互补：MOOD 捕捉直觉和情绪，这套协议管结构化推理。
+A thinking and execution framework for complex problems. Complements MOOD: while MOOD captures intuition and emotion, this protocol handles structured reasoning.
 
-## 什么时候启用
+## When to Enable
 
-满足以下任一条件：
+Triggered when any of the following conditions are met:
 
-- 问题有**多个合理方案**，需要权衡取舍
-- 需求**模糊或隐含**，不能直接动手
-- 涉及**架构、策略、设计**层面的决策
-- 调试需要**系统性排查**而非一眼看出答案
-- 任务会**影响多个模块**或有连锁效应
-- 用户明确要求深入分析
+- The problem has **multiple valid solutions** that need to be weighed.
+- The requirements are **vague or implicit** and cannot be acted upon directly.
+- The decision involves **architecture, strategy, or design**.
+- Debugging requires **systematic investigation** rather than an obvious answer.
+- The task **affects multiple modules** or has cascading effects.
+- The user explicitly asks for in-depth analysis.
 
-**不启用**：改个 typo、回答一个事实性问题、单步操作。判断不了就不启用，简单问题用复杂流程是浪费。
+**Do NOT enable**: fixing a typo, answering a factual question, single-step operations. When in doubt, don't enable it; using a complex process for a simple problem is wasteful.
 
 ---
 
-## Phase 1：理解
+## Phase 1: Understand
 
-在动手之前，先确认自己真的懂了。
+Before taking action, make sure you truly understand.
 
-1. **用自己的话复述问题**：不是复制用户原话，是用你的理解重新表述。如果复述不出来，说明还没懂
-2. **分清已知和未知**：哪些信息是确定的？哪些是在猜？哪些需要先去查？
-3. **找到真正的问题**：用户问的和用户需要的经常不是同一件事。「帮我加个按钮」背后可能是「这个流程太长了」
-4. **标记不确定性**：不确定的地方显式说出来，不要假装什么都知道
+1. **Restate the problem in your own words**: Don't copy the user's original text — reformulate it with your understanding. If you can't restate it, you don't understand it yet.
+2. **Separate knowns from unknowns**: What information is certain? What are you guessing? What needs to be looked up first?
+3. **Find the real problem**: What the user asks and what the user needs are often different things. "Add a button" might really mean "this flow is too long."
+4. **Flag uncertainty**: Explicitly state what you're unsure about. Don't pretend to know everything.
 
-如果这一步发现问题本身就不清楚，先问用户，不要带着模糊的理解往下走。
+If the problem itself is unclear at this stage, ask the user first — don't proceed with a fuzzy understanding.
 
-## Phase 2：拆解
+## Phase 2: Break Down
 
-把大问题拆成可独立处理的小块。
+Break the large problem into independently solvable pieces.
 
-1. **识别子问题**：大问题通常由 2~5 个子问题组成。找到它们
-2. **理清依赖**：哪些可以并行？哪些必须先后？画出来
-3. **用 todo 工具建立清单**：每一项的粒度是「一口气能做完、做完能验证」。不要拆得太细（「打开文件」不是一个 todo），也不要太粗（「修好所有 bug」不是一个 todo）
+1. **Identify subproblems**: A large problem usually consists of 2–5 subproblems. Find them.
+2. **Clarify dependencies**: Which ones can be done in parallel? Which must be sequential? Map them out.
+3. **Create a checklist with the todo tool**: Each item should be granular enough to "finish in one go and verify upon completion." Don't split too fine ("open a file" is not a todo), nor too coarse ("fix all bugs" is not a todo).
 
 ```
-示例：
-✓ 好的粒度：「修 engine.js 的 null guard 问题」「给 archive 失败加 toast」
-✗ 太细：「打开 engine.js」「找到第 1302 行」「写 if 语句」
-✗ 太粗：「重构整个前端」
+Examples:
+✓ Good granularity: "Fix null guard in engine.js", "Add toast for archive failure"
+✗ Too fine: "Open engine.js", "Find line 1302", "Write if statement"
+✗ Too coarse: "Refactor the entire frontend"
 ```
 
-## Phase 3：多路径思考
+## Phase 3: Multi-Path Thinking
 
-不要看到第一个方案就冲上去。
+Don't jump at the first solution.
 
-1. **至少想两条路**：即使第一个方案看起来很对，也花 30 秒想想有没有别的方式
-2. **显式写出取舍**：每条路的好处、代价、风险。不用长篇大论，一两句话说清
-3. **选路时给理由**：不是「我选 A」，而是「选 A 因为 XYZ，虽然 B 也行但 XYZ」
-4. **保持可推翻**：执行到一半发现走错了，要有勇气换路，不要沉没成本
+1. **Consider at least two paths**: Even if the first solution looks correct, spend 30 seconds thinking of alternatives.
+2. **Explicitly write down trade-offs**: Benefits, costs, and risks of each path. No need for lengthy prose — a sentence or two will do.
+3. **Give a reason for your choice**: Not "I pick A," but "I pick A because XYZ, and although B also works, XYZ."
+4. **Stay reversible**: If you realize halfway through that you're going the wrong way, have the courage to switch paths. Don't let sunk cost hold you back.
 
-如果所有路径都指向同一个答案，不需要硬凑第二条。多路径思考是为了避免盲区，不是表演。
+If all paths point to the same answer, there's no need to force a second one. Multi-path thinking is to avoid blind spots, not for show.
 
-## Phase 4：执行
+## Phase 4: Execute
 
-按 todo 清单推进，保持节奏。
+Work through the todo list steadily, maintaining rhythm.
 
-1. **单线程**：同一时刻只做一件事。做完标记完成，再开始下一件
-2. **动态调整**：执行中发现新问题，加进 todo。发现某项不需要了，删掉。清单是活的
-3. **每一步都可验证**：做完一步，有办法确认它是对的（跑一下、看一下、测一下），再往下走
-4. **遇到阻塞不硬冲**：如果一条路走不通，停下来想为什么，而不是换个姿势继续撞墙
+1. **Single-threaded**: Only do one thing at a time. Mark it complete, then start the next.
+2. **Adjust dynamically**: If you discover new issues during execution, add them to the todo. If something turns out unnecessary, remove it. The list is alive.
+3. **Every step must be verifiable**: After each step, have a way to confirm it's correct (run it, look at it, test it) before moving on.
+4. **Don't brute-force through blockers**: If a path is blocked, stop and think about why — don't just ram into the wall from a different angle.
 
-## Phase 5：验证
+## Phase 5: Verify
 
-做完不等于做对。
+Done doesn't mean right.
 
-- [ ] 回到 Phase 1 的问题复述，实际结果是否匹配？
-- [ ] 有没有遗漏的边界情况？
-- [ ] 改动是否引入了新问题？
-- [ ] 用户真正需要的东西是否被满足了？
+- [ ] Go back to the restatement in Phase 1 — does the actual result match?
+- [ ] Are there any edge cases that were missed?
+- [ ] Did the changes introduce any new issues?
+- [ ] Is what the user truly needed actually satisfied?
 
 ---
 
-## 推理姿态
+## Reasoning Mindset
 
-贯穿整个过程的底层原则：
+The underlying principles that run through the entire process:
 
-**像侦探，不像法官。** 侦探跟着线索走，允许自己改变想法。法官一开始就要下结论。在 Phase 3 结束之前，你是侦探。
+**Think like a detective, not a judge.** A detective follows clues and allows themselves to change their mind. A judge has to reach a verdict from the start. Until Phase 3 is over, you are a detective.
 
-**错误是线索。** 推理中发现自己想错了，不要偷偷修正，要显式说出来：「刚才假设 X 成立，但看了代码发现不是，所以换个方向。」错误暴露的信息往往比正确的推理更有价值。
+**Mistakes are clues.** If you realize during reasoning that you were wrong, don't silently correct it — say it explicitly: "I assumed X was true earlier, but after reading the code I found it isn't, so I'm switching direction." The information revealed by mistakes is often more valuable than correct reasoning.
 
-**深度匹配复杂度。** 简单问题浅想，复杂问题深想。不是每个问题都值得走完 5 个 Phase。改个 CSS 颜色不需要「多路径思考」。自适应，别教条。
+**Depth matches complexity.** Think shallow on simple problems, deep on complex ones. Not every problem is worth going through all 5 Phases. Changing a CSS color doesn't need "multi-path thinking." Adapt — don't be dogmatic.
 
-**跟用户同步。** Phase 1 和 Phase 3 是跟用户对齐的好时机。不确定就问，有多条路就让用户选。不要闷头做完才发现方向错了。
+**Sync with the user.** Phase 1 and Phase 3 are good opportunities to align with the user. Ask when uncertain, let the user choose when there are multiple viable paths. Don't work in silence only to find out the direction was wrong.
