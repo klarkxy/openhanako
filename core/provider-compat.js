@@ -92,6 +92,23 @@ function stripIncompatibleThinking(payload, model) {
   return rest;
 }
 
+/**
+ * 通用 utility 模式思考链禁用。
+ *
+ * 对于 reasoning:true 的模型，utility 短输出任务（摘要、标题、翻译等）
+ * 不需要思考链；思考 token 会耗光 maxTokens 配额导致空响应。
+ * 此函数在 provider 子模块分发之前执行，作为安全兜底；
+ * 特定子模块（如 deepseek.js）内部也会做同样处理，不受影响。
+ */
+function disableThinkingForUtility(payload, model, options) {
+  if (options.mode !== "utility") return payload;
+  if (!model || typeof model !== "object") return payload;
+  if (model.reasoning !== true) return payload;
+  // 已显式设置 thinking 的（如 "enabled"）不覆盖，尊重调用方意图
+  if (payload.thinking && payload.thinking.type !== "disabled") return payload;
+  return { ...payload, thinking: { type: "disabled" } };
+}
+
 function isDisabledReasoningEffort(value) {
   if (value === false || value == null) return true;
   const normalized = lower(value);
@@ -126,6 +143,7 @@ export function normalizeProviderPayload(payload, model, options = {}) {
   result = stripEmptyTools(result);
   result = stripIncompatibleThinking(result, model);
   result = stripDisabledReasoningEffort(result);
+  result = disableThinkingForUtility(result, model, options);
   result = normalizeImplicitOutputBudget(result, model, options);
 
   // 2. Provider-specific 补丁（按 matches 分发，first-match-wins）
