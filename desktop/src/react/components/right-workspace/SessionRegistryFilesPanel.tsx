@@ -135,9 +135,9 @@ function isSessionFileSortMode(value: string | null): value is SessionFileSortMo
 function getInitialSortMode(): SessionFileSortMode {
   try {
     const saved = window.localStorage?.getItem(SESSION_FILE_SORT_KEY) ?? null;
-    return isSessionFileSortMode(saved) ? saved : 'time-desc';
+    return isSessionFileSortMode(saved) ? saved : 'name-asc';
   } catch {
-    return 'time-desc';
+    return 'name-asc';
   }
 }
 

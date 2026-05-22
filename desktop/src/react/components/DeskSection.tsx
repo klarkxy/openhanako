@@ -12,7 +12,7 @@ import { useStore } from '../stores';
 import { loadDeskTreeFiles } from '../stores/desk-actions';
 import { schedulePersistCurrentWorkspaceUiState } from '../stores/workspace-ui-state-actions';
 import { ContextMenu } from '../ui';
-import { DESK_SORT_KEY, type SortMode, type CtxMenuState, type FileTypeFilter } from './desk/desk-types';
+import { DESK_SORT_KEY, DESK_MANUAL_ORDER_KEY, normalizeSortMode, type SortMode, type CtxMenuState, type FileTypeFilter } from './desk/desk-types';
 import { DeskFilterButton, DeskOpenIconButton, DeskSearchBox, DeskSortButton } from './desk/DeskToolbar';
 import { DeskTree, type InlineCreateKind, type InlineTreeEdit } from './desk/DeskTree';
 import { DeskDropZone } from './desk/DeskDropZone';
@@ -72,8 +72,22 @@ export function DeskSection({
   const homeFolder = useStore(st => st.homeFolder);
 
   const [sortMode, setSortMode] = useState<SortMode>(
-    () => (localStorage.getItem(DESK_SORT_KEY) as SortMode) || 'mtime-desc',
+    () => normalizeSortMode(localStorage.getItem(DESK_SORT_KEY)),
   );
+  const [hasManualOrder, setHasManualOrder] = useState<boolean>(() => {
+    try { return localStorage.getItem(DESK_MANUAL_ORDER_KEY) === '1'; } catch { return false; }
+  });
+  const clearManualOrder = useCallback(() => {
+    setHasManualOrder(false);
+    try { localStorage.removeItem(DESK_MANUAL_ORDER_KEY); } catch { /* ignore */ }
+  }, []);
+  // 供未来拖拽排序功能调用：标记用户已手动调整过顺序
+  const markManualOrder = useCallback(() => {
+    if (!hasManualOrder) {
+      setHasManualOrder(true);
+      try { localStorage.setItem(DESK_MANUAL_ORDER_KEY, '1'); } catch { /* ignore */ }
+    }
+  }, [hasManualOrder]);
   const [typeFilters, setTypeFilters] = useState<FileTypeFilter[]>(getInitialTypeFilters);
   const [inlineEdit, setInlineEdit] = useState<InlineTreeEdit>(null);
   const t = window.t ?? ((p: string) => p);
@@ -156,7 +170,7 @@ export function DeskSection({
           <div className={s.toolbarActions}>
             <DeskOpenIconButton />
             <DeskFilterButton filters={typeFilters} onFiltersChange={handleTypeFiltersChange} onShowMenu={handleShowMenu} />
-            <DeskSortButton sortMode={sortMode} onSort={setSortMode} onShowMenu={handleShowMenu} />
+            <DeskSortButton sortMode={sortMode} onSort={setSortMode} hasManualOrder={hasManualOrder} onClearManualOrder={clearManualOrder} />
           </div>
         </div>
         <DeskTree
@@ -166,6 +180,7 @@ export function DeskSection({
           inlineEdit={inlineEdit}
           onInlineEditChange={setInlineEdit}
           onStartCreate={handleStartCreate}
+          onMarkManualOrder={markManualOrder}
         />
         <DeskEmptyOverlay />
       </DeskDropZone>

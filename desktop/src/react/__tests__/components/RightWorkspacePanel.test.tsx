@@ -343,12 +343,14 @@ describe('RightWorkspacePanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: '对话文件' }));
 
     const names = () => screen.getAllByTestId('session-file-name').map(el => el.textContent);
-    expect(names()).toEqual(['zeta.md', 'beta.pdf', 'alpha.png']);
+    // 默认按文件名升序（Windows 风格）
+    expect(names()).toEqual(['alpha.png', 'beta.pdf', 'zeta.md']);
 
     fireEvent.click(screen.getByRole('button', { name: '对话文件排序' }));
-    fireEvent.click(screen.getByText('名称↑'));
+    fireEvent.click(screen.getByText('时间↓'));
 
-    expect(names()).toEqual(['alpha.png', 'beta.pdf', 'zeta.md']);
+    // 切换为时间降序
+    expect(names()).toEqual(['zeta.md', 'beta.pdf', 'alpha.png']);
     expect(screen.queryByText('打开文件夹')).not.toBeInTheDocument();
     expect(screen.queryByText('粘贴')).not.toBeInTheDocument();
   });

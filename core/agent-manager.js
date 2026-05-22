@@ -21,7 +21,7 @@ import {
   generateDescription,
 } from "./llm-utils.js";
 import { findModel, parseModelRef } from "../shared/model-ref.js";
-import { DEFAULT_HEARTBEAT_INTERVAL_MINUTES } from "../shared/default-workspace.js";
+import { DEFAULT_HEARTBEAT_INTERVAL_MINUTES, resolveAgentDefaultWorkspacePath } from "../shared/default-workspace.js";
 import { relativePathInsideBase } from "./message-utils.js";
 import { detachAgentFromBundles } from "../lib/skill-bundles/store.js";
 import { assertKnownYuan, getAgentConfigRepairState } from "./yuan-registry.js";
@@ -297,6 +297,9 @@ export class AgentManager {
           ? { id: chatRef.id, provider: chatRef.provider }
           : (chatRef ? { id: chatRef } : null);
         const repairState = getAgentConfigRepairState(cfg, this._d.productDir);
+        const explicitHome = cfg.desk?.home_folder || null;
+        // 若角色未显式设置工作台，计算其默认工作区路径
+        const effectiveHome = explicitHome || resolveAgentDefaultWorkspacePath(entry.name);
         agents.push({
           id: entry.name,
           name: cfg.agent?.name || entry.name,
@@ -306,7 +309,7 @@ export class AgentManager {
           identity,
           hasAvatar,
           chatModel,
-          homeFolder: cfg.desk?.home_folder || null,
+          homeFolder: effectiveHome,
           memoryMasterEnabled: cfg.memory?.enabled !== false,
         });
       } catch {}
@@ -648,14 +651,18 @@ export class AgentManager {
       await this._doSwitchAgentOnly(agentId);
       this._d.getSkills().syncAgentSkills(this.agent);
       const homeFolder = engine?.getExplicitHomeCwd?.(agentId) || null;
-      const nextCwd = homeFolder || previousCwd || engine?.getHomeCwd?.(agentId) || undefined;
+      // 优先使用本角色的默认工作区，而非继承上一个角色的 CWD，
+      // 确保切换角色时工作台跟随切换。
+      const agentDefaultCwd = engine?.getHomeCwd?.(agentId) || null;
+      const effectiveHome = homeFolder || agentDefaultCwd;
+      const nextCwd = effectiveHome || previousCwd || undefined;
       const sessionResult = await this._d.getSessionCoordinator().createSession(null, nextCwd);
       const cwd = sessionResult?.session?.sessionManager?.getCwd?.() || nextCwd || null;
       log.log(`已切换到助手: ${this.agent.agentName} (${agentId})`);
       return {
         ...sessionResult,
         cwd,
-        homeFolder,
+        homeFolder: effectiveHome,
       };
     } finally {
       hub?.resumeAfterAgentSwitch();

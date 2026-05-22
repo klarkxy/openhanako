@@ -26,31 +26,75 @@ export const ICONS = {
 // ── 排序 ──
 
 export const DESK_SORT_KEY = 'hana-desk-sort';
+export const DESK_MANUAL_ORDER_KEY = 'hana-desk-manual-order';
 
-export type SortMode = 'mtime-desc' | 'name-asc' | 'name-desc' | 'size-desc' | 'type-asc';
+export type SortMode =
+  | 'name-asc' | 'name-desc'
+  | 'mtime-asc' | 'mtime-desc'
+  | 'type-asc' | 'type-desc'
+  | 'size-asc' | 'size-desc';
+
 export type FileTypeFilter = 'image' | 'text' | 'video';
 
 function tr(key: string, vars?: Record<string, string | number>): string {
   return window.t ? window.t(key, vars) : key;
 }
 
+/** 排序字段的循环顺序：每个字段先升序再降序，点完一圈回到开头 */
+export const SORT_CYCLE: readonly SortMode[] = [
+  'name-asc', 'name-desc',
+  'mtime-asc', 'mtime-desc',
+  'type-asc', 'type-desc',
+  'size-asc', 'size-desc',
+] as const;
+
+/** 返回循环中的下一个排序模式 */
+export function nextSortInCycle(current: SortMode): SortMode {
+  const normalized = normalizeSortMode(current);
+  const idx = SORT_CYCLE.indexOf(normalized);
+  return SORT_CYCLE[(idx + 1) % SORT_CYCLE.length] as SortMode;
+}
+
+/**
+ * 将旧版排序值（如 'mtime-desc'、'size-desc'）或未知值规范化到新的 SortMode。
+ * 兼容 localStorage 中残留的旧格式。
+ */
+export function normalizeSortMode(raw: string | null | undefined): SortMode {
+  if (!raw) return 'name-asc';
+  // 旧版单方向 key → 新版双向 key
+  const legacyMap: Record<string, SortMode> = {
+    'mtime-desc': 'mtime-desc',
+    'size-desc': 'size-desc',
+  };
+  if (legacyMap[raw]) return legacyMap[raw];
+  // 已是新版 key
+  if ((SORT_CYCLE as readonly string[]).includes(raw)) return raw as SortMode;
+  return 'name-asc';
+}
+
 export function getSortOptions(): Array<{ key: SortMode; label: string }> {
   return [
-    { key: 'mtime-desc', label: tr('desk.sort.mtime') },
     { key: 'name-asc', label: tr('desk.sort.nameAsc') },
     { key: 'name-desc', label: tr('desk.sort.nameDesc') },
-    { key: 'size-desc', label: tr('desk.sort.size') },
-    { key: 'type-asc', label: tr('desk.sort.type') },
+    { key: 'mtime-asc', label: tr('desk.sort.mtimeAsc') },
+    { key: 'mtime-desc', label: tr('desk.sort.mtimeDesc') },
+    { key: 'type-asc', label: tr('desk.sort.typeAsc') },
+    { key: 'type-desc', label: tr('desk.sort.typeDesc') },
+    { key: 'size-asc', label: tr('desk.sort.sizeAsc') },
+    { key: 'size-desc', label: tr('desk.sort.sizeDesc') },
   ];
 }
 
 export function getSortShort(mode: string): string {
   const map: Record<string, string> = {
-    'mtime-desc': tr('desk.sort.mtimeShort'),
     'name-asc': tr('desk.sort.nameAscShort'),
     'name-desc': tr('desk.sort.nameDescShort'),
-    'size-desc': tr('desk.sort.sizeShort'),
-    'type-asc': tr('desk.sort.typeShort'),
+    'mtime-asc': tr('desk.sort.mtimeAscShort'),
+    'mtime-desc': tr('desk.sort.mtimeDescShort'),
+    'type-asc': tr('desk.sort.typeAscShort'),
+    'type-desc': tr('desk.sort.typeDescShort'),
+    'size-asc': tr('desk.sort.sizeAscShort'),
+    'size-desc': tr('desk.sort.sizeDescShort'),
   };
   return map[mode] || tr('desk.sort.label');
 }
@@ -98,20 +142,32 @@ export function sortDeskFiles(files: DeskFile[], mode: SortMode): DeskFile[] {
   const regular = filtered.filter(f => !f.isDir);
 
   const cmp = (a: DeskFile, b: DeskFile): number => {
+    // 目录始终排在文件前面，目录之间按名称排序
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    if (a.isDir) return a.name.localeCompare(b.name, 'zh');
+
     switch (mode) {
       case 'name-asc': return a.name.localeCompare(b.name, 'zh');
       case 'name-desc': return b.name.localeCompare(a.name, 'zh');
-      case 'size-desc':
-        if (a.isDir) return a.name.localeCompare(b.name, 'zh');
-        return (b.size ?? 0) - (a.size ?? 0);
+      case 'size-asc': return (a.size ?? 0) - (b.size ?? 0) || a.name.localeCompare(b.name, 'zh');
+      case 'size-desc': return (b.size ?? 0) - (a.size ?? 0) || a.name.localeCompare(b.name, 'zh');
       case 'type-asc': {
         const extA = a.name.includes('.') ? a.name.split('.').pop()! : '';
         const extB = b.name.includes('.') ? b.name.split('.').pop()! : '';
         return extA.localeCompare(extB) || a.name.localeCompare(b.name, 'zh');
       }
+      case 'type-desc': {
+        const extA = a.name.includes('.') ? a.name.split('.').pop()! : '';
+        const extB = b.name.includes('.') ? b.name.split('.').pop()! : '';
+        return extB.localeCompare(extA) || a.name.localeCompare(b.name, 'zh');
+      }
+      case 'mtime-asc':
+        return new Date(a.mtime ?? 0).getTime() - new Date(b.mtime ?? 0).getTime()
+            || a.name.localeCompare(b.name, 'zh');
       case 'mtime-desc':
       default:
-        return new Date(b.mtime ?? 0).getTime() - new Date(a.mtime ?? 0).getTime();
+        return new Date(b.mtime ?? 0).getTime() - new Date(a.mtime ?? 0).getTime()
+            || a.name.localeCompare(b.name, 'zh');
     }
   };
 

@@ -393,6 +393,16 @@
     color: var(--text-muted);
 }
 
+/* 手动排序模式下的排序按钮：加琥珀色提示 */
+.sortBtnManual {
+    color: #d4a017;
+}
+
+.sortBtnManual:hover {
+    color: #d4a017;
+    background: rgba(212, 160, 23, 0.08);
+}
+
 .sortBtn svg {
     display: block;
     flex: 0 0 auto;

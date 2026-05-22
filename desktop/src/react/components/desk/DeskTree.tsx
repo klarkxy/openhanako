@@ -573,6 +573,7 @@ export function DeskTree({
   inlineEdit,
   onInlineEditChange,
   onStartCreate,
+  onMarkManualOrder,
 }: {
   sortMode: SortMode;
   typeFilters?: FileTypeFilter[];
@@ -580,6 +581,8 @@ export function DeskTree({
   inlineEdit: InlineTreeEdit;
   onInlineEditChange: Dispatch<SetStateAction<InlineTreeEdit>>;
   onStartCreate: (parentSubdir: string, kind: InlineCreateKind) => Promise<void>;
+  /** 拖拽排序后调用，标记用户已手动调整过顺序 */
+  onMarkManualOrder?: () => void;
 }) {
   const deskBasePath = useStore(s => s.deskBasePath);
   const rootFiles = useStore(s => s.deskTreeFilesByPath[''] || s.deskFiles);

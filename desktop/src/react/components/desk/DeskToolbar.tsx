@@ -10,6 +10,7 @@ import {
   ICONS,
   getSortOptions,
   getSortShort,
+  nextSortInCycle,
   getFileTypeFilterOptions,
   getFilterShort,
   type SortMode,
@@ -101,32 +102,42 @@ export function DeskRefreshButton() {
   );
 }
 
-// ── 排序按钮 ──
+// ── 排序按钮（循环切换） ──
 
-export function DeskSortButton({ sortMode, onSort, onShowMenu }: {
+export function DeskSortButton({ sortMode, onSort, hasManualOrder, onClearManualOrder }: {
   sortMode: SortMode;
   onSort: (m: SortMode) => void;
-  onShowMenu: (state: CtxMenuState) => void;
+  hasManualOrder: boolean;
+  onClearManualOrder: () => void;
 }) {
   const handleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    onShowMenu({
-      position: { x: rect.left, y: rect.bottom + 4 },
-      items: getSortOptions().map(o => ({
-        label: (o.key === sortMode ? '· ' : '   ') + o.label,
-        action: () => {
-          localStorage.setItem('hana-desk-sort', o.key);
-          onSort(o.key);
-        },
-      })),
-    });
-  }, [sortMode, onSort, onShowMenu]);
+
+    if (hasManualOrder) {
+      const msg = (window.t ?? ((p: string) => p))('desk.sort.manualOrderWarning');
+      if (!window.confirm(msg || '当前为手动排序，应用自动排序将覆盖手动顺序，确定继续？')) {
+        return;
+      }
+      onClearManualOrder();
+    }
+
+    const next = nextSortInCycle(sortMode);
+    try { localStorage.setItem('hana-desk-sort', next); } catch { /* ignore */ }
+    onSort(next);
+  }, [sortMode, onSort, hasManualOrder, onClearManualOrder]);
+
+  const label = getSortShort(sortMode);
+  const title = (window.t ?? ((p: string) => p))('desk.sort.label');
 
   return (
-    <button className={s.sortBtn} onClick={handleClick}>
+    <button
+      className={`${s.sortBtn}${hasManualOrder ? ` ${s.sortBtnManual}` : ''}`}
+      onClick={handleClick}
+      aria-label={title}
+      title={hasManualOrder ? `${title} · ${(window.t ?? ((p: string) => p))('desk.sort.manualHint') || '已手动排序'}` : title}
+    >
       <span dangerouslySetInnerHTML={{ __html: ICONS.sort }} />
-      <span>{getSortShort(sortMode)}</span>
+      <span>{label}</span>
     </button>
   );
 }

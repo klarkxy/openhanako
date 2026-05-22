@@ -206,7 +206,7 @@ export function createAgentsRoute(engine) {
       const agentName = engine.getAgent(id)?.agentName || id;
       const cwd = switchResult?.cwd || engine.cwd || null;
       const sessionPath = switchResult?.sessionPath || engine.currentSessionPath || null;
-      const homeFolder = switchResult?.homeFolder ?? engine.getExplicitHomeCwd?.(id) ?? null;
+      const homeFolder = switchResult?.homeFolder ?? engine.getExplicitHomeCwd?.(id) ?? engine.getHomeCwd?.(id) ?? null;
       const workspaceFolders = sessionPath
         ? (engine.getSessionWorkspaceFolders?.(sessionPath) || [])
         : [];

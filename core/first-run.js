@@ -14,6 +14,7 @@ import { errorBus } from '../shared/error-bus.js';
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
   ensureDefaultWorkspace,
+  ensureAgentDefaultWorkspace,
 } from "../shared/default-workspace.js";
 import { createModuleLogger } from "../lib/debug-log.js";
 
@@ -94,7 +95,7 @@ function seedDefaultAgent(agentsDir, productDir) {
   const raw = fs.existsSync(cfgDest) ? YAML.load(fs.readFileSync(cfgDest, "utf-8")) || {} : {};
   raw.desk = {
     ...(raw.desk || {}),
-    home_folder: ensureDefaultWorkspace(),
+    home_folder: ensureAgentDefaultWorkspace(agentId),
     heartbeat_enabled: false,
     heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
   };
