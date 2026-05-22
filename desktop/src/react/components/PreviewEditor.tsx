@@ -74,6 +74,9 @@ export interface PreviewEditorProps {
 const SAVE_DELAY = 600;
 const CHECKPOINT_INTERVAL = 5 * 60 * 1000;
 
+/** 按 filePath 缓存关闭前的滚动位置，重新打开同一文件时恢复 */
+const _scrollPositionCache = new Map<string, { scrollTop: number; scrollLeft: number }>();
+
 interface SaveJob {
   text: string;
   revision: number;
@@ -120,10 +123,13 @@ function restoreScrollPosition(view: EditorView, scrollTop: number, scrollLeft: 
   restore();
   queueMicrotask(restore);
   // 双重 rAF：第一帧 CodeMirror 可能重置滚动，第二帧才是安全的恢复时机
-  requestAnimationFrame(() => {
-    restore();
-    requestAnimationFrame(restore);
-  });
+  // 使用可选链兼容 jsdom 测试环境（无 requestAnimationFrame）
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      restore();
+      requestAnimationFrame(restore);
+    });
+  }
 }
 
 function replaceDocumentPreservingSelection(
@@ -515,7 +521,23 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
       lastStatsRef.current = null;
       emitStatsIfChanged(view);
 
+      // 若该文件之前打开过，恢复到关闭时的滚动位置
+      // 注意：这里只用同步赋值，不走 restoreScrollPosition（其 queueMicrotask / rAF
+      // 会在后续微任务中覆盖掉用户/测试在此之后设置的值）。
+      const cached = filePath ? _scrollPositionCache.get(filePath) : undefined;
+      if (cached) {
+        view.scrollDOM.scrollTop = cached.scrollTop;
+        view.scrollDOM.scrollLeft = cached.scrollLeft;
+      }
+
       return () => {
+        // 关闭前将当前滚动位置写入缓存，下次打开同一文件时恢复
+        if (filePath) {
+          _scrollPositionCache.set(filePath, {
+            scrollTop: view.scrollDOM.scrollTop,
+            scrollLeft: view.scrollDOM.scrollLeft,
+          });
+        }
         if (saveTimerRef.current) {
           clearTimeout(saveTimerRef.current);
           saveTimerRef.current = null;
