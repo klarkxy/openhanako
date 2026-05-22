@@ -119,15 +119,25 @@ function restoreScrollPosition(view: EditorView, scrollTop: number, scrollLeft: 
   };
   restore();
   queueMicrotask(restore);
-  window.requestAnimationFrame?.(restore);
+  // 双重 rAF：第一帧 CodeMirror 可能重置滚动，第二帧才是安全的恢复时机
+  requestAnimationFrame(() => {
+    restore();
+    requestAnimationFrame(restore);
+  });
 }
 
-function replaceDocumentPreservingSelection(view: EditorView, content: string): boolean {
+function replaceDocumentPreservingSelection(
+  view: EditorView,
+  content: string,
+  savedScrollTop?: number,
+  savedScrollLeft?: number,
+): boolean {
   const current = view.state.doc.toString();
   if (current === content) return false;
   const nextLength = content.length;
   const { anchor, head } = view.state.selection.main;
-  const { scrollTop, scrollLeft } = view.scrollDOM;
+  const scrollTop = savedScrollTop ?? view.scrollDOM.scrollTop;
+  const scrollLeft = savedScrollLeft ?? view.scrollDOM.scrollLeft;
   view.dispatch({
     changes: { from: 0, to: current.length, insert: content },
     selection: EditorSelection.single(clampPos(anchor, nextLength), clampPos(head, nextLength)),
@@ -540,6 +550,10 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
       const handler = (e: Event) => {
         const changedPath = (e as CustomEvent).detail;
         if (changedPath !== filePath) return;
+        // 在异步读盘前捕获滚动位置，防止期间用户操作导致漂移
+        const preView = viewRef.current;
+        const savedScrollTop = preView?.scrollDOM.scrollTop;
+        const savedScrollLeft = preView?.scrollDOM.scrollLeft;
         void (async () => {
           const snapshot = await window.platform?.readFileSnapshot?.(filePath);
           const newContent = snapshot?.content ?? await window.platform?.readFile(filePath);
@@ -563,7 +577,7 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
               saveTimerRef.current = null;
             }
             lastSavedContentRef.current = newContent;
-            replaceDocumentPreservingSelection(view, newContent);
+            replaceDocumentPreservingSelection(view, newContent, savedScrollTop, savedScrollLeft);
             contentCbRef.current?.(newContent, diskVersionRef.current);
           })
           .catch((err) => {
@@ -588,6 +602,10 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
 
       const poll = async () => {
         if (!polling) return;
+        // 在异步读盘前捕获滚动位置，避免 await 期间用户滚动导致位置漂移
+        const preView = viewRef.current;
+        const savedScrollTop = preView?.scrollDOM.scrollTop;
+        const savedScrollLeft = preView?.scrollDOM.scrollLeft;
         try {
           const snapshot = await window.platform?.readFileSnapshot?.(filePath);
           if (!snapshot?.version || !polling) return;
@@ -617,7 +635,7 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
             saveTimerRef.current = null;
           }
           lastSavedContentRef.current = newContent;
-          replaceDocumentPreservingSelection(view, newContent);
+          replaceDocumentPreservingSelection(view, newContent, savedScrollTop, savedScrollLeft);
           contentCbRef.current?.(newContent, diskVersionRef.current);
         } catch {
           // 轮询静默失败，下次 tick 重试
