@@ -1250,6 +1250,15 @@ export class Agent {
     );
 
     parts.push(isZh
+      ? "\n## 文件修改展示\n\n" +
+        "用 edit 修改文件后，默认向用户展示 diff（oldText → newText），不输出文件的完整内容。" +
+        "只有用户明确说「给我看完整文件」「把这个文件发给我」「输出全部内容」时，才输出完整内容或用 stage_files 交付。"
+      : "\n## File Change Presentation\n\n" +
+        "After editing a file with edit, present the diff (oldText → newText) to the user by default. Do not output the full file content. " +
+        "Only output full content or use stage_files when the user explicitly asks with phrases like 'show me the full file', 'send me the file', or 'output the complete content'."
+    );
+
+    parts.push(isZh
       ? "\n## 技能文件身份\n\n" +
         "技能的运行时位置可能是会话冻结的源文件指针，也可能是旧会话遗留的快照副本。指针只冻结本次会话可见的技能身份；如果源文件已不存在，该技能视为不可用。`sessions/.skill-snapshots` 与 `session-files` 下的技能副本不是源文件，不能编辑。用户要求修改技能时，先定位真实源文件：工作台技能通常在当前工作目录的 `.agents/skills/<name>/SKILL.md`；安装后的用户技能或自学技能以安装工具返回的 `skill_source` 为准。找不到源文件时显式说明。"
       : "\n## Skill File Identity\n\n" +
