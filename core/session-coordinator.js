@@ -771,7 +771,7 @@ export class SessionCoordinator {
     } else {
       // Case C. Fresh agents (and agents upgrading from a pre-feature version)
       // have no tools.disabled field — apply DEFAULT_DISABLED_TOOL_NAMES so
-      // update_settings and dm are off by default. Explicit `[]` means "all on"
+      // dm is off by default. Explicit `[]` means "all on"
       // and is preserved via nullish-coalescing rather than `||`.
       const disabled = agent.config?.tools?.disabled ?? DEFAULT_DISABLED_TOOL_NAMES;
       snapshotToolNames = computeToolSnapshot(allToolNames, disabled, {

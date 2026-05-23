@@ -21,6 +21,7 @@
 import path from "path";
 import { extOfName, inferFileKind } from "../lib/file-metadata.js";
 import { collectMediaItems } from "../lib/tools/media-details.js";
+import { formatSettingsUpdateText } from "../lib/tools/settings-update-result.js";
 import { materializeBridgeInboundFiles } from "../lib/session-files/bridge-inbound-files.js";
 import { serializeSessionFile } from "../lib/session-files/session-file-response.js";
 
@@ -128,6 +129,10 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
       const card = event.result?.details?.card;
       if (card?.description) {
         captured += (captured ? "\n\n" : "") + card.description;
+      }
+      const settingsUpdateText = formatSettingsUpdateText(event.result?.details?.settingsUpdate);
+      if (settingsUpdateText) {
+        captured += (captured ? "\n\n" : "") + settingsUpdateText;
       }
     }
   });

@@ -69,7 +69,7 @@ function allNames() {
 }
 
 function defaultBaselineNames() {
-  return allNames().filter((name) => !["dm", "update_settings"].includes(name));
+  return allNames().filter((name) => name !== "dm");
 }
 
 describe("session-coordinator tool snapshot (createSession)", () => {
@@ -165,12 +165,12 @@ describe("session-coordinator tool snapshot (createSession)", () => {
 
   // ── Case C tests ─────────────────────────────────────────────
 
-  it("Case C: new session with NO tools config applies DEFAULT_DISABLED (update_settings + dm off)", async () => {
+  it("Case C: new session with NO tools config applies DEFAULT_DISABLED (dm off, update_settings on)", async () => {
     currentAgentConfig = {}; // fresh agent or upgrade, tools field absent
     const { sessionPath } = await coord.createSession(null, tmpDir, true);
 
     const appliedList = activeToolsSpy.mock.calls[0][0];
-    expect(appliedList).not.toContain("update_settings");
+    expect(appliedList).toContain("update_settings");
     expect(appliedList).not.toContain("dm");
     // everything else still on
     expect(appliedList).toContain("browser");

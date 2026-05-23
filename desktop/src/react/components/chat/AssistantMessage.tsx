@@ -10,6 +10,7 @@ import { ToolGroupBlock } from './ToolGroupBlock';
 import { PluginCardBlock } from './PluginCardBlock';
 import { SubagentCard } from './SubagentCard';
 import { SettingsConfirmCard } from './SettingsConfirmCard';
+import { SettingsUpdateCard } from './SettingsUpdateCard';
 import { MessageActions } from './MessageActions';
 import { MessageFooterActions, formatMessageTime, type MessageFooterAction } from './MessageFooterActions';
 import { BLOCK_RENDERERS } from './block-renderers';
@@ -655,6 +656,10 @@ const SettingsConfirmBlock = memo(function SettingsConfirmBlock({ block }: { blo
   return <SettingsConfirmCard {...block} />;
 });
 
+const SettingsUpdateBlock = memo(function SettingsUpdateBlock({ block }: { block: any }) {
+  return <SettingsUpdateCard update={block.update} />;
+});
+
 // ── 注册所有物种 B 渲染器 ──
 // 注：`file` 与 `screenshot` 需 session 上下文（sessionPath/messageId/blockIdx），
 // 统一走 ContentBlockView 的 switch 内联分发，不注册到全局表中。
@@ -664,3 +669,4 @@ BLOCK_RENDERERS['plugin_card'] = PluginCardWrapper;
 BLOCK_RENDERERS['skill'] = SkillBlock;
 BLOCK_RENDERERS['cron_confirm'] = CronConfirmBlock;
 BLOCK_RENDERERS['settings_confirm'] = SettingsConfirmBlock;
+BLOCK_RENDERERS['settings_update'] = SettingsUpdateBlock;

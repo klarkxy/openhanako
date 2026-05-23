@@ -497,6 +497,26 @@ describe('cron', () => {
 describe('update_settings', () => {
   const extractor = BLOCK_EXTRACTORS.update_settings;
 
+  it('with settingsUpdate details: returns settings_update block', () => {
+    const settingsUpdate = {
+      status: 'applied',
+      action: 'core.apply',
+      key: 'locale',
+      title: 'Locale updated',
+      summary: 'Locale changed.',
+      changes: [
+        { key: 'locale', label: 'Locale', before: 'zh-CN', after: 'en' },
+      ],
+    };
+
+    expect(extractor({ settingsUpdate })).toEqual([
+      {
+        type: 'settings_update',
+        update: settingsUpdate,
+      },
+    ]);
+  });
+
   it('with settingKey and all fields: returns settings_confirm block', () => {
     const details = {
       settingKey: 'theme',

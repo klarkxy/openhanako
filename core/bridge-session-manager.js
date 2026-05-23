@@ -18,6 +18,7 @@ import { prepareModelImageInputsForPrompt } from "./model-image-preprocess.js";
 import { withVisionContextInjectionExtension } from "./vision-context-injector.js";
 import { SESSION_PERMISSION_MODES } from "./session-permission-mode.js";
 import { collectMediaItems } from "../lib/tools/media-details.js";
+import { formatSettingsUpdateText } from "../lib/tools/settings-update-result.js";
 import { materializeBridgeInboundFiles } from "../lib/session-files/bridge-inbound-files.js";
 import { modelSupportsDirectVideoInput, modelSupportsVideoInput } from "../shared/model-capabilities.js";
 import {
@@ -579,6 +580,10 @@ export class BridgeSessionManager {
           const card = event.result?.details?.card;
           if (card?.description) {
             capturedText += (capturedText ? "\n\n" : "") + card.description;
+          }
+          const settingsUpdateText = formatSettingsUpdateText(event.result?.details?.settingsUpdate);
+          if (settingsUpdateText) {
+            capturedText += (capturedText ? "\n\n" : "") + settingsUpdateText;
           }
         }
         const messageEndError = getProviderMessageEndError(event);
