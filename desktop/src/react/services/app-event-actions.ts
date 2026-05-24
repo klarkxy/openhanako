@@ -6,7 +6,6 @@ import { loadModels } from '../utils/ui-helpers';
 import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadChannels } from '../stores/channel-actions';
 import { applyEditorTypography } from '../editor/typography';
-// @ts-expect-error — shared JS module
 import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.js';
 
 declare const i18n: {

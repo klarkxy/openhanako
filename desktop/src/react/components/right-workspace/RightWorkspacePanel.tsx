@@ -7,7 +7,6 @@ import { JianEditor } from '../desk/DeskEditor';
 import { PluginWidgetView } from '../plugin/PluginWidgetView';
 import { SessionRegistryFilesPanel } from './SessionRegistryFilesPanel';
 import styles from './RightWorkspacePanel.module.css';
-// @ts-expect-error — shared JS module
 import { workspaceDisplayName } from '../../../../../shared/workspace-history.js';
 
 interface RightWorkspaceTabDef {

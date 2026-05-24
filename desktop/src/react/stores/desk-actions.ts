@@ -15,7 +15,6 @@ import {
   schedulePersistCurrentWorkspaceUiState,
 } from './workspace-ui-state-actions';
 import { hasServerConnection } from '../services/server-connection';
-// @ts-expect-error — shared JS module
 import { mergeWorkspaceHistory, normalizeWorkspacePath } from '../../../../shared/workspace-history.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- store setState 回调及 IPC callback data */

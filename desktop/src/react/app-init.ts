@@ -32,9 +32,7 @@ import {
   type ServerConnection,
 } from './services/server-connection';
 import { persistAppearancePreferences } from './services/appearance-sync';
-// @ts-expect-error — shared JS module
 import { errorBus as _errorBus } from '../../../shared/error-bus.js';
-// @ts-expect-error — shared JS module
 import { AppError as _AppError } from '../../../shared/errors.js';
 
 declare const i18n: {

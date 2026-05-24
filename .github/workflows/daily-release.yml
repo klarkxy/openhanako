@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   daily-release:
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     runs-on: ubuntu-latest
     # 仅在 liliMozi/openhanako 仓库运行，fork 不执行
     if: github.repository == 'liliMozi/openhanako'
