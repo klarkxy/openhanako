@@ -3,6 +3,8 @@ import { errorBus } from '../shared/error-bus.js';
 import { normalizeProviderPayload } from './provider-compat.js';
 import { logLlmUsage, normalizeLlmUsage } from '../lib/llm/usage-observer.js';
 
+const EMPTY_AFTER_THINKING_MESSAGE = "模型未回复正文，请检查思考内容或稍后重试。";
+
 /**
  * core/llm-client.js — 统一的非流式 LLM 调用入口
  *
@@ -353,7 +355,7 @@ export async function callText({
     }
     throw new AppError('LLM_EMPTY_RESPONSE', {
       message: emptyAfterThinking
-        ? "LLM returned only thinking content without visible text"
+        ? EMPTY_AFTER_THINKING_MESSAGE
         : undefined,
       context: {
         model: modelId,

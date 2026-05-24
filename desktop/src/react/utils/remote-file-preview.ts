@@ -53,6 +53,25 @@ function previewId(prefix: string, key: string): string {
   return `${prefix}-${encodeURIComponent(key)}`;
 }
 
+function versionFromDeskFile(file: DeskFile): FileRef['version'] | undefined {
+  const mtimeMs = typeof file.mtime === 'string' ? Date.parse(file.mtime) : NaN;
+  if (!Number.isFinite(mtimeMs) || typeof file.size !== 'number') return undefined;
+  return { mtimeMs, size: file.size };
+}
+
+function versionToken(version: FileRef['version']): string | null {
+  if (!version || typeof version.mtimeMs !== 'number' || typeof version.size !== 'number') return null;
+  if (!Number.isFinite(version.mtimeMs) || !Number.isFinite(version.size)) return null;
+  return [String(version.mtimeMs), String(version.size), version.sha256].filter(Boolean).join('-');
+}
+
+function appendVersionQuery(path: string, version: FileRef['version']): string {
+  const token = versionToken(version);
+  if (!token) return path;
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}v=${encodeURIComponent(token)}`;
+}
+
 async function blobToBase64(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let binary = '';
@@ -125,6 +144,8 @@ export async function openMobileWorkbenchPreview(input: WorkbenchPreviewInput): 
   const ext = extOfName(name) || '';
   const rootId = input.rootId || 'default';
   const contentPath = encodeWorkbenchContentPath({ rootId, subdir: input.subdir, name });
+  const version = versionFromDeskFile(input.file);
+  const versionedContentPath = appendVersionQuery(contentPath, version);
   const connection = resolveServerConnection(useStore.getState());
   const studioId = connection?.studioId || 'default';
   const mediaKind = inferKindByExt(ext);
@@ -136,6 +157,7 @@ export async function openMobileWorkbenchPreview(input: WorkbenchPreviewInput): 
         name,
         path: '',
         ext,
+        version,
         resource: {
           resourceId: `workbench:${rootId}:${input.subdir}:${name}`,
           studioId,
@@ -146,7 +168,7 @@ export async function openMobileWorkbenchPreview(input: WorkbenchPreviewInput): 
 
   try {
     await openRemoteContentPreview({
-      contentPath,
+      contentPath: versionedContentPath,
       id: previewId('workbench', `${rootId}:${input.subdir}:${name}`),
       title: name,
       ext,

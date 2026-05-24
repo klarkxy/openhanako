@@ -9,10 +9,10 @@ description: Required reading when using image/video generation tools. Covers to
 
 Generation is asynchronous. After submitting, the tool immediately returns a card. You **do not need to wait** and **do not need to call stage_files**. The image/video files are registered as SessionFile by the image-gen plugin when complete in the background. The card only shows task status and result references; file lifecycle is managed by StageFile.
 
-1. Call the tool with prompt and parameters
-2. **Tell the user it's generating and will appear in the card when done**
-3. **Continue the conversation** — do not wait
-4. When receiving `<hana-background-result>`, naturally inform the user
+1. 调用工具，传入 prompt 和参数
+2. **告诉用户正在生成，完成后会自动显示**
+3. **继续对话**，不要等待
+4. 生成完成由 UI 原地替换占位，Bridge 会按当前会话体验自动发送媒体；不要等待后台完成，也不要因为完成结果打断接下来的回复
 
 ## Tool Parameters
 

@@ -94,6 +94,9 @@ function sessionFileToContentBlock(file, extra = undefined) {
     ...(file.storageKind ? { storageKind: file.storageKind } : {}),
     ...(file.status ? { status: file.status } : {}),
     ...(file.missingAt !== undefined ? { missingAt: file.missingAt } : {}),
+    ...(file.mtimeMs !== undefined ? { mtimeMs: file.mtimeMs } : {}),
+    ...(file.size !== undefined ? { size: file.size } : {}),
+    ...(file.version ? { version: file.version } : {}),
     ...(file.resource ? { resource: file.resource } : {}),
   };
 }
@@ -136,13 +139,22 @@ export function toCompactionLifecycleWsMessage(event, sessionPath, getSessionByP
   };
 }
 
+export const DEFAULT_DISCONNECT_ABORT_GRACE_MS = 5 * 60_000;
+
+export function resolveDisconnectAbortGraceMs(value = process.env.HANA_WS_DISCONNECT_ABORT_GRACE_MS) {
+  if (value === undefined || value === null || value === "") return DEFAULT_DISCONNECT_ABORT_GRACE_MS;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_DISCONNECT_ABORT_GRACE_MS;
+  return Math.floor(parsed);
+}
+
 export function createChatRoute(engine, hub, { upgradeWebSocket }) {
   const restRoute = new Hono();
   const wsRoute = new Hono();
 
   let activeWsClients = 0;
   let disconnectAbortTimer = null;
-  const DISCONNECT_ABORT_GRACE_MS = 15_000;
+  const disconnectAbortGraceMs = resolveDisconnectAbortGraceMs();
   const sessionState = new Map(); // sessionPath -> shared stream state
 
   function cancelDisconnectAbort() {
@@ -154,15 +166,17 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
 
   function scheduleDisconnectAbort() {
     if (disconnectAbortTimer || activeWsClients > 0) return;
+    if (disconnectAbortGraceMs === 0) return;
     disconnectAbortTimer = setTimeout(() => {
       disconnectAbortTimer = null;
       if (activeWsClients > 0) return;
 
       // 中断所有正在 streaming 的 owner session（焦点 + 后台）
       for (const [, ss] of sessionState) ss.isAborted = true;
-      debugLog()?.log("ws", `no clients for ${DISCONNECT_ABORT_GRACE_MS}ms, aborting all streaming`);
+      debugLog()?.log("ws", `no clients for ${disconnectAbortGraceMs}ms, aborting all streaming`);
       engine.abortAllStreaming().catch(() => {});
-    }, DISCONNECT_ABORT_GRACE_MS);
+    }, disconnectAbortGraceMs);
+    disconnectAbortTimer.unref?.();
   }
 
   const MAX_SESSION_STATES = 100;

@@ -50,6 +50,7 @@ export const GLOBAL_TOOL_NAMES = [
 ];
 
 export const OPTIONAL_TOOL_NAMES = [
+  "automation",
   "browser",
   "cron",
   "dm",
@@ -69,12 +70,10 @@ const OPTIONAL_TOOL_NAMES_SET = new Set(OPTIONAL_TOOL_NAMES);
  * two from drifting.
  *
  * Rationale:
- *   update_settings — lets the agent modify app configuration; off by default
- *                     because silent config drift is surprising.
  *   dm              — direct-messages between agents; off by default because
  *                     single-agent setups have no peers and it adds context.
  */
-export const DEFAULT_DISABLED_TOOL_NAMES = ["update_settings", "dm"];
+export const DEFAULT_DISABLED_TOOL_NAMES = ["dm"];
 
 export function uniqueToolNames(names) {
   const seen = new Set();

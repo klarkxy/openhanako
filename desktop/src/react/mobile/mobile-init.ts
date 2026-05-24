@@ -72,6 +72,13 @@ export async function initializeMobileRuntime(principal: MobilePrincipal): Promi
     serverPort: window.location.port || null,
     serverToken: null,
     currentTab: 'chat',
+    sidebarOpen: false,
+    jianOpen: false,
+    previewOpen: false,
+    currentSessionPath: null,
+    pendingSessionSwitchPath: null,
+    pendingNewSession: true,
+    welcomeVisible: true,
   });
 
   const bootstrapRes = await hanaFetch('/api/mobile/bootstrap');
@@ -114,7 +121,8 @@ export async function initializeMobileRuntime(principal: MobilePrincipal): Promi
 
   await Promise.all([
     loadModels(),
-    loadMobileSessions({ selectFirst: true }),
+    loadMobileSessions({ selectFirst: false }),
+    activateMobileWelcomeDesk(),
   ]);
 
   connectWebSocket();
@@ -230,6 +238,12 @@ export async function createMobileSession(): Promise<string | null> {
 
 async function activateMobileSessionDesk(session: Pick<Session, 'cwd'> | null | undefined): Promise<void> {
   await activateWorkspaceDesk(session?.cwd || null);
+}
+
+async function activateMobileWelcomeDesk(): Promise<void> {
+  const state = useStore.getState();
+  await activateWorkspaceDesk(state.selectedFolder || state.homeFolder || null);
+  useStore.setState({ previewOpen: false });
 }
 
 function syncMobilePermissionMode(session: Pick<Session, 'permissionMode'> | null | undefined): void {

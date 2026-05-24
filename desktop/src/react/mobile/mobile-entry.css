@@ -437,7 +437,10 @@ html[data-platform="linux"] .tb-toggle-right {
 
 .session-list {
     flex: 1;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
     padding: 0 var(--space-sm);
     -webkit-app-region: no-drag;
 }

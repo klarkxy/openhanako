@@ -33,7 +33,7 @@ describe('AssistantMessage media generation placeholder', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders a grey image placeholder with inline status text and no animated line bars', () => {
+  it('renders a grey image placeholder with inline status text and cycling dot slot', () => {
     const { container } = render(
       <AssistantMessage
         showAvatar={false}
@@ -53,8 +53,8 @@ describe('AssistantMessage media generation placeholder', () => {
       />,
     );
 
-    expect(screen.getByText('图片生成中...')).toBeInTheDocument();
+    expect(screen.getByLabelText('图片生成中...')).toBeInTheDocument();
+    expect(container.querySelector('[class*="mediaGenerationDots"]')).toBeInTheDocument();
     expect(screen.getByText(/^Low-poly 3D illustration/)).toBeInTheDocument();
-    expect(container.querySelectorAll('[aria-hidden="true"] span')).toHaveLength(0);
   });
 });

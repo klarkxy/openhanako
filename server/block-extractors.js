@@ -129,6 +129,12 @@ export const BLOCK_EXTRACTORS = {
   },
 
   update_settings: (details) => {
+    if (details.settingsUpdate) {
+      return [{
+        type: "settings_update",
+        update: details.settingsUpdate,
+      }];
+    }
     if (!details.settingKey) return null;
     const status = details.confirmed === "timeout"
       ? "timeout"

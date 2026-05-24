@@ -10,7 +10,7 @@
 import fs from "fs";
 import path from "path";
 import YAML from "js-yaml";
-import { safeReadYAMLSync } from "../shared/safe-fs.js";
+import { atomicWriteSync, safeReadYAMLSync } from "../shared/safe-fs.js";
 import {
   ensureLocalIdentityRegistries,
   ensureRemoteAccessFoundationRegistries,
@@ -31,6 +31,7 @@ import { lookupKnown } from "../shared/known-models.js";
 import { SESSION_PREFIX_MAP } from "../lib/bridge/session-key.js";
 import { migrateLegacyApiKeyAuthToProviders } from "./provider-auth-migration.js";
 import { createModuleLogger } from "../lib/debug-log.js";
+import { patchAutomationJobForMigration } from "../lib/desk/automation-normalizer.js";
 
 const moduleLog = createModuleLogger("migrations");
 
@@ -98,6 +99,8 @@ const migrations = {
   28: migrateDurableSubagentRunRegistry,
   // 巡检显式 opt-in：历史缺省值统一落盘为 false，避免旧配置被运行时当成开启
   29: migrateHeartbeatDefaultExplicitOff,
+  // cron → automation read model：补齐 trigger / executor / createdBy，保留旧字段兼容
+  30: migrateCronJobsToAutomationReadModel,
 };
 
 // ── Runner ──────────────────────────────────────────────────────────────────
@@ -1089,6 +1092,67 @@ function repairCronJobModelRefs(ctx) {
   }
 
   log(`[migrations] #11: cron model refs repaired (${patched})`);
+}
+
+/**
+ * #30 — cron job 补齐 automation read model 字段
+ *
+ * v0 Automation Executor 把旧 cron job 的 "什么时候" 与 "做什么" 拆成
+ * trigger + executor。迁移只补字段，不删除 type / schedule / prompt 等旧字段。
+ */
+function migrateCronJobsToAutomationReadModel(ctx) {
+  const { hanakoHome, agentsDir, log } = ctx;
+  const paths = [];
+
+  const studiosDir = path.join(hanakoHome, "studios");
+  try {
+    for (const entry of fs.readdirSync(studiosDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      paths.push(path.join(studiosDir, entry.name, "desk", "cron-jobs.json"));
+    }
+  } catch {}
+
+  try {
+    for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      paths.push(path.join(agentsDir, entry.name, "desk", "cron-jobs.json"));
+    }
+  } catch {}
+
+  let patchedFiles = 0;
+  let patchedJobs = 0;
+  for (const jobsPath of paths) {
+    const result = patchCronJobsFileForAutomation(jobsPath, log);
+    if (!result.changed) continue;
+    patchedFiles++;
+    patchedJobs += result.patchedJobs;
+  }
+
+  log?.(`[migrations] #30: cron automation fields patched (${patchedJobs} jobs in ${patchedFiles} files)`);
+}
+
+function patchCronJobsFileForAutomation(jobsPath, log) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(jobsPath, "utf-8"));
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      log?.(`[migrations] #30 skipped invalid cron-jobs.json at ${jobsPath} (${err.message})`);
+    }
+    return { changed: false, patchedJobs: 0 };
+  }
+  if (!Array.isArray(data.jobs)) return { changed: false, patchedJobs: 0 };
+
+  let patchedJobs = 0;
+  const jobs = data.jobs.map((job) => {
+    const next = patchAutomationJobForMigration(job);
+    if (JSON.stringify(next) !== JSON.stringify(job)) patchedJobs++;
+    return next;
+  });
+  if (!patchedJobs) return { changed: false, patchedJobs: 0 };
+
+  atomicWriteSync(jobsPath, JSON.stringify({ ...data, jobs }, null, 2) + "\n");
+  return { changed: true, patchedJobs };
 }
 
 /**

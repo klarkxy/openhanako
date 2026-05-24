@@ -12,6 +12,7 @@ describe("DeferredResultCoordinator", () => {
     store = new DeferredResultStore();
     sessionCoordinator = {
       deliverCustomMessage: vi.fn().mockResolvedValue({ ok: true, mode: "triggerTurn" }),
+      recordCustomEntry: vi.fn().mockResolvedValue({ ok: true, mode: "customEntry" }),
     };
     coordinator = new DeferredResultCoordinator({
       store,
@@ -40,6 +41,40 @@ describe("DeferredResultCoordinator", () => {
     expect(message.content).toContain("status=\"success\"");
     expect(message.content).toContain("&lt;ok&gt;");
     expect(store.query("task-1")).toMatchObject({ delivered: true });
+  });
+
+  it("records UI-only media results as non-context custom entries without waking the parent agent", async () => {
+    const sessionFile = {
+      fileId: "sf_img",
+      filePath: "/cache/generated.png",
+      mime: "image/png",
+      kind: "image",
+    };
+    store.defer("task-img", "/sessions/a.jsonl", {
+      type: "image-generation",
+      mediaKind: "image",
+      deliveryIntent: "ui_only",
+      prompt: "moon",
+    });
+    store.resolve("task-img", { sessionFiles: [sessionFile] });
+
+    await vi.waitFor(() => {
+      expect(sessionCoordinator.recordCustomEntry).toHaveBeenCalledOnce();
+    });
+
+    expect(sessionCoordinator.deliverCustomMessage).not.toHaveBeenCalled();
+    expect(sessionCoordinator.recordCustomEntry).toHaveBeenCalledWith(
+      "/sessions/a.jsonl",
+      "hana-deferred-result",
+      expect.objectContaining({
+        schemaVersion: 1,
+        taskId: "task-img",
+        status: "success",
+        type: "image-generation",
+        result: { sessionFiles: [sessionFile] },
+      }),
+    );
+    expect(store.query("task-img")).toMatchObject({ delivered: true });
   });
 
   it("keeps undelivered tasks when custom message delivery fails", async () => {

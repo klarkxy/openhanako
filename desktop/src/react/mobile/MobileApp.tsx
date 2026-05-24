@@ -13,6 +13,7 @@ import { useStore } from '../stores';
 import { createNewSession } from '../stores/session-actions';
 import {
   initializeMobileRuntime,
+  loadMobileSessions,
   readMobileAuthSession,
   type MobilePrincipal,
 } from './mobile-init';
@@ -134,8 +135,10 @@ function MobileDesktopShell({
   const sessions = useStore(s => s.sessions);
   const currentSessionPath = useStore(s => s.currentSessionPath);
   const pendingNewSession = useStore(s => s.pendingNewSession);
+  const wsState = useStore(s => s.wsState);
   const isNarrow = useNarrowMobileViewport();
   const edgeGestureRef = useRef<MobileEdgeGesture | null>(null);
+  const previousWsStateRef = useRef(wsState);
   const t = window.t ?? ((p: string) => p);
 
   const titlebarTitle = useMemo(() => {
@@ -149,8 +152,37 @@ function MobileDesktopShell({
   }, []);
 
   useEffect(() => {
-    if (isNarrow) useStore.setState({ sidebarOpen: false, jianOpen: false });
+    if (isNarrow) useStore.setState({ sidebarOpen: false, jianOpen: false, previewOpen: false });
   }, [isNarrow]);
+
+  const refreshMobileSessions = useCallback(() => {
+    void loadMobileSessions().catch((err) => {
+      console.warn('[mobile] refresh sessions failed', err);
+    });
+  }, []);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'hidden') return;
+      refreshMobileSessions();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    window.addEventListener('online', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      window.removeEventListener('online', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [refreshMobileSessions]);
+
+  useEffect(() => {
+    const previous = previousWsStateRef.current;
+    previousWsStateRef.current = wsState;
+    if (wsState === 'connected' && previous && previous !== 'connected') {
+      refreshMobileSessions();
+    }
+  }, [refreshMobileSessions, wsState]);
 
   const showDrawerScrim = (sidebarOpen || jianOpen) && isNarrow;
   const openMobileDrawerFromGesture = useCallback((edge: MobileEdgeGesture['edge']) => {

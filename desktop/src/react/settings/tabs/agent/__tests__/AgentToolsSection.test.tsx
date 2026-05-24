@@ -42,14 +42,15 @@ describe("AgentToolsSection", () => {
     vi.clearAllMocks();
   });
 
-  it("renders 5 toggles when availableTools includes all optional tools", () => {
+  it("renders registered optional toggles while ignoring global tools", () => {
     const { container } = render(
       <AgentToolsSection
-        availableTools={["browser", "computer", "cron", "dm", "install_skill", "update_settings", "read"]}
+        availableTools={["automation", "browser", "computer", "cron", "dm", "install_skill", "update_settings", "read"]}
         disabled={[]}
       />
     );
-    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(5);
+    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(6);
+    expect(getRow(container, "automation")).toBeTruthy();
     expect(getRow(container, "browser")).toBeTruthy();
     expect(getRow(container, "computer")).toBeNull();
     expect(getRow(container, "cron")).toBeTruthy();
@@ -65,7 +66,8 @@ describe("AgentToolsSection", () => {
         disabled={["update_settings", "dm"]}
       />
     );
-    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(5);
+    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(6);
+    expect(getRow(container, "automation")).toBeTruthy();
     expect(getRow(container, "browser")).toBeTruthy();
     expect(getRow(container, "computer")).toBeNull();
   });

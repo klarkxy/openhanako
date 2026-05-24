@@ -339,6 +339,15 @@
     color: var(--text-muted);
 }
 
+.autoItemExecutorBadge {
+    font-size: 0.58rem;
+    line-height: 1;
+    color: var(--accent);
+    border: 1px solid rgba(var(--accent-rgb), 0.28);
+    border-radius: var(--radius-sm);
+    padding: 2px 4px;
+}
+
 .autoItemModelWrap::before {
     content: "\b7";
     margin-right: 8px;

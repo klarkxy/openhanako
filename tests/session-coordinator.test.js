@@ -21,6 +21,8 @@ vi.mock("../lib/pi-sdk/index.js", () => ({
   SettingsManager: {
     inMemory: vi.fn(() => ({})),
   },
+  resizeModelImageInput: vi.fn(async (image) => image),
+  formatModelImageDimensionNote: vi.fn(() => undefined),
 }));
 
 vi.mock("../lib/debug-log.js", () => ({
@@ -2203,6 +2205,77 @@ describe("SessionCoordinator", () => {
     expect(getPermissionMode).toEqual(expect.any(Function));
     expect(getPermissionMode()).toBe("operate");
     expect(getPermissionMode(sessionFile)).toBe("operate");
+  });
+
+  it("executeIsolated appends execution-scoped custom tools", async () => {
+    const sessionFile = path.join(tempDir, "isolated-extra-tool.jsonl");
+    const buildTools = vi.fn((_cwd, customTools) => ({
+      tools: [],
+      customTools,
+    }));
+    const agent = {
+      id: "hana",
+      agentDir: path.join(tempDir, "agents", "hana"),
+      sessionDir: path.join(tempDir, "agents", "hana", "sessions"),
+      agentName: "hana",
+      memoryMasterEnabled: true,
+      config: {
+        models: { chat: { id: "default-model", provider: "test" } },
+        desk: { patrol_tools: [] },
+      },
+      systemPrompt: "BACKGROUND PROMPT",
+      tools: [{ name: "write" }],
+    };
+    const scopedTool = { name: "jian_update_status", execute: vi.fn() };
+
+    sessionManagerCreateMock.mockReturnValue({
+      getCwd: () => tempDir,
+      getSessionFile: () => sessionFile,
+    });
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        sessionManager: { getSessionFile: () => sessionFile },
+        subscribe: vi.fn(() => vi.fn()),
+        prompt: vi.fn(async () => {}),
+        abort: vi.fn(),
+      },
+    });
+
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        authStorage: {},
+        modelRegistry: {},
+        defaultModel: { id: "default-model", provider: "test" },
+        availableModels: [{ id: "default-model", provider: "test" }],
+        resolveExecutionModel: (model) => model,
+        resolveThinkingLevel: () => "medium",
+      }),
+      getResourceLoader: () => ({ getSystemPrompt: () => "prompt", getAppendSystemPrompt: () => [] }),
+      getSkills: () => ({ getSkillsForAgent: () => [] }),
+      buildTools,
+      emitEvent: () => {},
+      getHomeCwd: () => tempDir,
+      agentIdFromSessionPath: () => null,
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      ensureAgentRuntime: async () => agent,
+      listAgents: () => [],
+    });
+
+    const result = await coordinator.executeIsolated("background check", {
+      activityType: "heartbeat",
+      extraCustomTools: [scopedTool],
+    });
+
+    expect(result.error).toBeNull();
+    expect(createAgentSessionMock.mock.calls[0][0].customTools.map((tool) => tool.name)).toEqual(["jian_update_status"]);
   });
 
   it("executeIsolated builds sandboxed tools against the inherited execution cwd", async () => {

@@ -74,6 +74,11 @@
 
 }
 
+:root::highlight(hana-chat-quoted-selection) {
+    background-color: rgba(var(--accent-rgb, 83, 125, 150), 0.22);
+    color: inherit;
+}
+
 /* ========================================
    纸质纹理系统
    开关：body.paper-texture 显式开启全部纹理
@@ -784,7 +789,10 @@ html[data-platform="linux"] .tb-toggle-right {
 /* Session 列表容器（侧边栏） */
 .session-list {
     flex: 1;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
     padding: 0 var(--space-sm);
     -webkit-app-region: no-drag;
 }

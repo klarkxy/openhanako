@@ -97,6 +97,20 @@ describe('selectDeskFiles', () => {
     expect(ref.id).toBe('desk:/x/a.png');
     expect(ref.source).toBe('desk');
   });
+
+  it('把 DeskFile mtime/size 转成 FileRef version', () => {
+    const state = makeState([{
+      name: 'a.png',
+      isDir: false,
+      size: 42,
+      mtime: '2026-05-23T08:00:00.000Z',
+    }], '/x');
+    const [ref] = selectDeskFiles(state);
+    expect(ref.version).toEqual({
+      mtimeMs: Date.parse('2026-05-23T08:00:00.000Z'),
+      size: 42,
+    });
+  });
 });
 
 function sessionState(items: ChatListItem[], path = '/s/1', sessionFiles: unknown[] = []) {
@@ -135,6 +149,8 @@ describe('selectSessionFiles', () => {
       origin: 'agent_write',
       operations: ['created', 'modified'],
       createdAt: 1234,
+      mtimeMs: 5678,
+      size: 99,
       status: 'available',
     }]), '/s/registry');
 
@@ -148,6 +164,7 @@ describe('selectSessionFiles', () => {
       origin: 'agent_write',
       operations: ['created', 'modified'],
       timestamp: 1234,
+      version: { mtimeMs: 5678, size: 99 },
     });
   });
 

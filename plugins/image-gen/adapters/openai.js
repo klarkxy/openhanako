@@ -128,8 +128,8 @@ export const openaiImageAdapter = {
 
     // Note revised_prompt in log if present (not surfaced to caller)
     const revisedPrompt = responseImages[0]?.revised_prompt;
-    if (revisedPrompt && ctx.log) {
-      ctx.log(`[openai-image] revised_prompt: ${revisedPrompt}`);
+    if (revisedPrompt) {
+      ctx.log?.info?.(`[openai-image] revised_prompt: ${revisedPrompt}`);
     }
 
     // 7. Save files using saveImage() — it appends /generated/ internally, so pass ctx.dataDir

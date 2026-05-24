@@ -44,6 +44,8 @@ import {
   notifyTextModelVideoBlocked,
 } from '../utils/chat-image-send-preflight';
 import { openProviderModelSettings } from '../utils/model-settings-navigation';
+import { shouldShowThinkingControl } from '../utils/model-thinking';
+import { shouldAllowInputFocus } from '../utils/input-focus-policy';
 import { calculateInputCardBottomInset, parseCssPixels } from '../utils/input-card-layout';
 import {
   XING_PROMPT, executeDiary, executeCompact, buildSlashCommands, getSlashMatches,
@@ -210,6 +212,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const currentModelInfo = sessionModel || globalModelInfo;
   // input 数组缺失视为未知；只有显式 text-only 的模型才在 UI 上标记“辅助视觉”。
   const supportsVision = !Array.isArray(currentModelInfo?.input) || currentModelInfo.input.includes("image");
+  const showThinkingControl = useMemo(
+    () => shouldShowThinkingControl(currentModelInfo, models),
+    [currentModelInfo, models],
+  );
   const modelSwitching = useStore(s => s.modelSwitching);
   const currentSessionItems = useStore(s => s.currentSessionPath ? s.chatSessions[s.currentSessionPath]?.items : undefined);
   const pendingSessionConfirmation = useMemo(() => {
@@ -408,7 +414,9 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   // Focus trigger from store
   const inputFocusTrigger = useStore(s => s.inputFocusTrigger);
   useEffect(() => {
-    if (inputFocusTrigger > 0) editor?.commands.focus();
+    if (inputFocusTrigger > 0 && shouldAllowInputFocus({ inputRoot: inputSurfaceRef.current })) {
+      editor?.commands.focus();
+    }
   }, [inputFocusTrigger, editor]);
 
   // Doc context
@@ -1216,7 +1224,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionMode}
             planModeLocked={false}
-            showThinking={currentModelInfo?.reasoning !== false}
+            showThinking={showThinkingControl}
             thinkingLevel={thinkingLevel}
             onThinkingChange={setThinkingLevel}
             modelXhigh={(sessionModel ? (sessionModel.xhigh ?? models.find(m => m.id === sessionModel.id && m.provider === sessionModel.provider)?.xhigh) : globalModelInfo?.xhigh) ?? false}

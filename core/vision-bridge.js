@@ -438,6 +438,27 @@ export class VisionBridge {
   async prepareResources({ sessionPath, targetModel, userRequest, text, resources, signal } = {}) {
     if (!resources?.length) return { notes: [] };
     if (!requiresAuxiliaryVision(targetModel)) return { notes: [] };
+    return this._summarizeResources({
+      sessionPath,
+      targetModel,
+      userRequest: userRequest ?? text,
+      resources,
+      signal,
+    });
+  }
+
+  async summarizeResources({ sessionPath, userRequest, text, resources, signal } = {}) {
+    if (!resources?.length) return { notes: [] };
+    return this._summarizeResources({
+      sessionPath,
+      targetModel: null,
+      userRequest: userRequest ?? text,
+      resources,
+      signal,
+    });
+  }
+
+  async _summarizeResources({ sessionPath, targetModel, userRequest, resources, signal } = {}) {
     throwIfAborted(signal);
 
     const config = this._resolveVisionConfig?.();
@@ -448,7 +469,7 @@ export class VisionBridge {
       throw new Error("vision auxiliary model must support image input");
     }
 
-    const request = normalizeUserRequest(userRequest ?? text);
+    const request = normalizeUserRequest(userRequest);
     const notes = [];
     for (let i = 0; i < resources.length; i++) {
       const resource = resources[i];

@@ -18,6 +18,7 @@ import { prepareModelImageInputsForPrompt } from "./model-image-preprocess.js";
 import { withVisionContextInjectionExtension } from "./vision-context-injector.js";
 import { SESSION_PERMISSION_MODES } from "./session-permission-mode.js";
 import { collectMediaItems } from "../lib/tools/media-details.js";
+import { formatSettingsUpdateText } from "../lib/tools/settings-update-result.js";
 import { materializeBridgeInboundFiles } from "../lib/session-files/bridge-inbound-files.js";
 import { modelSupportsDirectVideoInput, modelSupportsVideoInput } from "../shared/model-capabilities.js";
 import {
@@ -366,6 +367,31 @@ export class BridgeSessionManager {
     return null;
   }
 
+  recordCustomEntryForSessionPath(sessionPath, customType, data, opts = {}) {
+    if (!sessionPath) throw new Error("recordCustomEntryForSessionPath: sessionPath is required");
+    if (!customType) throw new Error("recordCustomEntryForSessionPath: customType is required");
+    const context = this.getBridgeContextForSessionPath(sessionPath, opts);
+    if (context?.isBridgeSession !== true) return null;
+
+    const resolved = path.resolve(sessionPath);
+    for (const session of this._activeSessions.values()) {
+      const activePath = session?.sessionManager?.getSessionFile?.();
+      if (!activePath || path.resolve(activePath) !== resolved) continue;
+      if (typeof session.sessionManager?.appendCustomEntry !== "function") {
+        throw new Error("recordCustomEntryForSessionPath: active bridge session does not support custom entries");
+      }
+      session.sessionManager.appendCustomEntry(customType, data);
+      return { ok: true, mode: "bridge-live" };
+    }
+
+    if (!fs.existsSync(resolved)) {
+      throw new Error(`recordCustomEntryForSessionPath: session file not found: ${sessionPath}`);
+    }
+    const manager = SessionManager.open(resolved, path.dirname(resolved));
+    manager.appendCustomEntry(customType, data);
+    return { ok: true, mode: "bridge-file" };
+  }
+
   _buildOwnerFreshCompactContext(agent, homeCwd) {
     const prefs = this._deps.getPreferences();
     const systemPrompt = agent.buildSystemPrompt({
@@ -596,6 +622,10 @@ export class BridgeSessionManager {
           const card = event.result?.details?.card;
           if (card?.description) {
             capturedText += (capturedText ? "\n\n" : "") + card.description;
+          }
+          const settingsUpdateText = formatSettingsUpdateText(event.result?.details?.settingsUpdate);
+          if (settingsUpdateText) {
+            capturedText += (capturedText ? "\n\n" : "") + settingsUpdateText;
           }
         }
         const messageEndError = getProviderMessageEndError(event);

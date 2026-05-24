@@ -11,7 +11,7 @@ import { getAgentPhoneProjectionPath } from "../lib/conversations/agent-phone-pr
 
 // ── 测试工具 ────────────────────────────────────────────────────────────────
 
-const LATEST_DATA_VERSION = 29;
+const LATEST_DATA_VERSION = 30;
 
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "hana-migrations-"));
@@ -194,6 +194,88 @@ describe("migration #11: repairCronJobModelRefs", () => {
     expect(jobs[1].model).toEqual({ id: "MiniMax-M2.7", provider: "minimax" });
     expect(jobs[2].model).toEqual({ id: "gpt-4o", provider: "openai" });
     expect(jobs[3].model).toBe("unknown-model");
+    expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
+  });
+});
+
+describe("migration #30: cron jobs to automation read model", () => {
+  let tmpDir, agentsDir, userDir;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    agentsDir = path.join(tmpDir, "agents");
+    userDir = path.join(tmpDir, "user");
+    fs.mkdirSync(agentsDir, { recursive: true });
+  });
+
+  afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  function writeStudioCronJobs(studioId, jobs) {
+    const deskDir = path.join(tmpDir, "studios", studioId, "desk");
+    fs.mkdirSync(deskDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deskDir, "cron-jobs.json"),
+      JSON.stringify({ jobs, nextNum: jobs.length + 1 }, null, 2) + "\n",
+      "utf-8",
+    );
+  }
+
+  function readStudioCronJobs(studioId) {
+    return JSON.parse(fs.readFileSync(
+      path.join(tmpDir, "studios", studioId, "desk", "cron-jobs.json"),
+      "utf-8",
+    )).jobs;
+  }
+
+  it("adds automation fields to existing studio cron jobs while preserving legacy fields", () => {
+    const prefs = makePrefs(userDir);
+    prefs.savePreferences({ _dataVersion: 29 });
+    writeStudioCronJobs("default", [{
+      schemaVersion: 1,
+      id: "studio_job_1",
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "summarize",
+      label: "Daily",
+      enabled: true,
+      model: { id: "gpt-4o", provider: "openai" },
+      actorAgentId: "hana",
+      executionContext: {
+        kind: "legacy_agent_home",
+        cwd: null,
+        workspaceFolders: [],
+        sourceSessionPath: null,
+        createdByAgentId: "hana",
+      },
+    }]);
+
+    runMigrations({
+      hanakoHome: tmpDir,
+      agentsDir,
+      prefs,
+      providerRegistry: makeRegistryWithModels({}),
+      log: () => {},
+    });
+
+    const [job] = readStudioCronJobs("default");
+    expect(job.schemaVersion).toBe(2);
+    expect(job.type).toBe("cron");
+    expect(job.prompt).toBe("summarize");
+    expect(job.trigger).toEqual({ kind: "cron", expression: "0 9 * * *" });
+    expect(job.executor).toMatchObject({
+      kind: "agent_session",
+      agentId: "hana",
+      prompt: "summarize",
+      model: { id: "gpt-4o", provider: "openai" },
+      executionContext: {
+        kind: "legacy_agent_home",
+        cwd: null,
+        workspaceFolders: [],
+        sourceSessionPath: null,
+        createdByAgentId: "hana",
+      },
+    });
+    expect(job.createdBy).toEqual({ kind: "agent", agentId: "hana" });
     expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
   });
 });
@@ -2832,6 +2914,6 @@ describe("migration #29 — heartbeat default is explicit opt-in", () => {
     expect(readAgentConfig(agentsDir, "missing").desk.heartbeat_enabled).toBe(false);
     expect(readAgentConfig(agentsDir, "enabled").desk.heartbeat_enabled).toBe(true);
     expect(readAgentConfig(agentsDir, "disabled").desk.heartbeat_enabled).toBe(false);
-    expect(prefs.getPreferences()._dataVersion).toBe(29);
+    expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
   });
 });

@@ -151,6 +151,45 @@ describe("VisionBridge", () => {
     });
   });
 
+  it("summarizes resources on explicit request without requiring a text-only target model", async () => {
+    const dir = makeTempDir();
+    const sessionPath = path.join(dir, "session.jsonl");
+    const resourceKey = "visual-resource:appearance:user";
+    const { bridge, callText } = makeBridge();
+
+    const prepared = await bridge.summarizeResources({
+      sessionPath,
+      userRequest: "Summarize this avatar appearance.",
+      resources: [{
+        key: resourceKey,
+        label: "user custom avatar",
+        image,
+      }],
+    });
+
+    expect(callText).toHaveBeenCalledTimes(1);
+    expect(prepared.notes).toEqual([
+      expect.objectContaining({
+        key: resourceKey,
+        label: "user custom avatar",
+        note: expect.stringContaining("image_overview"),
+      }),
+    ]);
+
+    const restored = new VisionBridge({
+      resolveVisionConfig: () => null,
+      callText: vi.fn(),
+    });
+    const entry = restored.lookupNote(sessionPath, resourceKey);
+
+    expect(entry).toMatchObject({
+      imagePath: resourceKey,
+      note: expect.stringContaining("image_overview"),
+      visionModel: { id: "qwen-vl", provider: "dashscope" },
+      targetModel: null,
+    });
+  });
+
   it("bounds the in-memory note cache while keeping evicted notes recoverable from sidecar", async () => {
     const dir = makeTempDir();
     const firstSession = path.join(dir, "first.jsonl");

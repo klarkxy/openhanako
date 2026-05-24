@@ -81,7 +81,15 @@
     "bridge": "소셜 플랫폼",
     "toggle": "사이드바",
     "bridgeShort": "연결",
-    "pinned": "고정"
+    "pinned": "고정",
+    "searchPlaceholder": "채팅 검색",
+    "searchClear": "검색 지우기",
+    "searchTitleMatches": "제목",
+    "searchContentMatches": "본문",
+    "searchingTitles": "제목 검색 중…",
+    "searchingContent": "본문 검색 중…",
+    "searchNoResults": "일치하는 채팅이 없습니다",
+    "searchFailed": "검색 실패"
   },
   "titlebar": {
     "currentChatTitle": "현재 대화 제목"
@@ -767,6 +775,7 @@
         "title": "도구",
         "description": "도구 스위치는 대화를 다시 시작하거나 새 대화를 시작한 뒤 적용돼요. 진행 중인 대화는 시작할 때의 도구 집합을 계속 사용해요.",
         "items": {
+          "automation": { "label": "자동화", "summary": "Agent가 알림과 플러그인 예약 동작을 만들 수 있게 합니다" },
           "browser": { "label": "브라우저", "summary": "헤드리스 브라우저로 웹 페이지를 탐색" },
           "computer": { "label": "Computer Use", "summary": "승인된 데스크톱 앱을 제어하고 실시간 동작 커서를 표시합니다" },
           "cron": { "label": "예약 작업", "summary": "지정한 시간에 작업을 자동 실행" },
@@ -908,6 +917,9 @@
       "networkProxyWss": "WSS proxy, 선택 사항",
       "networkProxyNoProxy": "프록시 제외 예: localhost, 127.0.0.1, ::1",
       "networkProxySave": "프록시 설정 저장",
+      "archivedChats": "보관된 대화",
+      "archivedChatsDesc": "보관된 채팅을 확인하고, 이어갈 대화를 복원하거나 더 이상 필요 없는 기록을 영구 삭제해요",
+      "viewArchivedChats": "보관된 대화 보기",
       "fileBackup": "파일 백업",
       "fileBackupDesc": "AI가 파일을 수정하거나 삭제하기 전에 원본 내용을 자동으로 저장합니다",
       "retention": "보존 기간",
@@ -1582,6 +1594,12 @@
     "title": "예약 작업",
     "empty": "아직 예약 작업이 없어요.\n필요할 때 어시스턴트가 만들어 줄 거예요.",
     "defaultModel": "기본 모델",
+    "executor": {
+      "agentSession": "에이전트 실행",
+      "notify": "알림",
+      "pluginAction": "플러그인 작업",
+      "directAction": "직접 작업"
+    },
     "edit": "편집",
     "delete": "삭제"
   },

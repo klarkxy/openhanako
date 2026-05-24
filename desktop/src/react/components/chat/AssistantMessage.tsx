@@ -10,6 +10,7 @@ import { ToolGroupBlock } from './ToolGroupBlock';
 import { PluginCardBlock } from './PluginCardBlock';
 import { SubagentCard } from './SubagentCard';
 import { SettingsConfirmCard } from './SettingsConfirmCard';
+import { SettingsUpdateCard } from './SettingsUpdateCard';
 import { MessageActions } from './MessageActions';
 import { MessageFooterActions, formatMessageTime, type MessageFooterAction } from './MessageFooterActions';
 import { BLOCK_RENDERERS } from './block-renderers';
@@ -254,9 +255,9 @@ const EXT_LABELS: Record<string, string> = {
 const MediaGenerationBlock = memo(function MediaGenerationBlock({ block }: { block: any }) {
   const failed = block.status === 'failed' || block.status === 'aborted';
   const kindLabel = block.kind === 'video' ? '视频' : '图片';
-  const title = failed
+  const titleText = failed
     ? `${kindLabel}生成失败`
-    : `${kindLabel}生成中...`;
+    : `${kindLabel}生成中`;
   const reason = typeof block.reason === 'string' ? block.reason : '';
   const prompt = typeof block.prompt === 'string' ? block.prompt : '';
 
@@ -264,7 +265,10 @@ const MediaGenerationBlock = memo(function MediaGenerationBlock({ block }: { blo
     <div className={`${styles.mediaGenerationCard}${failed ? ` ${styles.mediaGenerationCardFailed}` : ''}`}>
       <div className={styles.mediaGenerationSurface}>
         <div className={styles.mediaGenerationText}>
-          <div className={styles.mediaGenerationTitle}>{title}</div>
+          <div className={styles.mediaGenerationTitle} aria-label={failed ? titleText : `${titleText}...`}>
+            <span>{titleText}</span>
+            {!failed && <span className={styles.mediaGenerationDots} aria-hidden="true" />}
+          </div>
           {(failed ? reason : prompt) && (
             <div className={styles.mediaGenerationPrompt}>{failed ? reason : prompt}</div>
           )}
@@ -655,6 +659,10 @@ const SettingsConfirmBlock = memo(function SettingsConfirmBlock({ block }: { blo
   return <SettingsConfirmCard {...block} />;
 });
 
+const SettingsUpdateBlock = memo(function SettingsUpdateBlock({ block }: { block: any }) {
+  return <SettingsUpdateCard update={block.update} />;
+});
+
 // ── 注册所有物种 B 渲染器 ──
 // 注：`file` 与 `screenshot` 需 session 上下文（sessionPath/messageId/blockIdx），
 // 统一走 ContentBlockView 的 switch 内联分发，不注册到全局表中。
@@ -664,3 +672,4 @@ BLOCK_RENDERERS['plugin_card'] = PluginCardWrapper;
 BLOCK_RENDERERS['skill'] = SkillBlock;
 BLOCK_RENDERERS['cron_confirm'] = CronConfirmBlock;
 BLOCK_RENDERERS['settings_confirm'] = SettingsConfirmBlock;
+BLOCK_RENDERERS['settings_update'] = SettingsUpdateBlock;

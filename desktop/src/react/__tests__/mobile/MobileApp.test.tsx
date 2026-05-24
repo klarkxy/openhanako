@@ -183,11 +183,11 @@ describe('MobileApp', () => {
 
     render(<MobileApp />);
 
-    expect(await waitForMobileChatReady()).toHaveTextContent('日常记录');
+    expect(await waitForMobileChatReady()).toHaveTextContent('sidebar.newChat');
     expect(screen.getByTestId('desktop-input-area')).toHaveAttribute('data-surface', 'mobile');
     expect(document.querySelector('.titlebar')).toBeInTheDocument();
     expect(titlebarNewSessionButton()).toHaveAttribute('data-mobile-titlebar-action', 'new-session');
-    expect(screen.getByLabelText('titlebar.currentChatTitle')).toHaveTextContent('日常记录');
+    expect(screen.getByLabelText('titlebar.currentChatTitle')).toHaveTextContent('sidebar.newChat');
     expect(document.querySelector('.sidebar')).toBeInTheDocument();
     expect(document.querySelector('.jian-sidebar')).toBeInTheDocument();
     expect(useStore.getState().homeFolder).toBe('/workspace');
@@ -197,8 +197,77 @@ describe('MobileApp', () => {
       homeFolder: '/workspace',
       chatModel: { id: 'deepseek-chat', provider: 'deepseek' },
     });
+    expect(useStore.getState().sessions.some(session => session.path === '/hana/sessions/one.jsonl')).toBe(true);
     fireEvent.click(screen.getByTitle('sidebar.jian'));
     expect(await screen.findByText('note.md')).toBeInTheDocument();
+  });
+
+  it('starts authenticated phones on the welcome draft instead of auto-opening the first session', async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/web-auth/session')) {
+        return Promise.resolve(jsonResponse({ authenticated: true, principal: principal(['chat', 'resources.read', 'files.read', 'files.write']) }));
+      }
+      return Promise.resolve(jsonResponse(jsonResponseForMobile(url, options)));
+    });
+
+    render(<MobileApp />);
+
+    expect(await waitForMobileChatReady()).toHaveTextContent('sidebar.newChat');
+    expect(useStore.getState().sessions.some(session => session.path === '/hana/sessions/one.jsonl')).toBe(true);
+    expect(useStore.getState()).toMatchObject({
+      currentSessionPath: null,
+      pendingNewSession: true,
+      welcomeVisible: true,
+    });
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/api/sessions/messages'))).toBe(false);
+  });
+
+  it('normalizes desktop drawer state before rendering the mobile shell', async () => {
+    stubNarrowViewport(true);
+    useStore.setState({
+      sidebarOpen: true,
+      jianOpen: true,
+      previewOpen: true,
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/web-auth/session')) {
+        return Promise.resolve(jsonResponse({ authenticated: true, principal: principal(['chat', 'resources.read', 'files.read', 'files.write']) }));
+      }
+      return Promise.resolve(jsonResponse(jsonResponseForMobile(url, options)));
+    });
+
+    render(<MobileApp />);
+    await waitForMobileChatReady();
+
+    expect(useStore.getState()).toMatchObject({
+      sidebarOpen: false,
+      jianOpen: false,
+      previewOpen: false,
+    });
+    expect(document.querySelector('.mobile-drawer-scrim')).not.toBeInTheDocument();
+    expect(document.querySelector('#previewPanel')).not.toBeInTheDocument();
+  });
+
+  it('refreshes mobile sessions when the phone returns to the foreground', async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/web-auth/session')) {
+        return Promise.resolve(jsonResponse({ authenticated: true, principal: principal(['chat', 'resources.read', 'files.read', 'files.write']) }));
+      }
+      return Promise.resolve(jsonResponse(jsonResponseForMobile(url, options)));
+    });
+
+    render(<MobileApp />);
+    await waitForMobileChatReady();
+    const countSessionListCalls = () => fetchMock.mock.calls
+      .map(([input]) => String(input))
+      .filter(url => url.includes('/api/sessions') && !url.includes('/api/sessions/')).length;
+    const before = countSessionListCalls();
+
+    fireEvent(window, new Event('focus'));
+    await waitFor(() => expect(countSessionListCalls()).toBeGreaterThan(before));
   });
 
   it('syncs the selected session permission mode from the mobile session list', async () => {
@@ -211,6 +280,14 @@ describe('MobileApp', () => {
       const url = String(input);
       if (url.includes('/api/web-auth/session')) {
         return Promise.resolve(jsonResponse({ authenticated: true, principal: principal(['chat', 'resources.read', 'files.read', 'files.write']) }));
+      }
+      if (url.includes('/api/sessions/switch')) {
+        return Promise.resolve(jsonResponse({
+          cwd: '/workspace',
+          workspaceFolders: [],
+          memoryEnabled: true,
+          permissionMode: 'read_only',
+        }));
       }
       if (url.includes('/api/sessions/messages')) {
         return Promise.resolve(jsonResponse({ messages: [], blocks: [], todos: [], hasMore: false, sessionFiles: [] }));
@@ -226,6 +303,7 @@ describe('MobileApp', () => {
     try {
       render(<MobileApp />);
       await waitForMobileChatReady();
+      await openMobileSession('日常记录');
 
       await waitFor(() => {
         expect(planModeEvents).toContainEqual({ enabled: true, mode: 'read_only' });
@@ -324,6 +402,7 @@ describe('MobileApp', () => {
     render(<MobileApp />);
 
     await waitForMobileChatReady();
+    await openMobileSession('日常记录');
     act(() => {
       MockWebSocket.instances[0]?.onmessage?.({
         data: JSON.stringify({
@@ -598,6 +677,19 @@ function titlebarNewSessionButton(): HTMLElement {
   const button = document.querySelector<HTMLElement>('[data-mobile-titlebar-action="new-session"]');
   if (!button) throw new Error('mobile titlebar new-session button not found');
   return button;
+}
+
+function titlebarSidebarButton(): HTMLElement {
+  const button = document.getElementById('tbToggleLeft');
+  if (!button) throw new Error('mobile titlebar sidebar button not found');
+  return button;
+}
+
+async function openMobileSession(title: string): Promise<void> {
+  if (!useStore.getState().sidebarOpen) {
+    fireEvent.click(titlebarSidebarButton());
+  }
+  fireEvent.click(await screen.findByText(title));
 }
 
 async function waitForMobileChatReady(): Promise<HTMLElement> {

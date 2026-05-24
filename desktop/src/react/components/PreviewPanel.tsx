@@ -90,7 +90,7 @@ export function PreviewPanel() {
 
   // 切换 tab 时清除选区
   useEffect(() => {
-    clearSelection();
+    clearSelection({ sourceKind: 'preview' });
     setEditorStats({
       selectedChars: 0,
       totalChars: previewItem?.type === 'markdown' ? countPreviewChars(previewItem.content) : 0,

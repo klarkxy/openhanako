@@ -4,8 +4,6 @@
  * 解决 POSIX `VAR=val cmd` 语法和 `~` 在 Windows 上不工作的问题
  */
 import { spawn } from "node:child_process";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { createRequire } from "node:module";
 import { ensureWindowsUtf8Console } from "../shared/windows-console.js";
 

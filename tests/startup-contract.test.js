@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import viteServerConfig from "../vite.config.server.js";
+import { applyDevEnvironment } from "../scripts/dev-env.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,10 +18,16 @@ describe("local startup contract", () => {
 
   it("dev Electron launcher passes a dedicated Node runtime to main process", () => {
     const launchJs = fs.readFileSync(path.join(ROOT, "scripts", "launch.js"), "utf-8");
+    const devEnvJs = fs.readFileSync(path.join(ROOT, "scripts", "dev-env.js"), "utf-8");
     const mainCjs = fs.readFileSync(path.join(ROOT, "desktop", "main.cjs"), "utf-8");
 
-    expect(launchJs).toContain("HANA_DEV_NODE_BIN");
+    expect(launchJs).toContain('from "./dev-env.js"');
+    expect(launchJs).toContain("applyDevEnvironment(process.env)");
+    expect(devEnvJs).toContain("HANA_DEV_NODE_BIN");
     expect(mainCjs).toContain("HANA_DEV_NODE_BIN");
+
+    const env = applyDevEnvironment({}, { nodeBin: "/tmp/hana-node" });
+    expect(env.HANA_DEV_NODE_BIN).toBe("/tmp/hana-node");
   });
 
   it("server configures Pi SDK from HANA_HOME and CLI stays server-first", () => {
@@ -59,6 +66,12 @@ describe("local startup contract", () => {
     const external = viteServerConfig.build?.rollupOptions?.external || [];
 
     expect(external).toContain("jsdom");
+  });
+
+  it("keeps the native jieba tokenizer external in the server bundle", () => {
+    const external = viteServerConfig.build?.rollupOptions?.external || [];
+
+    expect(external).toContain("@node-rs/jieba");
   });
 
   it("keeps workspace output helper statically bundleable in packaged server", () => {

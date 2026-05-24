@@ -17,6 +17,7 @@ import { createTodoTool } from "../lib/tools/todo.js";
 import { createDeskManager } from "../lib/desk/desk-manager.js";
 import { CronStore } from "../lib/desk/cron-store.js";
 import { createCronTool } from "../lib/tools/cron-tool.js";
+import { createAutomationTool } from "../lib/tools/automation-tool.js";
 import { createWebFetchTool } from "../lib/tools/web-fetch.js";
 import { createStageFilesTool } from "../lib/tools/output-file-tool.js";
 import { createArtifactTool } from "../lib/tools/artifact-tool.js";
@@ -108,6 +109,7 @@ export class Agent {
     this._deskManager = null;
     this._cronStore = null;
     this._cronTool = null;
+    this._automationTool = null;
     this._stageFilesTool = null;
     // Legacy compatibility only. Fresh sessions should write files and stage
     // them via stage_files; restored old sessions may still need this schema.
@@ -321,6 +323,16 @@ export class Agent {
       getSessionWorkspaceFolders: (sp) => this._cb?.getSessionWorkspaceFolders?.(sp) || [],
       getHomeCwd: (agentId) => this._cb?.getHomeCwd?.(agentId),
     });
+    this._automationTool = createAutomationTool(this._cronStore, {
+      getAutoApprove: () => this._config?.desk?.cron_auto_approve !== false,
+      confirmStore: this._cb?.getConfirmStore?.(),
+      emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
+      getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+      getAgentId: () => this.id,
+      getSessionCwd: (sp) => this._cb?.getSessionCwd?.(sp),
+      getSessionWorkspaceFolders: (sp) => this._cb?.getSessionWorkspaceFolders?.(sp) || [],
+      getHomeCwd: (agentId) => this._cb?.getHomeCwd?.(agentId),
+    });
     this._stageFilesTool = createStageFilesTool({
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
@@ -359,6 +371,7 @@ export class Agent {
     this._currentStatusTool = createCurrentStatusTool({
       getTimezone: () => this._cb?.getTimezone?.() || "",
       getAgent: () => this,
+      getVisionBridge: () => this._cb?.getEngine?.()?.getVisionBridge?.() || null,
       getSessionModel: (sessionPath) => this._cb?.getEngine?.()?.getSessionByPath?.(sessionPath)?.model || null,
       getCurrentModel: () => this._cb?.getEngine?.()?.currentModel || null,
       getUiContext: (sessionPath) => this._cb?.getEngine?.()?.getUiContext?.(sessionPath) || null,
@@ -630,6 +643,7 @@ export class Agent {
       this._webFetchTool,
       this._todoTool,
       this._cronTool,
+      this._automationTool,
       this._stageFilesTool,
       this._textFileTool,
       ...legacyArtifactTools,
@@ -1113,15 +1127,19 @@ export class Agent {
         "**Do not** launch the browser when web_search or web_fetch can do the job. Browser startup is expensive and opens a window that interrupts the user."
     );
 
-    // 设置工具路由
-    parts.push(isZh
-      ? "\n## 设置修改\n\n" +
-        "用户提到修改设置而未指明具体软件时，默认指本应用的设置。\n" +
-        "用户要求修改偏好设置（包括但不限于：外观主题、语言地区、模型选择、安全权限、记忆功能、个人信息、工作目录）时，使用 update_settings 工具。不要搜索网页，不要编辑配置文件。意图明确时直接 apply，不确定时先 search。"
-      : "\n## Settings Changes\n\n" +
-        "When the user mentions changing settings without specifying a particular application, assume they mean this application.\n" +
-        "When the user asks to change preferences (including but not limited to: appearance/theme, language/region, model selection, security/permissions, memory, personal info, working directory), use the update_settings tool. Do not search the web or edit config files. When intent is clear, apply directly; when unsure, search first."
-    );
+    // 设置工具路由只在工具可用时注入，用户关闭后 prompt 层也消失。
+    const disabledTools = Array.isArray(this._config?.tools?.disabled) ? this._config.tools.disabled : [];
+    const updateSettingsEnabled = !disabledTools.includes("update_settings");
+    if (updateSettingsEnabled) {
+      parts.push(isZh
+        ? "\n## 设置修改\n\n" +
+          "用户提到修改设置而未指明具体软件时，默认指本应用的设置。\n" +
+          "用户要求修改偏好设置（包括但不限于：外观主题、语言地区、模型选择、安全权限、记忆功能、个人信息、工作目录、MCP 连接器）时，使用 update_settings 工具。不要搜索网页，不要编辑配置文件。意图明确时直接 apply，执行后用一句话报告修改结果；不确定时先 search。"
+        : "\n## Settings Changes\n\n" +
+          "When the user mentions changing settings without specifying a particular application, assume they mean this application.\n" +
+          "When the user asks to change preferences (including but not limited to: appearance/theme, language/region, model selection, security/permissions, memory, personal info, working directory, MCP connectors), use the update_settings tool. Do not search the web or edit config files. When intent is clear, apply directly and report the result in one sentence; when unsure, search first."
+      );
+    }
 
     // 语言指引
     parts.push(isZh

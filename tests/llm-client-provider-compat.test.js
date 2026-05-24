@@ -354,7 +354,7 @@ describe("callText provider-compat routing", () => {
       timeoutMs: 5_000,
     })).rejects.toMatchObject({
       code: "LLM_EMPTY_RESPONSE",
-      message: "LLM returned only thinking content without visible text",
+      message: "模型未回复正文，请检查思考内容或稍后重试。",
       context: expect.objectContaining({ reason: "empty_after_thinking" }),
     });
   });
@@ -399,7 +399,7 @@ describe("callText provider-compat routing", () => {
       timeoutMs: 5_000,
     })).rejects.toMatchObject({
       code: "LLM_EMPTY_RESPONSE",
-      message: "LLM returned only thinking content without visible text",
+      message: "模型未回复正文，请检查思考内容或稍后重试。",
       context: expect.objectContaining({ reason: "empty_after_thinking" }),
     });
   });

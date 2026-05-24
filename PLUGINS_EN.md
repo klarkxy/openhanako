@@ -221,6 +221,12 @@ Boundaries:
 - Install sources such as `.skill`, plugin folders, or zip files are registered by install routes as `install_source`
 - Cards own interactive presentation; files remain resources. If a card needs a file, reference the `SessionFile` instead of embedding file bytes in the card payload
 
+#### Scheduled Automation Actions
+
+Scheduled automation `plugin_action` executors reuse plugin tools in v0. A job stores `{ pluginId, actionId, params }` as JSON and maps it to the loaded tool named `pluginId_actionId` at runtime.
+
+Both static `tools/*.js` exports and dynamic `ctx.registerTool()` tools receive the SDK-style `(input, ctx)` call. If the plugin is disabled, missing, or the tool cannot be found, the scheduled run fails explicitly and records the error in cron history. Hana does not silently fall back to an Agent session.
+
 #### Visual Cards
 
 Tools can automatically render visual cards (iframes) in the chat by declaring `card` in the return value's `details`:

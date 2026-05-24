@@ -111,8 +111,10 @@ async function bindServerTransportOwnership(server, { host, port, listenHost, ne
   } catch (err) {
     const startupError = isAddressInUseError(err)
       ? createPortInUseStartupError(err, { host, port, listenHost, networkMode })
+      : isListenPermissionError(err)
+      ? createListenPermissionStartupError(err, { host, port, listenHost, networkMode })
       : err;
-    if (startupError.code === "PORT_IN_USE") {
+    if (startupError.startupPayload) {
       log.error(`startup-error ${JSON.stringify(startupError.startupPayload)}`);
     }
     log.error(`启动失败: ${startupError.message}`);
@@ -122,6 +124,10 @@ async function bindServerTransportOwnership(server, { host, port, listenHost, ne
 
 function isAddressInUseError(err) {
   return err?.code === "EADDRINUSE";
+}
+
+function isListenPermissionError(err) {
+  return err?.code === "EACCES";
 }
 
 function createPortInUseStartupError(cause, { host, port, listenHost, networkMode }) {
@@ -141,6 +147,28 @@ function createPortInUseStartupError(cause, { host, port, listenHost, networkMod
     `PORT_IN_USE: ${host}:${port} is already in use (network mode: ${networkMode}, configured host: ${listenHost}).`
   );
   err.code = "PORT_IN_USE";
+  err.startupPayload = payload;
+  err.cause = cause;
+  return err;
+}
+
+function createListenPermissionStartupError(cause, { host, port, listenHost, networkMode }) {
+  const payload = {
+    code: "LISTEN_PERMISSION_DENIED",
+    host,
+    port,
+    listenHost,
+    networkMode,
+    suggestions: [
+      `Check whether Windows reserved port policy or security software blocks listening on ${host}:${port}.`,
+      "Use loopback mode for local-only access, or enable LAN from Access & Devices and restart.",
+      "To use a different port, change the port in Access & Devices and restart.",
+    ],
+  };
+  const err = new Error(
+    `LISTEN_PERMISSION_DENIED: ${host}:${port} cannot be listened on (network mode: ${networkMode}, configured host: ${listenHost}).`
+  );
+  err.code = "LISTEN_PERMISSION_DENIED";
   err.startupPayload = payload;
   err.cause = cause;
   return err;
@@ -167,11 +195,11 @@ const port = Number.isInteger(envPort) && envPort >= 0 ? envPort : serverNetwork
 const serverRuntimeState = {
   mode: serverNetwork.mode,
   listenHost: serverNetwork.host,
-  bindHost: "0.0.0.0",
+  bindHost: serverNetwork.host,
   actualPort: null,
   applyNetworkConfig(network) {
-    this.mode = network.mode;
-    this.listenHost = network.listenHost;
+    this.configuredMode = network.mode;
+    this.configuredListenHost = network.listenHost;
   },
 };
 const host = serverRuntimeState.bindHost;

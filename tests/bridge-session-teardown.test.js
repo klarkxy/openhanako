@@ -424,6 +424,61 @@ describe("BridgeSessionManager teardown", () => {
     })).toEqual([{ sessionKey: "tg_dm_assistant@agent-a", sessionPath: sessionFile, reason: "daily" }]);
   });
 
+  it("records non-context custom entries into an existing bridge session file", () => {
+    const agent = makeAgent(rootDir);
+    const sessionFile = path.join(agent.sessionDir, "bridge", "owner", "assistant.jsonl");
+    fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+    fs.writeFileSync(sessionFile, "{}\n", "utf-8");
+    const manager = new BridgeSessionManager(makeDeps(agent));
+    manager.writeIndex({
+      "tg_dm_assistant@agent-a": { file: "owner/assistant.jsonl" },
+    }, agent);
+
+    const appendCustomEntry = vi.fn();
+    sessionManagerOpenMock.mockReturnValueOnce({ appendCustomEntry });
+
+    const result = manager.recordCustomEntryForSessionPath(
+      sessionFile,
+      "hana-deferred-result",
+      { taskId: "task-img" },
+      { agentId: "agent-a" },
+    );
+
+    expect(result).toMatchObject({ ok: true, mode: "bridge-file" });
+    expect(sessionManagerOpenMock).toHaveBeenCalledWith(sessionFile, path.dirname(sessionFile));
+    expect(appendCustomEntry).toHaveBeenCalledWith("hana-deferred-result", { taskId: "task-img" });
+  });
+
+  it("records non-context custom entries through the live bridge session manager when loaded", () => {
+    const agent = makeAgent(rootDir);
+    const sessionFile = path.join(agent.sessionDir, "bridge", "owner", "assistant.jsonl");
+    fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+    fs.writeFileSync(sessionFile, "{}\n", "utf-8");
+    const manager = new BridgeSessionManager(makeDeps(agent));
+    manager.writeIndex({
+      "tg_dm_assistant@agent-a": { file: "owner/assistant.jsonl" },
+    }, agent);
+
+    const appendCustomEntry = vi.fn();
+    manager.activeSessions.set("tg_dm_assistant@agent-a", {
+      sessionManager: {
+        getSessionFile: () => sessionFile,
+        appendCustomEntry,
+      },
+    });
+
+    const result = manager.recordCustomEntryForSessionPath(
+      sessionFile,
+      "hana-deferred-result",
+      { taskId: "task-img" },
+      { agentId: "agent-a" },
+    );
+
+    expect(result).toMatchObject({ ok: true, mode: "bridge-live" });
+    expect(sessionManagerOpenMock).not.toHaveBeenCalled();
+    expect(appendCustomEntry).toHaveBeenCalledWith("hana-deferred-result", { taskId: "task-img" });
+  });
+
   it("registers bridge inbound image files after the bridge session path exists", async () => {
     const agent = makeAgent(rootDir);
     const mgrPath = path.join(agent.sessionDir, "bridge", "owner", "s-inbound.jsonl");

@@ -28,6 +28,22 @@ import { assertKnownYuan, getAgentConfigRepairState } from "./yuan-registry.js";
 
 const log = createModuleLogger("agent-mgr");
 
+function writeStartupLog(startupLog, message) {
+  if (typeof startupLog === "function") {
+    startupLog(message);
+  } else if (typeof startupLog?.log === "function") {
+    startupLog.log(message);
+  }
+}
+
+function writeStartupError(startupLog, message) {
+  if (typeof startupLog?.error === "function") {
+    startupLog.error(message);
+  } else {
+    writeStartupLog(startupLog, message);
+  }
+}
+
 export class AgentManager {
   /**
    * @param {object} deps
@@ -115,8 +131,8 @@ export class AgentManager {
       });
       activeRuntimeReady = true;
     } catch (err) {
-      log.error(`焦点 agent "${this._activeAgentId}" init 失败: ${err.message}`);
-      if (err.stack) log.error(err.stack);
+      writeStartupError(log, `焦点 agent "${this._activeAgentId}" init 失败: ${err.message}`);
+      if (err.stack) writeStartupError(log, err.stack);
       // 仍然创建实例放入 map，让应用能启动。
       // 关键：必须至少把 config 加载进来，否则 agent.config.models.chat 读不到，
       // 下游会误判为"没配模型"，触发 session 创建跳过 / 记忆系统未启动等连锁崩溃（#414）。
@@ -125,7 +141,7 @@ export class AgentManager {
       }
     }
 
-    log(`[init] ${this._agents.size} 个 agent 已加载配置，焦点 runtime ${activeRuntimeReady ? "已就绪" : "待修复"}`);
+    writeStartupLog(log, `[init] ${this._agents.size} 个 agent 已加载配置，焦点 runtime ${activeRuntimeReady ? "已就绪" : "待修复"}`);
   }
 
   async _loadAgentConfigOnly(agentId, { required = false } = {}) {

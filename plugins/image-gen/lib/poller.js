@@ -129,6 +129,9 @@ export class Poller {
         sessionPath: task.sessionPath,
         meta: {
           type: task.type === "video" ? "video-generation" : "image-generation",
+          mediaKind: task.type === "video" ? "video" : "image",
+          deliveryIntent: "ui_only",
+          triggerParentTurn: false,
           prompt: task.prompt,
           ...(task.deliveryTarget ? { deliveryTarget: task.deliveryTarget } : {}),
         },

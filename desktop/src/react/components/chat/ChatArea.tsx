@@ -198,6 +198,8 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
       <div
         ref={ref}
         className={styles.sessionPanel}
+        data-chat-selection-root=""
+        data-session-path={path}
         onMouseUp={handleCaptureSelection}
         onKeyUp={handleCaptureSelection}
       >

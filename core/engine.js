@@ -33,6 +33,7 @@ import { PluginDevService } from "./plugin-dev-service.js";
 import { createPluginDevTools } from "./plugin-dev-tools.js";
 import { DefaultResourceLoader, SettingsManager } from "../lib/pi-sdk/index.js";
 import { DeferredResultCoordinator } from "../lib/deferred-result-coordinator.js";
+import { getToolSessionPath, normalizeToolRuntimeContext } from "../lib/tools/tool-session.js";
 import { loadLocale } from "../server/i18n.js";
 
 /** 已知的外部 AI 工具技能目录（相对 $HOME） */
@@ -397,6 +398,9 @@ export class HanaEngine {
       this._deferredResultCoordinator = new DeferredResultCoordinator({
         store,
         sessionCoordinator: this._sessionCoord,
+        recordCustomEntry: (sessionPath, customType, data) => (
+          this.recordSessionCustomEntry(sessionPath, customType, data)
+        ),
       });
       this._deferredResultCoordinator.start();
     }
@@ -559,6 +563,11 @@ export class HanaEngine {
   async abortBridgeSession(key) { return this._bridge?.abortSession(key) ?? false; }
   steerBridgeSession(key, text) { return this._bridge?.steerSession(key, text) ?? false; }
   get bridgeSessionManager() { return this._bridge; }
+  recordSessionCustomEntry(sessionPath, customType, data) {
+    const bridgeResult = this._bridge?.recordCustomEntryForSessionPath?.(sessionPath, customType, data);
+    if (bridgeResult?.ok) return bridgeResult;
+    return this._sessionCoord.recordCustomEntry(sessionPath, customType, data);
+  }
   getBridgeContextForSessionPath(sessionPath, opts = {}) {
     return this._bridge?.getBridgeContextForSessionPath?.(sessionPath, opts) || null;
   }
@@ -1452,18 +1461,20 @@ export class HanaEngine {
       : {};
     const wrappedPluginTools = pluginTools.map(t => ({
       ...t,
-      execute: (toolCallId, params, runtimeCtx = {}) => {
+      execute: (toolCallId, params, signalOrRuntimeCtx, onUpdate, piCtx) => {
+        const { ctx: runtimeCtx } = normalizeToolRuntimeContext(signalOrRuntimeCtx, piCtx);
         const sessionPath = runtimeCtx?.sessionPath
-          || runtimeCtx?.sessionManager?.getSessionFile?.()
+          || getToolSessionPath(runtimeCtx)
           || getSessionPath()
           || null;
-        return t.execute(toolCallId, params, {
+        const mergedCtx = {
           ...runtimeCtx,
           ...(sessionPath ? { sessionPath } : {}),
           ...(opts.bridgeContext ? { bridgeContext: opts.bridgeContext } : {}),
           agentId,
           ...executionScope,
-        });
+        };
+        return t.execute(toolCallId, params, signalOrRuntimeCtx, onUpdate, mergedCtx);
       },
     }));
     const pluginDevTools = this._pluginDevService && this._prefs.getPluginDevToolsEnabled?.() === true

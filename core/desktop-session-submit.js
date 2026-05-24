@@ -21,8 +21,11 @@
 import path from "path";
 import { extOfName, inferFileKind } from "../lib/file-metadata.js";
 import { collectMediaItems } from "../lib/tools/media-details.js";
+import { formatSettingsUpdateText } from "../lib/tools/settings-update-result.js";
 import { materializeBridgeInboundFiles } from "../lib/session-files/bridge-inbound-files.js";
 import { serializeSessionFile } from "../lib/session-files/session-file-response.js";
+
+const pendingDesktopSessionSubmissions = new Set();
 
 export async function submitDesktopSessionMessage(engine, opts = {}) {
   const {
@@ -43,114 +46,126 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
   }
   if (!sessionPath) throw new Error("desktop-session-submit: sessionPath is required");
   if (!text && !images?.length && !videos?.length) throw new Error("desktop-session-submit: text, images, or videos required");
+  if (pendingDesktopSessionSubmissions.has(sessionPath)) {
+    throw new Error("session_busy");
+  }
   if (typeof engine.isSessionStreaming === "function" && engine.isSessionStreaming(sessionPath)) {
     throw new Error("session_busy");
   }
 
-  const session = await engine.ensureSessionLoaded(sessionPath);
-  if (!session) throw new Error(`desktop-session-submit: failed to load session ${sessionPath}`);
-
-  if (uiContext !== undefined) {
-    engine.setUiContext?.(sessionPath, uiContext ?? null);
-  }
-
-  let promptImageAttachmentPaths = imageAttachmentPaths || [];
-  let promptVideoAttachmentPaths = videoAttachmentPaths || [];
-  let displayAttachments = displayMessage?.attachments;
-  let promptText = text || "";
-
-  if (displayAttachments?.length) {
-    const registeredDisplay = registerDisplayAttachments({
-      hanakoHome: engine.hanakoHome,
-      sessionPath,
-      attachments: displayAttachments,
-      registerSessionFile: engine.registerSessionFile?.bind(engine),
-    });
-    displayAttachments = registeredDisplay.attachments;
-    promptImageAttachmentPaths = uniquePaths([
-      ...promptImageAttachmentPaths,
-      ...registeredDisplay.imageAttachmentPaths,
-    ]);
-    promptVideoAttachmentPaths = uniquePaths([
-      ...promptVideoAttachmentPaths,
-      ...registeredDisplay.videoAttachmentPaths,
-    ]);
-  }
-
-  if (inboundFiles?.length) {
-    const materialized = await materializeBridgeInboundFiles({
-      hanakoHome: engine.hanakoHome,
-      sessionPath,
-      files: inboundFiles,
-      registerSessionFile: engine.registerSessionFile?.bind(engine),
-    });
-    promptImageAttachmentPaths = [
-      ...promptImageAttachmentPaths,
-      ...materialized.imageAttachmentPaths,
-    ];
-    promptImageAttachmentPaths = uniquePaths(promptImageAttachmentPaths);
-    displayAttachments = [
-      ...(displayAttachments || []),
-      ...materialized.displayAttachments,
-    ];
-  }
-
-  engine.emitEvent?.({ type: "session_status", isStreaming: true }, sessionPath);
-  engine.emitEvent?.({
-    type: "session_user_message",
-    message: {
-      text: displayMessage?.text ?? text ?? "",
-      timestamp: Date.now(),
-      attachments: displayAttachments,
-      quotedText: displayMessage?.quotedText,
-      skills: displayMessage?.skills,
-      deskContext: displayMessage?.deskContext ?? null,
-      source: displayMessage?.source || "desktop",
-      bridgeSessionKey: displayMessage?.bridgeSessionKey || null,
-    },
-  }, sessionPath);
-
-  promptText = addAttachedImageMarkers(promptText, promptImageAttachmentPaths);
-  promptText = addAttachedVideoMarkers(promptText, promptVideoAttachmentPaths);
-
-  let captured = "";
-  const toolMedia = [];
-  const unsub = session.subscribe?.((event) => {
-    if (event.type === "message_update") {
-      const sub = event.assistantMessageEvent;
-      if (sub?.type === "text_delta") {
-        const delta = sub.delta || "";
-        captured += delta;
-        try { onDelta?.(delta, captured); } catch {}
-      }
-    } else if (event.type === "tool_execution_end" && !event.isError) {
-      toolMedia.push(...collectMediaItems(event.result?.details?.media));
-      const card = event.result?.details?.card;
-      if (card?.description) {
-        captured += (captured ? "\n\n" : "") + card.description;
-      }
-    }
-  });
-
+  pendingDesktopSessionSubmissions.add(sessionPath);
   try {
-    const promptOpts = images?.length || videos?.length
-      ? {
-        ...(images?.length ? { images } : {}),
-        ...(videos?.length ? { videos } : {}),
-        ...(promptImageAttachmentPaths.length ? { imageAttachmentPaths: promptImageAttachmentPaths } : {}),
-        ...(promptVideoAttachmentPaths.length ? { videoAttachmentPaths: promptVideoAttachmentPaths } : {}),
-      }
-      : undefined;
-    await engine.promptSession(sessionPath, promptText, promptOpts);
-  } finally {
-    try { unsub?.(); } catch {}
-    engine.emitEvent?.({ type: "session_status", isStreaming: false }, sessionPath);
-  }
+    const session = await engine.ensureSessionLoaded(sessionPath);
+    if (!session) throw new Error(`desktop-session-submit: failed to load session ${sessionPath}`);
 
-  return {
-    text: captured.trim() || null,
-    toolMedia,
-  };
+    if (uiContext !== undefined) {
+      engine.setUiContext?.(sessionPath, uiContext ?? null);
+    }
+
+    let promptImageAttachmentPaths = imageAttachmentPaths || [];
+    let promptVideoAttachmentPaths = videoAttachmentPaths || [];
+    let displayAttachments = displayMessage?.attachments;
+    let promptText = text || "";
+
+    if (displayAttachments?.length) {
+      const registeredDisplay = registerDisplayAttachments({
+        hanakoHome: engine.hanakoHome,
+        sessionPath,
+        attachments: displayAttachments,
+        registerSessionFile: engine.registerSessionFile?.bind(engine),
+      });
+      displayAttachments = registeredDisplay.attachments;
+      promptImageAttachmentPaths = uniquePaths([
+        ...promptImageAttachmentPaths,
+        ...registeredDisplay.imageAttachmentPaths,
+      ]);
+      promptVideoAttachmentPaths = uniquePaths([
+        ...promptVideoAttachmentPaths,
+        ...registeredDisplay.videoAttachmentPaths,
+      ]);
+    }
+
+    if (inboundFiles?.length) {
+      const materialized = await materializeBridgeInboundFiles({
+        hanakoHome: engine.hanakoHome,
+        sessionPath,
+        files: inboundFiles,
+        registerSessionFile: engine.registerSessionFile?.bind(engine),
+      });
+      promptImageAttachmentPaths = [
+        ...promptImageAttachmentPaths,
+        ...materialized.imageAttachmentPaths,
+      ];
+      promptImageAttachmentPaths = uniquePaths(promptImageAttachmentPaths);
+      displayAttachments = [
+        ...(displayAttachments || []),
+        ...materialized.displayAttachments,
+      ];
+    }
+
+    engine.emitEvent?.({ type: "session_status", isStreaming: true }, sessionPath);
+    engine.emitEvent?.({
+      type: "session_user_message",
+      message: {
+        text: displayMessage?.text ?? text ?? "",
+        timestamp: Date.now(),
+        attachments: displayAttachments,
+        quotedText: displayMessage?.quotedText,
+        skills: displayMessage?.skills,
+        deskContext: displayMessage?.deskContext ?? null,
+        source: displayMessage?.source || "desktop",
+        bridgeSessionKey: displayMessage?.bridgeSessionKey || null,
+      },
+    }, sessionPath);
+
+    promptText = addAttachedImageMarkers(promptText, promptImageAttachmentPaths);
+    promptText = addAttachedVideoMarkers(promptText, promptVideoAttachmentPaths);
+
+    let captured = "";
+    const toolMedia = [];
+    const unsub = session.subscribe?.((event) => {
+      if (event.type === "message_update") {
+        const sub = event.assistantMessageEvent;
+        if (sub?.type === "text_delta") {
+          const delta = sub.delta || "";
+          captured += delta;
+          try { onDelta?.(delta, captured); } catch {}
+        }
+      } else if (event.type === "tool_execution_end" && !event.isError) {
+        toolMedia.push(...collectMediaItems(event.result?.details?.media));
+        const card = event.result?.details?.card;
+        if (card?.description) {
+          captured += (captured ? "\n\n" : "") + card.description;
+        }
+        const settingsUpdateText = formatSettingsUpdateText(event.result?.details?.settingsUpdate);
+        if (settingsUpdateText) {
+          captured += (captured ? "\n\n" : "") + settingsUpdateText;
+        }
+      }
+    });
+
+    try {
+      const promptOpts = images?.length || videos?.length
+        ? {
+          ...(images?.length ? { images } : {}),
+          ...(videos?.length ? { videos } : {}),
+          ...(promptImageAttachmentPaths.length ? { imageAttachmentPaths: promptImageAttachmentPaths } : {}),
+          ...(promptVideoAttachmentPaths.length ? { videoAttachmentPaths: promptVideoAttachmentPaths } : {}),
+        }
+        : undefined;
+      await engine.promptSession(sessionPath, promptText, promptOpts);
+    } finally {
+      try { unsub?.(); } catch {}
+      engine.emitEvent?.({ type: "session_status", isStreaming: false }, sessionPath);
+    }
+
+    return {
+      text: captured.trim() || null,
+      toolMedia,
+    };
+  } finally {
+    pendingDesktopSessionSubmissions.delete(sessionPath);
+  }
 }
 
 function registerDisplayAttachments({ hanakoHome, sessionPath, attachments, registerSessionFile }) {

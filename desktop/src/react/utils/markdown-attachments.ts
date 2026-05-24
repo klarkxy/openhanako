@@ -72,8 +72,11 @@ function basenamePortable(value: string): string {
 }
 
 function sanitizeNamePart(value: string, fallback: string): string {
-  const cleaned = value
-    .replace(/[\u0000-\u001f<>:"/\\|?*]/g, ' ')
+  const cleaned = Array.from(value, char => {
+    const code = char.charCodeAt(0);
+    return code <= 0x1f || '<>:"/\\|?*'.includes(char) ? ' ' : char;
+  })
+    .join('')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^\.+|\.+$/g, '');

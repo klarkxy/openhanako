@@ -567,7 +567,7 @@ describe("model sync related routes", () => {
       resolveModelWithCredentials: vi.fn(() => resolved),
     };
     callText.mockRejectedValue(new AppError("LLM_EMPTY_RESPONSE", {
-      message: "LLM returned only thinking content without visible text",
+      message: "模型未回复正文，请检查思考内容或稍后重试。",
       context: { model: "MiniMax-M2.7", reason: "empty_after_thinking" },
     }));
 
@@ -585,7 +585,7 @@ describe("model sync related routes", () => {
       ok: false,
       code: "LLM_EMPTY_RESPONSE",
       reason: "empty_after_thinking",
-      error: "LLM returned only thinking content without visible text",
+      error: "模型未回复正文，请检查思考内容或稍后重试。",
     });
   });
 

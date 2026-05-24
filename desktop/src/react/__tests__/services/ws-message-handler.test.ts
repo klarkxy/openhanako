@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../hooks/use-stream-buffer', () => ({
   streamBufferManager: {
     handle: vi.fn(),
+    beginTurn: vi.fn(),
+    finishTurn: vi.fn(),
   },
 }));
 
@@ -595,7 +597,73 @@ describe('ws-message-handler turn_end side effects', () => {
       }],
       chatSessions: {},
       streamingSessions: [],
+      inputFocusTrigger: 0,
     } as never);
+  });
+
+  it('turn_end requests input focus for the current session', () => {
+    handleServerMessage({
+      type: 'turn_end',
+      sessionPath: '/session/a.jsonl',
+    });
+
+    expect(useStore.getState().inputFocusTrigger).toBe(1);
+  });
+
+  it('background turn_end does not request input focus', () => {
+    useStore.setState({
+      sessions: [
+        ...useStore.getState().sessions,
+        {
+          path: '/session/b.jsonl',
+          title: 'B',
+          firstMessage: 'background',
+          modified: '2026-04-24T10:01:00.000Z',
+          messageCount: 1,
+          agentId: 'a1',
+          agentName: 'Hana',
+          cwd: null,
+        },
+      ],
+    } as never);
+
+    handleServerMessage({
+      type: 'turn_end',
+      sessionPath: '/session/b.jsonl',
+    });
+
+    expect(useStore.getState().inputFocusTrigger).toBe(0);
+  });
+
+  it('status=false requests input focus when the focused session was streaming', () => {
+    useStore.setState({
+      streamingSessions: ['/session/a.jsonl'],
+      inputFocusTrigger: 0,
+    } as never);
+
+    handleServerMessage({
+      type: 'status',
+      sessionPath: '/session/a.jsonl',
+      isStreaming: false,
+    });
+
+    expect(useStore.getState().streamingSessions).toEqual([]);
+    expect(useStore.getState().inputFocusTrigger).toBe(1);
+  });
+
+  it('background status=false does not request input focus', () => {
+    useStore.setState({
+      streamingSessions: ['/session/b.jsonl'],
+      inputFocusTrigger: 0,
+    } as never);
+
+    handleServerMessage({
+      type: 'status',
+      sessionPath: '/session/b.jsonl',
+      isStreaming: false,
+    });
+
+    expect(useStore.getState().inputFocusTrigger).toBe(0);
   });
 
   it('turn_end requests context usage through the injected callback', () => {
