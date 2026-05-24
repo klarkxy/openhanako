@@ -39,6 +39,11 @@ import {
 
 const log = createModuleLogger("bridge-session");
 
+// Bridge prompt 冻结窗口（毫秒）。窗口内复用同一份 system prompt 以利用
+// DeepSeek / Anthropic 的 prompt cache（prefix-cache TTL 为数小时到数天）。
+// 可通过 preferences.bridge.promptFreezeMs 覆盖。
+const DEFAULT_PROMPT_FREEZE_MS = 15 * 60 * 1000; // 15 分钟
+
 function assertVideoInputSupported(model, videos) {
   if (!videos?.length) return;
   if (!modelSupportsVideoInput(model)) {
@@ -154,6 +159,8 @@ export class BridgeSessionManager {
     this._activeSessions = new Map();
     this._prePromptAbortControllers = new Map();
     this._sessionPathBridgeContexts = new Map();
+    // 冻结的 owner prompt 快照：Map<sessionKey, { prompt: string, at: number }>
+    this._frozenOwnerPrompts = new Map();
   }
 
   /** 活跃 bridge sessions（供 bridge-manager abort 用） */
@@ -199,6 +206,23 @@ export class BridgeSessionManager {
       log.warn(`abortSession[${sessionKey}]: session.dispose failed: ${err.message}`);
     }
     return true;
+  }
+
+  /**
+   * 使指定 bridge session 的冻结 prompt 失效。
+   * 供 agent 配置变更时调用（yuan/ishiki/skills 变化后下次消息将用新 prompt）。
+   * @param {string} sessionKey
+   */
+  invalidateFrozenPrompt(sessionKey) {
+    this._frozenOwnerPrompts.delete(sessionKey);
+  }
+
+  /**
+   * 使所有 bridge session 的冻结 prompt 失效。
+   * 供 agent 重载 / 全局设置变更时调用。
+   */
+  invalidateAllFrozenPrompts() {
+    this._frozenOwnerPrompts.clear();
   }
 
   /** bridge 索引文件路径 */
@@ -548,8 +572,46 @@ export class BridgeSessionManager {
           settingsManager: this._createSettings(chatModel),
         };
       } else {
-        // owner 模式：完整 agent。抽出 _buildOwnerSessionOpts 后，compactSession 也能复用同一构造逻辑
-        sessionOpts = this._buildOwnerSessionOpts(agent, mm, homeCwd, sessionPathRef, targetModelRef, { bridgeContext });
+        // owner 模式：完整 agent。
+        // 冻结 prompt 以利用 DeepSeek/Anthropic prompt cache：
+        // 窗口内（默认 15min）复用同一份 system prompt → cache 持续命中；
+        // 超时则 compact 上下文 + 重建 prompt（带最新记忆/经验）。
+        const prefs = this._deps.getPreferences();
+        const freezeMs = prefs?.bridge?.promptFreezeMs ?? DEFAULT_PROMPT_FREEZE_MS;
+        const frozen = this._frozenOwnerPrompts.get(sessionKey);
+        const now = Date.now();
+        let ownerPromptSnapshot = null;
+
+        if (freezeMs > 0 && frozen && (now - frozen.at) < freezeMs) {
+          // 冻结窗口内，复用 prompt → cache 命中
+          ownerPromptSnapshot = frozen.prompt;
+        } else {
+          if (freezeMs > 0 && frozen) {
+            // 超时 → 视为新会话，压缩上下文后重建 prompt
+            try {
+              await this.compactSession(sessionKey, { agentId: agent.id });
+            } catch (err) {
+              // compact 失败不阻塞消息处理
+              log.warn(`prompt freeze compact failed (${sessionKey}): ${err?.message || err}`);
+            }
+          }
+          // 用最新记忆 / 经验构建新 prompt
+          ownerPromptSnapshot = agent.buildSystemPrompt({
+            cwdOverride: homeCwd,
+            forceMemoryEnabled: agent.memoryMasterEnabled,
+            ...(typeof agent.experienceEnabled === "boolean"
+              ? { forceExperienceEnabled: agent.experienceEnabled === true }
+              : {}),
+          });
+          if (freezeMs > 0) {
+            this._frozenOwnerPrompts.set(sessionKey, { prompt: ownerPromptSnapshot, at: now });
+          }
+        }
+
+        sessionOpts = this._buildOwnerSessionOpts(agent, mm, homeCwd, sessionPathRef, targetModelRef, {
+          bridgeContext,
+          ownerPromptSnapshot,
+        });
       }
 
       const { session } = await createAgentSession({
@@ -695,6 +757,13 @@ export class BridgeSessionManager {
         agent?._memoryTicker?.notifySessionEnd(sessionPath).catch((err) =>
           console.error(`\x1b[90m[memory-ticker] bridge notifySessionEnd 失败: ${err.message}\x1b[0m`),
         );
+      }
+      // 消息处理成功 → 续期冻结窗口
+      if (!isGuest && sessionPath) {
+        const frozen = this._frozenOwnerPrompts.get(sessionKey);
+        if (frozen) {
+          frozen.at = Date.now();
+        }
       }
       if (!isGuest && sessionPath) {
         try {
