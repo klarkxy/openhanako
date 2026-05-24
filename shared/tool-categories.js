@@ -43,6 +43,7 @@ export const STANDARD_TOOL_NAMES = [
   "wait",
   "stop_task",
   "terminal",
+  "llm_usage",
 ];
 
 export const GLOBAL_TOOL_NAMES = [
