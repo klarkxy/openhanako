@@ -58,7 +58,10 @@ export function ensureFirstRun(hanakoHome, productDir) {
     touchIfMissing(path.join(agentsDir, entry.name, 'pinned.md'));
   }
 
-  // 5. 确保 user/preferences.json 存在
+  // 5. 确保默认工作区存在
+  ensureDefaultWorkspace();
+
+  // 6. 确保 user/preferences.json 存在
   const prefsPath = path.join(hanakoHome, "user", "preferences.json");
   if (!fs.existsSync(prefsPath)) {
     fs.writeFileSync(

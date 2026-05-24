@@ -301,13 +301,13 @@ export class AgentManager {
           const idMd = fs.readFileSync(path.join(this._d.agentsDir, entry.name, "identity.md"), "utf-8");
           const lines = idMd.split("\n").filter(l => l.trim() && !l.startsWith("#"));
           identity = lines[0]?.trim() || "";
-        } catch {}
+        } catch { /* ignore */ }
         const avatarDir = path.join(this._d.agentsDir, entry.name, "avatars");
         let hasAvatar = false;
         try {
           const avatarFiles = fs.readdirSync(avatarDir);
           hasAvatar = avatarFiles.some(f => /\.(png|jpe?g|gif|webp)$/i.test(f));
-        } catch {}
+        } catch { /* ignore */ }
         const chatRef = cfg.models?.chat;
         const chatModel = typeof chatRef === "object"
           ? { id: chatRef.id, provider: chatRef.provider }
@@ -328,7 +328,7 @@ export class AgentManager {
           homeFolder: effectiveHome,
           memoryMasterEnabled: cfg.memory?.enabled !== false,
         });
-      } catch {}
+      } catch { /* ignore */ }
     }
     return agents;
   }
@@ -361,7 +361,7 @@ export class AgentManager {
         const firstLine = fs.readFileSync(descPath, "utf-8").split("\n")[0].trim();
         const match = firstLine.match(/^<!--\s*sourceHash:\s*(\S+)\s*-->$/);
         if (match?.[1] === hash) return; // 没变化，跳过
-      } catch {} // 文件不存在，继续生成
+      } catch { /* ignore */ } // 文件不存在，继续生成
 
       const utilConfig = this._d.resolveUtilityConfig({ agentId });
       const locale = ag.config?.locale || "zh";
@@ -387,15 +387,15 @@ export class AgentManager {
    * the original error.
    */
   async _rollbackAgentCreation(agentDir, agentId) {
-    try { fs.rmSync(agentDir, { recursive: true, force: true }); } catch {}
-    try { await this._d.getChannelManager().cleanupAgentFromChannels(agentId); } catch {}
+    try { fs.rmSync(agentDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { await this._d.getChannelManager().cleanupAgentFromChannels(agentId); } catch { /* ignore */ }
   }
 
   async createAgent({ name, id, yuan, enabledSkills, initialFiles, avatarPath, initialMemory }) {
     if (!name?.trim()) throw new Error(t("error.agentNameEmpty"));
 
     const agentId = id?.trim() || await this._generateAgentId(name);
-    if (/[\/\\]|\.\./.test(agentId)) throw new Error(t("error.agentIdInvalid"));
+    if (/[/\\]|\.\./.test(agentId)) throw new Error(t("error.agentIdInvalid"));
     const agentDir = path.join(this._d.agentsDir, agentId);
 
     if (fs.existsSync(agentDir)) {

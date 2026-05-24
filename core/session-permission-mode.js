@@ -81,7 +81,9 @@ export function normalizeSessionPermissionMode(raw) {
 }
 
 export function legacyAccessModeFromPermissionMode(mode) {
-  return normalizeSessionPermissionMode(mode) === SESSION_PERMISSION_MODES.OPERATE ? "operate" : "read_only";
+  // OPERATE 和 ASK 都属于 operate 级别访问（ASK 只是每次操作需要确认）
+  // 只有真正的只读模式才映射到 read_only
+  return isReadOnlyPermissionMode(mode) ? "read_only" : "operate";
 }
 
 export function isReadOnlyPermissionMode(mode) {

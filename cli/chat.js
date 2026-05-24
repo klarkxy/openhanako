@@ -145,10 +145,10 @@ ${paint(theme, "/quit")}              exit
   }
 
   function closeAndExit(code) {
-    try { ws.close(); } catch {}
-    try { rl.close(); } catch {}
+    try { ws.close(); } catch { /* ignore */ }
+    try { rl.close(); } catch { /* ignore */ }
     if (process.stdin.isTTY) {
-      try { process.stdin.setRawMode(false); } catch {}
+      try { process.stdin.setRawMode(false); } catch { /* ignore */ }
     }
     process.exit(code);
   }

@@ -530,7 +530,14 @@ export class BridgeSessionManager {
         const yuanBase = agent.yuanPrompt;
         const pubIshiki = agent.publicIshiki;
         const bridgePromptLine = appendBridgePromptLine("", bridgeContext, getLocale()).trim();
-        const parts = [yuanBase, pubIshiki, opts.contextTag, bridgePromptLine].filter(Boolean);
+        const audiencePrompt = buildBridgeAudiencePrompt({
+          relation: bridgeAudience.relation,
+          policy: bridgeAudience.policy,
+          senderName: meta?.name || null,
+          isGroup: bridgeContext?.chatType === "group",
+          locale: getLocale(),
+        });
+        const parts = [yuanBase, pubIshiki, opts.contextTag, bridgePromptLine, audiencePrompt].filter(Boolean);
         const guestPrompt = parts.join("\n\n");
         const tempResourceLoader = Object.create(this._deps.getResourceLoader());
         tempResourceLoader.getSystemPrompt = () => guestPrompt;
@@ -872,6 +879,18 @@ export class BridgeSessionManager {
    */
   injectMessage(sessionKey, text, opts = {}) {
     return this.recordAssistantMessage(sessionKey, text, { ...opts, createIfMissing: false });
+  }
+
+  _resolveBridgeChatModel(agent, mm) {
+    const ref = agent.config?.models?.chat;
+    if (!ref?.id || !ref?.provider) {
+      throw new Error(t("error.bridgeAgentNoChatModel", { name: agent.agentName }));
+    }
+    const chatModel = findModel(mm.availableModels, ref.id, ref.provider);
+    if (!chatModel) {
+      throw new Error(t("error.bridgeAgentModelNotAvailable", { name: agent.agentName, model: `${ref.provider}/${ref.id}` }));
+    }
+    return chatModel;
   }
 
   _buildRecordedAssistantMessage(agent, text) {
