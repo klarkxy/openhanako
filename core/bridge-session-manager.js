@@ -684,7 +684,7 @@ export class BridgeSessionManager {
           if (sub?.type === "text_delta") {
             const delta = sub.delta || "";
             capturedText += delta;
-            try { opts.onDelta?.(delta, capturedText); } catch {}
+            try { opts.onDelta?.(delta, capturedText); } catch { /* ignore */ }
           }
         } else if (event.type === "tool_execution_end" && !event.isError) {
           toolMediaUrls.push(...collectMediaItems(event.result?.details?.media));

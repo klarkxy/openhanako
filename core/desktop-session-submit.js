@@ -129,7 +129,7 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
         if (sub?.type === "text_delta") {
           const delta = sub.delta || "";
           captured += delta;
-          try { onDelta?.(delta, captured); } catch {}
+          try { onDelta?.(delta, captured); } catch { /* ignore */ }
         }
       } else if (event.type === "tool_execution_end" && !event.isError) {
         toolMedia.push(...collectMediaItems(event.result?.details?.media));
@@ -155,7 +155,7 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
         : undefined;
       await engine.promptSession(sessionPath, promptText, promptOpts);
     } finally {
-      try { unsub?.(); } catch {}
+      try { unsub?.(); } catch { /* ignore */ }
       engine.emitEvent?.({ type: "session_status", isStreaming: false }, sessionPath);
     }
 
@@ -199,7 +199,7 @@ function registerDisplayAttachments({ hanakoHome, sessionPath, attachments, regi
     }
 
     if (next.path && path.isAbsolute(next.path) && next.base64Data) {
-      const { base64Data, ...withoutInlineBytes } = next;
+      const { base64Data: _base64Data, ...withoutInlineBytes } = next;
       next = withoutInlineBytes;
     }
 

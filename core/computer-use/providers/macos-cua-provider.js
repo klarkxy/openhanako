@@ -640,7 +640,7 @@ export function createMacosCuaProvider({
     if (daemonStopPromise) return daemonStopPromise;
     daemonStopPromise = (async () => {
       if (daemonStartPromise) {
-        try { await daemonStartPromise; } catch {}
+        try { await daemonStartPromise; } catch { /* ignore */ }
       }
       if (!managedDaemonActive && !spawnedDaemonPid) {
         return { stopped: false, reason: "not-running" };
@@ -750,11 +750,11 @@ export function createMacosCuaProvider({
         try {
           const perms = await runTool("check_permissions", { prompt: false });
           permissions = normalizePermissions(perms);
-        } catch (err) {
+        } catch {
           permissions = [{ name: "accessibility", granted: false }, { name: "screen-recording", granted: false }];
         }
         return { providerId, available: true, command, daemon: status.stdout.trim(), permissions };
-      } catch (err) {
+      } catch {
         return {
           providerId,
           available: false,

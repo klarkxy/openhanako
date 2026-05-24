@@ -219,7 +219,7 @@ export class Agent {
       } catch (err) {
         moduleLog.error(`v1→v2 迁移失败（不影响启动）: ${err.message}`);
         // 迁移失败也写标记，避免每次启动重试
-        try { fs.writeFileSync(migrationDone, `failed: ${err.message}`); } catch {}
+        try { fs.writeFileSync(migrationDone, `failed: ${err.message}`); } catch { /* ignore */ }
       }
     }
 
@@ -424,7 +424,7 @@ export class Agent {
                   summary = descRaw.split("\n")
                     .filter(l => !l.trim().startsWith("<!--"))
                     .join("\n").trim();
-                } catch {}
+                } catch { /* ignore */ }
 
                 return {
                   id: e.name,

@@ -190,8 +190,7 @@ describe('AccessTab', () => {
     render(<AccessTab />);
 
     // 多设备访问已禁用：仅显示禁用状态
-    await screen.findByText('settings.access.networkAccess');
-    expect(screen.getByText(/已禁用/)).toBeInTheDocument();
+    expect(await screen.findByText(/已禁用/)).toBeInTheDocument();
     // 禁用状态下不显示 LAN 开关和 URL
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(/192\.168/)).not.toBeInTheDocument();
@@ -242,128 +241,57 @@ describe('AccessTab', () => {
   });
 
   it('generates a desktop access key from the manual computer section', async () => {
+    // 多设备访问已禁用：生成桌面密钥功能不可用
     const { AccessTab } = await import('../../settings/tabs/AccessTab');
 
     render(<AccessTab />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'settings.access.generateDesktopKey' }));
-
-    expect(await screen.findByDisplayValue('hana_dev_desktop_visible_once')).toBeInTheDocument();
-    expect(mockHanaFetch).toHaveBeenCalledWith('/api/access/desktop-credentials', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({
-        displayName: 'Desktop Frontend',
-        scopes: ['chat', 'resources.read', 'files.read', 'files.write'],
-      }),
-    }));
+    expect(await screen.findByText(/已禁用/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.access.generateDesktopKey' })).not.toBeInTheDocument();
   });
 
   it('connects to an existing LAN server from the client connection section', async () => {
+    // 多设备访问已禁用：LAN 连接表单不显示
     const { AccessTab } = await import('../../settings/tabs/AccessTab');
 
     render(<AccessTab />);
 
-    fireEvent.change(await screen.findByLabelText('settings.access.remoteServerUrl'), {
-      target: { value: 'http://192.168.31.75:14500' },
-    });
-    fireEvent.change(screen.getByLabelText('settings.access.remoteServerKey'), {
-      target: { value: 'hana_dev_remote_secret' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'settings.access.connectLanServer' }));
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith('http://192.168.31.75:14500/api/web-auth/login', expect.objectContaining({
-        method: 'POST',
-        credentials: 'include',
-        body: JSON.stringify({ credential: 'hana_dev_remote_secret' }),
-      }));
-    });
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith('http://192.168.31.75:14500/api/server/identity', expect.objectContaining({
-        credentials: 'include',
-        headers: { Authorization: 'Bearer hana_dev_remote_secret' },
-      }));
-      expect(window.hana.reloadMainWindow).toHaveBeenCalledTimes(1);
-    });
+    expect(await screen.findByText(/已禁用/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('settings.access.remoteServerUrl')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('settings.access.remoteServerKey')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.access.connectLanServer' })).not.toBeInTheDocument();
   });
 
   it('saves the local owner profile and password from the account section', async () => {
+    // 多设备访问已禁用：账号表单不显示
     const { AccessTab } = await import('../../settings/tabs/AccessTab');
 
     render(<AccessTab />);
 
-    fireEvent.change(await screen.findByLabelText('settings.access.username'), {
-      target: { value: 'hana-owner' },
-    });
-    fireEvent.change(screen.getByLabelText('settings.access.displayName'), {
-      target: { value: 'Hana Owner' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'settings.access.saveAccount' }));
-
-    await waitFor(() => {
-      expect(mockHanaFetch).toHaveBeenCalledWith('/api/access/account/profile', expect.objectContaining({
-        method: 'PUT',
-        body: JSON.stringify({ username: 'hana-owner', displayName: 'Hana Owner' }),
-      }));
-    });
-
-    fireEvent.change(screen.getByLabelText('settings.access.newPassword'), {
-      target: { value: 'correct horse battery staple' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'settings.access.savePassword' }));
-
-    await waitFor(() => {
-      expect(mockHanaFetch).toHaveBeenCalledWith('/api/access/account/password', expect.objectContaining({
-        method: 'PUT',
-        body: JSON.stringify({ password: 'correct horse battery staple' }),
-      }));
-    });
+    expect(await screen.findByText(/已禁用/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('settings.access.username')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('settings.access.displayName')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.access.saveAccount' })).not.toBeInTheDocument();
   });
 
   it('revokes individual credentials without requiring whole-device revocation', async () => {
-    mockHanaFetch.mockImplementation((url: string, options?: RequestInit) => {
-      if (url === '/api/access/summary') return Promise.resolve(jsonResponse(pairedSummary));
-      if (url === '/api/devices/credentials/cred_1/revoke' && options?.method === 'POST') {
-        return Promise.resolve(jsonResponse({ ok: true }));
-      }
-      throw new Error(`unexpected request: ${url}`);
-    });
+    // 多设备访问已禁用：凭据管理不显示
     const { AccessTab } = await import('../../settings/tabs/AccessTab');
 
     render(<AccessTab />);
 
-    expect(await screen.findByText('User Phone')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'settings.access.revokeCredential' }));
-
-    await waitFor(() => {
-      expect(mockHanaFetch).toHaveBeenCalledWith('/api/devices/credentials/cred_1/revoke', { method: 'POST' });
-    });
+    expect(await screen.findByText(/已禁用/)).toBeInTheDocument();
+    expect(screen.queryByText('User Phone')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.access.revokeCredential' })).not.toBeInTheDocument();
   });
 
   it('clears the local password from the password section', async () => {
-    mockHanaFetch.mockImplementation((url: string, options?: RequestInit) => {
-      if (url === '/api/access/summary') {
-        return Promise.resolve(jsonResponse({
-          ...baseSummary,
-          account: { ...baseSummary.account, passwordSet: true },
-        }));
-      }
-      if (url === '/api/access/account/password' && options?.method === 'DELETE') {
-        return Promise.resolve(jsonResponse({
-          ok: true,
-          account: { ...baseSummary.account, passwordSet: false },
-        }));
-      }
-      throw new Error(`unexpected request: ${url}`);
-    });
+    // 多设备访问已禁用：密码管理不显示
     const { AccessTab } = await import('../../settings/tabs/AccessTab');
 
     render(<AccessTab />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'settings.access.clearPassword' }));
-
-    await waitFor(() => {
-      expect(mockHanaFetch).toHaveBeenCalledWith('/api/access/account/password', { method: 'DELETE' });
-    });
+    expect(await screen.findByText(/已禁用/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.access.clearPassword' })).not.toBeInTheDocument();
   });
 });

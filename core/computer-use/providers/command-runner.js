@@ -37,7 +37,7 @@ export function createCommandRunner({ spawnImpl = spawn } = {}) {
 
         if (options.timeoutMs) {
           timer = setTimeout(() => {
-            try { child.kill("SIGKILL"); } catch {}
+            try { child.kill("SIGKILL"); } catch { /* ignore */ }
             const err = new Error(`Command timed out after ${options.timeoutMs}ms`);
             err.code = "ETIMEDOUT";
             finish(reject, err);
