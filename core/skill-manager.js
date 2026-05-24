@@ -327,9 +327,9 @@ export class SkillManager {
                 _externalLabel: label,
               }, { owner }),
             });
-          } catch {}
+          } catch { /* ignore */ }
         }
-      } catch {}
+      } catch { /* ignore */ }
     }
     return results;
   }
@@ -375,7 +375,7 @@ export class SkillManager {
 
   _closeExternalWatchers() {
     for (const [, w] of this._externalWatchers) {
-      try { w.close(); } catch {}
+      try { w.close(); } catch { /* ignore */ }
     }
     this._externalWatchers.clear();
   }
@@ -425,7 +425,7 @@ export class SkillManager {
             source: "learned",
           }),
         });
-      } catch {}
+      } catch { /* ignore */ }
     }
     return results;
   }

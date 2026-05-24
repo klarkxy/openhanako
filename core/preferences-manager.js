@@ -73,7 +73,7 @@ export class PreferencesManager {
       atomicWriteSync(this._path, JSON.stringify(next, null, 2) + "\n");
       this._cache = this._readFromDiskStrict();
     } catch (err) {
-      try { fs.unlinkSync(this._path + ".tmp"); } catch {}
+      try { fs.unlinkSync(this._path + ".tmp"); } catch { /* ignore */ }
       throw err;
     }
   }
@@ -105,7 +105,7 @@ export class PreferencesManager {
       if (stored?.setupComplete === true) {
         return { ...prefs, setupComplete: true };
       }
-    } catch {}
+    } catch { /* ignore */ }
     return prefs;
   }
 
@@ -577,7 +577,7 @@ export class PreferencesManager {
           return entry.name;
         }
       }
-    } catch {}
+    } catch { /* ignore */ }
     return null;
   }
 }

@@ -2388,7 +2388,7 @@ export class SessionCoordinator {
         if (attempt === 0) {
           // 首次写失败可能因父目录缺失：best-effort 补建后由下一轮 attempt 重试 writeFile。
           // mkdir 自身失败（如目录已存在）不影响重试，吞掉即可。
-          try { await fsp.mkdir(path.dirname(metaPath), { recursive: true }); } catch {}
+          try { await fsp.mkdir(path.dirname(metaPath), { recursive: true }); } catch { /* ignore */ }
         } else {
           log.warn(`writeSessionMeta failed for ${sessKey}: ${err.message}`);
         }
@@ -2502,7 +2502,7 @@ export class SessionCoordinator {
       const sp = tempSessionMgr?.getSessionFile?.();
       if (sp) {
         // 临时 session 文件清理 best-effort：删不掉（如已被删/权限）不应让 isolated 执行失败。
-        try { fs.unlinkSync(sp); } catch {}
+        try { fs.unlinkSync(sp); } catch { /* ignore */ }
       }
     };
     try {
@@ -2708,7 +2708,7 @@ export class SessionCoordinator {
 
       if (!opts.persist && sessionPath) {
         // 非 persist 的临时 session 文件清理 best-effort：删不掉不影响返回结果。
-        try { fs.unlinkSync(sessionPath); } catch {}
+        try { fs.unlinkSync(sessionPath); } catch { /* ignore */ }
         return {
           sessionPath: null,
           replyText: finalReplyText,
@@ -2744,7 +2744,7 @@ export class SessionCoordinator {
   }
 
   /** 创建 session 专用 settings（控制 compaction + max_completion_tokens） */
-  _createSettings(model) {
+  _createSettings(_model) {
     return createDefaultSettings();
   }
 }

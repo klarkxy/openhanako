@@ -74,6 +74,7 @@ export function getReasoningProfile(model) {
 
 function stripEmptyTools(payload) {
   if (Array.isArray(payload.tools) && payload.tools.length === 0) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { tools, ...rest } = payload;
     return rest;
   }
@@ -88,6 +89,7 @@ function stripIncompatibleThinking(payload, model) {
   if (!model) return payload;
   const thinkingFormat = getThinkingFormat(model);
   if (thinkingFormat === "anthropic" || thinkingFormat === "deepseek") return payload;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { thinking, ...rest } = payload;
   return rest;
 }
@@ -118,6 +120,7 @@ function isDisabledReasoningEffort(value) {
 function stripDisabledReasoningEffort(payload) {
   if (!Object.prototype.hasOwnProperty.call(payload, "reasoning_effort")) return payload;
   if (!isDisabledReasoningEffort(payload.reasoning_effort)) return payload;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { reasoning_effort, ...rest } = payload;
   return rest;
 }

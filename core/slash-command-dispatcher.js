@@ -36,7 +36,7 @@ export class SlashCommandDispatcher {
 
     const role = this._resolveRole(ctx);
     if (RANK[role] < RANK[def.permission]) {
-      try { log.log(`rejected: /${parsed.commandName} from ${role}`); } catch {}
+      try { log.log(`rejected: /${parsed.commandName} from ${role}`); } catch { /* ignore */ }
       return { handled: true };
     }
 
@@ -76,15 +76,15 @@ export class SlashCommandDispatcher {
         if (result.silent) return { handled: true };
         if (result.error) {
           // I3 fix：result.error 有独立 try/catch，避免 reply 失败被外层 catch 误当作 handler exception 处理
-          try { await ctx.reply(`[命令错误] ${result.error}`); } catch {}
+          try { await ctx.reply(`[命令错误] ${result.error}`); } catch { /* ignore */ }
         } else if (result.reply) {
-          try { await ctx.reply(result.reply); } catch {}
+          try { await ctx.reply(result.reply); } catch { /* ignore */ }
         }
       }
     } catch (err) {
       const base = `[命令错误] ${err?.message || String(err)}`;
       const full = def.usage ? `${base}\n用法：${def.usage}` : base;
-      try { await ctx.reply(full); } catch {}
+      try { await ctx.reply(full); } catch { /* ignore */ }
     } finally {
       clearTimeout(timer);
     }

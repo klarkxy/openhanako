@@ -873,7 +873,7 @@ export class PluginDevService {
 
   unregisterEventBusHandlers() {
     for (const dispose of this._eventBusDisposers.splice(0)) {
-      try { dispose(); } catch {}
+      try { dispose(); } catch { /* ignore */ }
     }
   }
 }

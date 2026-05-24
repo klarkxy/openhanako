@@ -504,13 +504,8 @@ export function persistServerConnectionSelection(
   connection: ServerConnection,
   storage: ConnectionStorageLike | null | undefined = getDefaultStorage(),
 ): PersistedServerConnectionState {
-  const previous = readPersistedServerConnectionState(storage);
-  const next = {
-    serverConnections: upsertServerConnection(previous.serverConnections, connection),
-    activeServerConnectionId: connection.connectionId,
-  };
-  writePersistedServerConnectionState(next, storage);
-  return next;
+  // 多设备访问已禁用：不持久化任何远程连接选择
+  return readPersistedServerConnectionState(storage);
 }
 
 export function mergeServerIdentity(

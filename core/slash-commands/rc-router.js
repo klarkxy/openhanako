@@ -49,7 +49,7 @@ export async function promptAttachedDesktopSession(engine, sessionPath, text, op
       if (sub?.type === "text_delta") {
         const delta = sub.delta || "";
         captured += delta;
-        try { opts.onDelta?.(delta, captured); } catch {}
+        try { opts.onDelta?.(delta, captured); } catch { /* ignore */ }
       }
     } else if (event.type === "tool_execution_end" && !event.isError) {
       toolMedia.push(...collectMediaItems(event.result?.details?.media));

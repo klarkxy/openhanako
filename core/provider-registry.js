@@ -409,6 +409,7 @@ export class ProviderRegistry {
         if (Object.keys(meta).length === 0) continue;
 
         // 找到对应 provider 并更新条目
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         for (const [provName, prov] of Object.entries(userConfig)) {
           if (!prov.models || !Array.isArray(prov.models)) continue;
           const idx = prov.models.findIndex(m => (typeof m === "object" ? m.id : m) === modelId);
@@ -1009,6 +1010,7 @@ export class ProviderRegistry {
       const base = typeof m === "object" ? m : { id: mid };
       // 删除旧字段 vision，避免残留
       if (base.vision !== undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { vision: _vision, ...cleaned } = base;
         const merged = { ...cleaned, ...safe };
         if (!merged.name) delete merged.name;

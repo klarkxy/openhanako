@@ -81,6 +81,7 @@ export function createPluginContext({ pluginId, pluginKey, source, pluginDir, da
   }
 
   function stageFile(entry = {}) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { origin: _origin, storageKind: _storageKind, ...safeEntry } = entry;
     const file = registerSessionFile({ ...safeEntry, origin: "plugin_output" });
     return { file, mediaItem: toMediaItem(file) };

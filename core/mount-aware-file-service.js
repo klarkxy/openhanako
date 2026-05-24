@@ -226,6 +226,7 @@ function findLocalFsMount(hanakoHome, studioId, rootId) {
 }
 
 function publicRoot(root) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { path: _path, ...safe } = root;
   return safe;
 }
@@ -296,7 +297,7 @@ async function searchFiles(rootPath, query) {
             size: entry.isDirectory() ? null : stat.size,
             mtime: stat.mtime.toISOString(),
           });
-        } catch {}
+        } catch { /* ignore */ }
       }
       if (entry.isDirectory()) await walk(fullPath);
     }

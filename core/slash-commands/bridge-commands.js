@@ -130,7 +130,7 @@ export const bridgeCommands = [
             sessionKey: ctx.sessionRef.sessionKey,
             sessionPath: priorAttachment.desktopSessionPath,
           }, priorAttachment.desktopSessionPath);
-        } catch {}
+        } catch { /* ignore */ }
       }
       return { reply: "已退出接管桌面会话" };
     },
@@ -147,7 +147,7 @@ export const bridgeCommands = [
       // 失败路径也要发一条给用户，否则压缩出错用户只会看到什么都没发生
       // Phase 2-E：接管态下 compact 的目标是桌面 session 的 context，不是 bridge 的
       const ref = _redirectRefIfAttached(ctx);
-      try { await ctx.reply("（正在压缩上下文，请稍候...）"); } catch {}
+      try { await ctx.reply("（正在压缩上下文，请稍候...）"); } catch { /* ignore */ }
       try {
         const result = await ctx.sessionOps.compact(ref);
         const before = result?.tokensBefore;
@@ -155,9 +155,9 @@ export const bridgeCommands = [
         const msg = (typeof before === "number" && typeof after === "number")
           ? `（上下文已压缩：${before} → ${after} tokens）`
           : "（上下文已压缩）";
-        try { await ctx.reply(msg); } catch {}
+        try { await ctx.reply(msg); } catch { /* ignore */ }
       } catch (err) {
-        try { await ctx.reply(`（压缩失败：${err?.message || String(err)}）`); } catch {}
+        try { await ctx.reply(`（压缩失败：${err?.message || String(err)}）`); } catch { /* ignore */ }
       }
       // 已经自己调 reply，走 silent 避免 dispatcher 再回复一次
       return { silent: true };

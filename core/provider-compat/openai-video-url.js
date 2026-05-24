@@ -33,6 +33,7 @@ export function normalizeOpenAIVideoUrlPayload(payload) {
       const url = getDataVideoUrl(part);
       if (!url) return part;
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { image_url, imageUrl, video_url, ...rest } = part;
       contentChanged = true;
       return {

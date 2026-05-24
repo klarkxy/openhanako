@@ -1,4 +1,3 @@
-import fs from "fs";
 import path from "path";
 import YAML from "js-yaml";
 import { atomicWriteSync, safeReadYAMLSync } from "../shared/safe-fs.js";
@@ -21,6 +20,7 @@ function normalizeMediaModelEntry(model) {
   if (!isPlainObject(model)) return null;
   const id = typeof model.id === "string" ? model.id.trim() : "";
   if (!id) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { type: _type, display_name: displayName, ...rest } = model;
   const next = { ...rest, id };
   if (displayName !== undefined && next.displayName === undefined && next.name === undefined) {
