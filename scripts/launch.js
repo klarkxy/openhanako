@@ -53,4 +53,22 @@ switch (mode) {
 delete process.env.ELECTRON_RUN_AS_NODE;
 
 const child = spawn(bin, args, { stdio: "inherit", env: process.env });
+
+function cleanupAndExit(code) {
+  if (child.exitCode === null && child.signalCode === null) {
+    // 通知 Electron 优雅退出（before-quit → shutdownServer → kill server）
+    if (process.platform === "win32") {
+      try { child.kill(); } catch {} // Windows: 传 console CTRL 事件不可靠，直接 kill
+    } else {
+      child.kill("SIGTERM");
+    }
+    // 给 Electron 最多 5s 清理 server，超时则强杀
+    const forceTimer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 5000);
+    child.on("exit", () => clearTimeout(forceTimer));
+  }
+  process.exit(code ?? 1);
+}
+
+process.on("SIGINT", () => cleanupAndExit(0));
+process.on("SIGTERM", () => cleanupAndExit(0));
 child.on("exit", (code) => process.exit(code ?? 1));

@@ -3716,3 +3716,29 @@ process.on('unhandledRejection', (reason) => {
   console.error(`[ErrorBus][${err.code || 'UNKNOWN'}][${traceId}] unhandledRejection: ${redactMainLogText(err.message)}`);
   console.error(`[ErrorBus][${traceId}] ${redactMainLogText(err.stack || err.message)}`);
 });
+
+// ── 信号处理：确保 Ctrl-C / SIGTERM 时清理 server，不留孤儿进程 ──
+// Electron 不会自动把 SIGINT/SIGTERM 转为 app.quit()，需显式处理。
+// before-quit handler 已包含 shutdownServer() 逻辑，app.quit() 会触发清理链。
+function handleTerminationSignal(signal) {
+  if (isQuitting) return;
+  console.log(`[desktop] 收到 ${signal}，正在退出...`);
+  isExitingServer = true;
+  isQuitting = true;
+  app.quit();
+}
+process.on("SIGINT", () => handleTerminationSignal("SIGINT"));
+process.on("SIGTERM", () => handleTerminationSignal("SIGTERM"));
+if (process.platform === "win32") {
+  process.on("SIGBREAK", () => handleTerminationSignal("SIGBREAK"));
+}
+
+// 兜底：进程退出时强杀 server（防止 before-quit 异步清理未完成）
+process.on("exit", () => {
+  if (serverProcess && !hasChildExitObserved(serverProcess)) {
+    try { killPid(serverProcess.pid, true); } catch {}
+  }
+  if (reusedServerPid) {
+    try { killPid(reusedServerPid, true); } catch {}
+  }
+});
