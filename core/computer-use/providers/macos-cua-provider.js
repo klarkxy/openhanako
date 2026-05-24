@@ -754,7 +754,7 @@ export function createMacosCuaProvider({
           permissions = [{ name: "accessibility", granted: false }, { name: "screen-recording", granted: false }];
         }
         return { providerId, available: true, command, daemon: status.stdout.trim(), permissions };
-      } catch {
+      } catch (err) {
         return {
           providerId,
           available: false,

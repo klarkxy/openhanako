@@ -286,7 +286,7 @@ function migrateBridgeToPerAgent(ctx) {
           break;
         }
       }
-    } catch {}
+    } catch { /* ignore */ }
   }
 
   for (const platform of PLATFORMS) {
@@ -829,7 +829,7 @@ function migrateWorkspaceToPerAgent(ctx) {
           break;
         }
       }
-    } catch {}
+    } catch { /* ignore */ }
   }
 
   // ── 2. 迁移 home_folder ──
@@ -1110,14 +1110,14 @@ function migrateCronJobsToAutomationReadModel(ctx) {
       if (!entry.isDirectory()) continue;
       paths.push(path.join(studiosDir, entry.name, "desk", "cron-jobs.json"));
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   try {
     for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       paths.push(path.join(agentsDir, entry.name, "desk", "cron-jobs.json"));
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   let patchedFiles = 0;
   let patchedJobs = 0;

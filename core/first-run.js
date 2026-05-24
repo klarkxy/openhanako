@@ -117,7 +117,7 @@ function seedDefaultAgent(agentsDir, productDir) {
       const raw = YAML.load(fs.readFileSync(cfgDest, "utf-8")) || {};
       isZh = String(raw.locale || "zh").startsWith("zh");
     }
-  } catch {}
+  } catch { /* ignore */ }
   const langDir = isZh ? "" : "en/";
   const firstExisting = (paths) => paths.find((p) => fs.existsSync(p));
 

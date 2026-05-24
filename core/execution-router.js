@@ -19,12 +19,6 @@
 import { t } from "../server/i18n.js";
 import { isLocalBaseUrl } from "../shared/net-utils.js";
 
-// 角色名称 -> preferences 字段名（SHARED_MODEL_KEYS 兼容）
-const ROLE_TO_PREF_KEY = {
-  utility: "utility_model",
-  utility_large: "utility_large_model",
-};
-
 export class ExecutionRouter {
   /**
    * @param {(ref: string) => object|null} resolveModel - 从 _availableModels 解析模型的函数
