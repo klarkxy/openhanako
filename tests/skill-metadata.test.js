@@ -42,6 +42,7 @@ describe("parseSkillMetadata", () => {
       description: "Summarize PDFs for the user. Keep the answer concise.",
       disableModelInvocation: true,
       defaultEnabled: true,
+      lang: "",
     });
   });
 

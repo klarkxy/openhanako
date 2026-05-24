@@ -42,15 +42,19 @@ describe("first run default workspace", () => {
 
   it("seeds hanako with the desktop OH-WorkSpace, enabled memory, and disabled patrol defaults", async () => {
     const { ensureFirstRun } = await import("../core/first-run.js");
+    const { resolveAgentDefaultWorkspacePath } = await import("../shared/default-workspace.js");
 
     ensureFirstRun(hanakoHome, productDir);
 
-    const workspace = path.join(homeDir, "Desktop", "OH-WorkSpace");
+    const legacyWorkspace = path.join(homeDir, "Desktop", "OH-WorkSpace");
+    const agentWorkspace = resolveAgentDefaultWorkspacePath("hanako", homeDir);
     const cfgPath = path.join(hanakoHome, "agents", "hanako", "config.yaml");
     const cfg = YAML.load(fs.readFileSync(cfgPath, "utf-8"));
 
-    expect(fs.statSync(workspace).isDirectory()).toBe(true);
-    expect(cfg.desk.home_folder).toBe(workspace);
+    // ensureDefaultWorkspace() 创建了全局默认工作区目录
+    expect(fs.statSync(legacyWorkspace).isDirectory()).toBe(true);
+    // agent 的 home_folder 指向其专属工作区
+    expect(cfg.desk.home_folder).toBe(agentWorkspace);
     expect(cfg.desk.heartbeat_enabled).toBe(false);
     expect(cfg.desk.heartbeat_interval).toBe(31);
     expect(cfg.memory.enabled).toBe(true);

@@ -21,7 +21,7 @@ describe("local startup contract", () => {
     const devEnvJs = fs.readFileSync(path.join(ROOT, "scripts", "dev-env.js"), "utf-8");
     const mainCjs = fs.readFileSync(path.join(ROOT, "desktop", "main.cjs"), "utf-8");
 
-    expect(launchJs).toContain('from "./dev-env.js"');
+    expect(launchJs).toContain("../shared/windows-console.js");
     expect(launchJs).toContain("applyDevEnvironment(process.env)");
     expect(devEnvJs).toContain("HANA_DEV_NODE_BIN");
     expect(mainCjs).toContain("HANA_DEV_NODE_BIN");
