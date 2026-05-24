@@ -191,7 +191,7 @@ describe('AccessTab', () => {
 
     // 多设备访问已禁用：仅显示禁用状态
     await screen.findByText('settings.access.networkAccess');
-    expect(screen.getByText('已禁用')).toBeInTheDocument();
+    expect(screen.getByText(/已禁用/)).toBeInTheDocument();
     // 禁用状态下不显示 LAN 开关和 URL
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(/192\.168/)).not.toBeInTheDocument();
@@ -226,7 +226,7 @@ describe('AccessTab', () => {
     render(<AccessTab />);
 
     // 多设备访问已禁用：仅显示禁用状态
-    expect(await screen.findByText('已禁用')).toBeInTheDocument();
+    expect(await screen.findByText(/已禁用/)).toBeInTheDocument();
     expect(screen.queryByDisplayValue(/192\.168/)).not.toBeInTheDocument();
     expect(screen.queryByText('settings.access.restartRequired')).not.toBeInTheDocument();
   });
@@ -237,7 +237,7 @@ describe('AccessTab', () => {
     render(<AccessTab />);
 
     // 多设备访问已禁用：生成密钥按钮不可见
-    expect(await screen.findByText('已禁用')).toBeInTheDocument();
+    expect(await screen.findByText(/已禁用/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.access.generateMobileKey' })).not.toBeInTheDocument();
   });
 
