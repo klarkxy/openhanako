@@ -189,35 +189,13 @@ describe('AccessTab', () => {
 
     render(<AccessTab />);
 
-    await screen.findByText('settings.access.mobileUrlLocalHint');
-    expect(screen.getByText('settings.access.networkAccess')).toBeInTheDocument();
-    expect(screen.getByText('settings.access.mobileAccess')).toBeInTheDocument();
-    expect(screen.getByText('settings.access.desktopAccess')).toBeInTheDocument();
-    expect(screen.getByText('settings.access.status')).toBeInTheDocument();
-    expect(screen.getByText('settings.access.runtimeEndpoint')).toBeInTheDocument();
-    expect(screen.getByText('127.0.0.1:14500')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('http://127.0.0.1:14500/mobile/')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('http://127.0.0.1:14500/')).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue('14500')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('switch', { name: 'settings.access.lanToggle' }));
-    expect(await screen.findByDisplayValue('http://192.168.31.75:14500/mobile/')).toBeInTheDocument();
-    expect(await screen.findByDisplayValue('http://192.168.31.75:14500/')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'settings.access.qrCode' })).toHaveAttribute(
-      'src',
-      expect.stringContaining('/api/access/mobile-qr.svg?port=14500'),
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'settings.access.saveNetwork' }));
-
-    await waitFor(() => {
-      expect(mockHanaFetch).toHaveBeenCalledWith('/api/access/network', expect.objectContaining({
-        method: 'PUT',
-        body: JSON.stringify({ mode: 'lan', listenPort: 14500 }),
-      }));
-    });
-    expect(await screen.findByDisplayValue('http://192.168.31.75:14500/mobile/')).toBeInTheDocument();
-    expect(screen.queryByText('settings.access.restartRequired')).not.toBeInTheDocument();
+    // 多设备访问已禁用：仅显示禁用状态
+    await screen.findByText('settings.access.networkAccess');
+    expect(screen.getByText('已禁用')).toBeInTheDocument();
+    // 禁用状态下不显示 LAN 开关和 URL
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/192\.168/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.access.saveNetwork' })).not.toBeInTheDocument();
   });
 
   it('keeps the phone URL on the runtime port and hides QR when a saved port change needs restart', async () => {
@@ -247,13 +225,10 @@ describe('AccessTab', () => {
 
     render(<AccessTab />);
 
-    expect(await screen.findByDisplayValue('http://192.168.31.75:14500/mobile/')).toBeInTheDocument();
-    expect(await screen.findByDisplayValue('http://192.168.31.75:14500/')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('14550')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('http://192.168.31.75:14550/mobile/')).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue('http://192.168.31.75:14550/')).not.toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: 'settings.access.qrCode' })).not.toBeInTheDocument();
-    expect(screen.getAllByText('settings.access.restartRequired').length).toBeGreaterThan(0);
+    // 多设备访问已禁用：仅显示禁用状态
+    expect(await screen.findByText('已禁用')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/192\.168/)).not.toBeInTheDocument();
+    expect(screen.queryByText('settings.access.restartRequired')).not.toBeInTheDocument();
   });
 
   it('generates a mobile access key and keeps the returned secret visible once', async () => {
@@ -261,16 +236,9 @@ describe('AccessTab', () => {
 
     render(<AccessTab />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'settings.access.generateMobileKey' }));
-
-    expect(await screen.findByDisplayValue('hana_dev_visible_once')).toBeInTheDocument();
-    expect(mockHanaFetch).toHaveBeenCalledWith('/api/access/mobile-credentials', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({
-        displayName: 'Mobile PWA',
-        scopes: ['chat', 'resources.read', 'files.read', 'files.write'],
-      }),
-    }));
+    // 多设备访问已禁用：生成密钥按钮不可见
+    expect(await screen.findByText('已禁用')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'settings.access.generateMobileKey' })).not.toBeInTheDocument();
   });
 
   it('generates a desktop access key from the manual computer section', async () => {

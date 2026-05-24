@@ -243,7 +243,9 @@ describe('initApp bridge indicator', () => {
     expect(mockState.bridgeDotConnected).toBe(true);
   });
 
-  it('refreshes the HttpOnly device web session before opening WebSocket for a persisted LAN frontend', async () => {
+  it.skip('refreshes the HttpOnly device web session before opening WebSocket for a persisted LAN frontend', async () => {
+    // 多设备连接已禁用：readPersistedServerConnectionState 始终返回空状态，
+    // 持久化的 LAN 连接不再被加载。此测试不再适用。
     const listeners: Record<string, Array<(data?: unknown) => void>> = {};
     (globalThis as Record<string, unknown>).window = {
       addEventListener: vi.fn((type: string, cb: (data?: unknown) => void) => {
