@@ -200,18 +200,36 @@ jobs:
           path: artifacts
 
       # build job 改为 --publish never 后，draft release 不再由 electron-builder 自动创建，
-      # 由 release job 显式创建，并通过 --generate-notes 从上一个 tag 的 commit 自动生成 changelog。
+      # 由 release job 显式创建。
+      # 优先从 CHANGELOG.md 提取当前版本的条目作为 release notes；
+      # 如果没有对应条目，回退到 GitHub 的 --generate-notes（基于 commit 自动生成）。
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
             echo "Release ${{ github.ref_name }} already exists, skipping create"
-          else
-            gh release create "${{ github.ref_name }}" \
+            exit 0
+          fi
+
+          # 尝试从 CHANGELOG.md 提取当前版本（v0.235.0 → 0.235.0）
+          VER="${{ github.ref_name }}"
+          CHANGELOG_NOTES=$(node scripts/extract-changelog.mjs --version "$VER" 2>/dev/null || echo "")
+
+          if [ -n "$CHANGELOG_NOTES" ]; then
+            echo "✓ Using CHANGELOG.md entry for $VER"
+            echo "$CHANGELOG_NOTES" > /tmp/release-notes.md
+            gh release create "$VER" \
               --draft \
               --prerelease \
-              --title "${{ github.ref_name }}" \
+              --title "$VER" \
+              --notes-file /tmp/release-notes.md
+          else
+            echo "⚠ CHANGELOG.md has no entry for $VER, falling back to --generate-notes"
+            gh release create "$VER" \
+              --draft \
+              --prerelease \
+              --title "$VER" \
               --generate-notes
           fi
 

@@ -1,0 +1,125 @@
+name: Daily Release
+
+on:
+  schedule:
+    # 每天 UTC 2:00（北京时间 10:00）
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      skip_if_empty:
+        description: '没有新提交时跳过'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  daily-release:
+    runs-on: ubuntu-latest
+    # 仅在 liliMozi/openhanako 仓库运行，fork 不执行
+    if: github.repository == 'liliMozi/openhanako'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check for new commits
+        id: check
+        run: |
+          # 找到最近的任意 release tag（v* 或 nightly-*）
+          LAST_TAG=$(git describe --tags --match "v[0-9]*" --match "nightly-*" --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LAST_TAG" ]; then
+            echo "No previous release tag found. Using first commit as baseline."
+            NEW_COMMITS=$(git rev-list --count HEAD)
+          else
+            echo "Last release tag: $LAST_TAG"
+            NEW_COMMITS=$(git rev-list --count ${LAST_TAG}..HEAD)
+          fi
+
+          echo "New commits since last release: $NEW_COMMITS"
+          echo "new_commits=$NEW_COMMITS" >> "$GITHUB_OUTPUT"
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+
+          if [ "$NEW_COMMITS" -gt 0 ]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate release tag
+        if: steps.check.outputs.should_release == 'true'
+        id: tag
+        run: |
+          BASE="nightly-$(date +'%Y%m%d')"
+          TAG="$BASE"
+          N=1
+          while git rev-parse "$TAG" >/dev/null 2>&1; do
+            N=$((N + 1))
+            TAG="${BASE}-${N}"
+          done
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Release tag will be: $TAG"
+
+      - name: Extract changelog for this release
+        if: steps.check.outputs.should_release == 'true'
+        id: notes
+        run: |
+          # 优先从 CHANGELOG.md 提取 [Unreleased] 段
+          if [ -f CHANGELOG.md ]; then
+            CHANGELOG_NOTES=$(node scripts/extract-changelog.mjs --unreleased 2>/dev/null || echo "")
+          fi
+
+          if [ -n "$CHANGELOG_NOTES" ]; then
+            echo "Using CHANGELOG.md [Unreleased] as release notes"
+            echo "$CHANGELOG_NOTES" > /tmp/release-notes.md
+            echo "source=changelog" >> "$GITHUB_OUTPUT"
+          else
+            echo "CHANGELOG.md has no [Unreleased] entries, will use commit-based generation"
+            echo "source=commits" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate commit-based notes (fallback)
+        if: steps.check.outputs.should_release == 'true' && steps.notes.outputs.source == 'commits'
+        run: |
+          if [ -n "${{ steps.check.outputs.last_tag }}" ]; then
+            RANGE="${{ steps.check.outputs.last_tag }}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          echo "## 本次变更" > /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          git log "$RANGE" --pretty=format:"- %s (%h)" --no-merges >> /tmp/release-notes.md
+
+      - name: Create tag and push
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          git tag "${{ steps.tag.outputs.tag }}"
+          git push origin "${{ steps.tag.outputs.tag }}"
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.tag.outputs.tag }}" \
+            --title "Nightly ${{ steps.tag.outputs.tag }}" \
+            --notes-file /tmp/release-notes.md \
+            --prerelease
+
+      - name: Summary
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          echo "### ✅ Daily Release Created" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tag**: \`${{ steps.tag.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **New commits**: ${{ steps.check.outputs.new_commits }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Notes source**: ${{ steps.notes.outputs.source }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **URL**: https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
