@@ -34,6 +34,7 @@ import { createSubagentTool } from "../lib/tools/subagent-tool.js";
 import { writeSubagentSessionMeta } from "../lib/subagent-executor-metadata.js";
 import { createCheckDeferredTool } from "../lib/tools/check-deferred-tool.js";
 import { createWaitTool } from "../lib/tools/wait-tool.js";
+import { createLlmUsageTool } from "../lib/tools/llm-usage-tool.js";
 import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
@@ -661,6 +662,7 @@ export class Agent {
       ...(this._friendsContactTools || []),
       this._terminalTool,
       createWaitTool(),
+      createLlmUsageTool(),
     ].filter(Boolean);
   }
   get tools() {

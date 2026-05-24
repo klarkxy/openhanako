@@ -20,6 +20,7 @@ import { errorBus } from "../shared/error-bus.js";
 import { HanaEngine } from "../core/engine.js";
 import { ensureFirstRun } from "../core/first-run.js";
 import { initDebugLog, createModuleLogger } from "../lib/debug-log.js";
+import { setUsageLogHome } from "../lib/llm/usage-observer.js";
 import { redactLogLabel, redactLogText } from "../lib/log-redactor.js";
 import {
   runWin32LegacySandboxMigration,
@@ -236,6 +237,9 @@ log.log("① ensureFirstRun 完成");
 
 // ── 初始化 Debug 日志 ──
 const dlog = initDebugLog(path.join(hanakoHome, "logs"));
+
+// ── 初始化 LLM Usage 持久化日志（写入 llm-usage.jsonl）──
+setUsageLogHome(hanakoHome);
 
 // ── 初始化引擎 ──
 log.log("② 创建 HanaEngine...");
