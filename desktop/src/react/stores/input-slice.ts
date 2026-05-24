@@ -46,6 +46,9 @@ export interface InputSlice {
   deskContextAttached: boolean;
   docContextAttached: boolean;
   inputFocusTrigger: number;
+  quoteCandidate: QuotedSelection | null;
+  quotedSelections: QuotedSelection[];
+  /** @deprecated Use quotedSelections for committed quotes and quoteCandidate for transient selection UI. */
   quotedSelection: QuotedSelection | null;
   addAttachedFile: (file: AttachedFile) => void;
   removeAttachedFile: (index: number) => void;
@@ -58,7 +61,15 @@ export interface InputSlice {
   setDocContextAttached: (attached: boolean) => void;
   toggleDocContext: () => void;
   requestInputFocus: () => void;
+  setQuoteCandidate: (sel: QuotedSelection) => void;
+  clearQuoteCandidate: () => void;
+  addQuotedSelection: (sel: QuotedSelection) => void;
+  removeQuotedSelection: (index: number) => void;
+  clearQuotedSelections: () => void;
+  setQuotedSelections: (sels: QuotedSelection[]) => void;
+  /** @deprecated Use addQuotedSelection or setQuoteCandidate. */
   setQuotedSelection: (sel: QuotedSelection) => void;
+  /** @deprecated Use clearQuotedSelections and clearQuoteCandidate. */
   clearQuotedSelection: () => void;
 }
 
@@ -85,6 +96,8 @@ export const createInputSlice = (
   deskContextAttached: false,
   docContextAttached: false,
   inputFocusTrigger: 0,
+  quoteCandidate: null,
+  quotedSelections: [],
   quotedSelection: null,
   addAttachedFile: (file) =>
     set((s) => syncCurrentSessionAttachments(s as InputSlice & { currentSessionPath?: string | null }, [...s.attachedFiles, file])),
@@ -113,6 +126,20 @@ export const createInputSlice = (
     set((s) => ({ docContextAttached: !s.docContextAttached })),
   requestInputFocus: () =>
     set((s) => ({ inputFocusTrigger: s.inputFocusTrigger + 1 })),
-  setQuotedSelection: (sel) => set({ quotedSelection: sel }),
-  clearQuotedSelection: () => set({ quotedSelection: null }),
+  setQuoteCandidate: (sel) => set({ quoteCandidate: sel }),
+  clearQuoteCandidate: () => set({ quoteCandidate: null }),
+  addQuotedSelection: (sel) =>
+    set((s) => {
+      const quotedSelections = [...s.quotedSelections, sel];
+      return { quotedSelections, quotedSelection: quotedSelections[0] ?? null };
+    }),
+  removeQuotedSelection: (index) =>
+    set((s) => {
+      const quotedSelections = s.quotedSelections.filter((_, i) => i !== index);
+      return { quotedSelections, quotedSelection: quotedSelections[0] ?? null };
+    }),
+  clearQuotedSelections: () => set({ quotedSelections: [], quotedSelection: null }),
+  setQuotedSelections: (sels) => set({ quotedSelections: sels, quotedSelection: sels[0] ?? null }),
+  setQuotedSelection: (sel) => set({ quotedSelections: [sel], quotedSelection: sel }),
+  clearQuotedSelection: () => set({ quoteCandidate: null, quotedSelections: [], quotedSelection: null }),
 });

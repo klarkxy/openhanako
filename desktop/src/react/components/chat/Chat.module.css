@@ -1370,6 +1370,7 @@
     width: 64px;
     z-index: 4;
     overflow: visible;
+    pointer-events: none;
     --timeline-card-width: min(176px, calc(100vw - 96px));
     --timeline-marker-right: 8px;
     --timeline-row-height: 28px;
@@ -1443,13 +1444,11 @@
     --timeline-marker-width: 0.5em;
 }
 
-.timelineNav:hover .timelineMarker,
+.timelineNavVisible .timelineMarker,
 .timelineNav:focus-within .timelineMarker {
     opacity: 1;
 }
 
-.timelineNavExpanded .timelineCard,
-.timelineNavExpanded .timelineMarker,
 .timelineNavExpanded .timelineLabel {
     pointer-events: auto;
 }

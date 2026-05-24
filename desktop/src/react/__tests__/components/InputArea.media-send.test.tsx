@@ -145,6 +145,8 @@ function seedSession() {
       }],
     },
     docContextAttached: false,
+    quoteCandidate: null,
+    quotedSelections: [],
     quotedSelection: null,
     models: [{
       id: 'deepseek-chat',

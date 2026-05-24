@@ -2,27 +2,30 @@ import { useStore } from '../../stores';
 import { AttachmentChip } from '../shared/AttachmentChip';
 
 export function QuotedSelectionCard() {
-  const quotedSelection = useStore(s => s.quotedSelection);
-  const clearQuotedSelection = useStore(s => s.clearQuotedSelection);
+  const quotedSelections = useStore(s => s.quotedSelections);
+  const removeQuotedSelection = useStore(s => s.removeQuotedSelection);
 
-  if (!quotedSelection) return null;
+  if (quotedSelections.length === 0) return null;
 
   return (
-    <AttachmentChip
-      icon={<GridIcon />}
-      name={quotedSelection.text}
-      onRemove={clearQuotedSelection}
-    />
+    <>
+      {quotedSelections.map((selection, index) => (
+        <AttachmentChip
+          key={`${selection.sourceKind}:${selection.sourceFilePath || selection.sourceSessionPath || ''}:${selection.sourceMessageId || ''}:${selection.updatedAt || index}`}
+          icon={<QuoteIcon />}
+          name={selection.text}
+          onRemove={() => removeQuotedSelection(index)}
+        />
+      ))}
+    </>
   );
 }
 
-function GridIcon() {
+function QuoteIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="6" y1="4" x2="6" y2="20" />
-      <line x1="18" y1="4" x2="18" y2="20" />
-      <line x1="6" y1="8" x2="18" y2="8" />
-      <line x1="6" y1="16" x2="18" y2="16" />
+      <path d="M8 11H5.5A2.5 2.5 0 0 1 8 8.5V7a4 4 0 0 0-4 4v5h4v-5Z" />
+      <path d="M18 11h-2.5A2.5 2.5 0 0 1 18 8.5V7a4 4 0 0 0-4 4v5h4v-5Z" />
     </svg>
   );
 }

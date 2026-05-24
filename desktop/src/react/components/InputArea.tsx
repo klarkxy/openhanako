@@ -192,7 +192,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const sessionFiles = useStore(s => (s.currentSessionPath ? selectSessionFiles(s, s.currentSessionPath) : EMPTY_FILE_REFS));
   const attachedFiles = useStore(s => s.attachedFiles);
   const docContextAttached = useStore(s => s.docContextAttached);
-  const quotedSelection = useStore(s => s.quotedSelection);
+  const quotedSelections = useStore(s => s.quotedSelections);
   const deskFiles = useStore(s => s.deskFiles);
   const deskBasePath = useStore(s => s.deskBasePath);
   const deskCurrentPath = useStore(s => s.deskCurrentPath);
@@ -702,7 +702,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   }, [fileMenuOpen]);
 
   // Can send?
-  const hasContent = inputText.trim().length > 0 || attachedFiles.length > 0 || docContextAttached || !!quotedSelection
+  const hasContent = inputText.trim().length > 0 || attachedFiles.length > 0 || docContextAttached || quotedSelections.length > 0
     || editorHasInlineNode(editor, 'skillBadge')
     || editorHasInlineNode(editor, 'fileBadge');
   const canSend = hasContent && connected && !isStreaming && !modelSwitching && !pendingSessionSwitchPath;
@@ -853,7 +853,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
 
     const inputFiles = mergeEditorFileRefs(attachedFiles, fileRefs);
     const hasFiles = inputFiles.length > 0;
-    if ((!text && !hasFiles && !docContextAttached && !useStore.getState().quotedSelection) || !connected) return;
+    if ((!text && !hasFiles && !docContextAttached && useStore.getState().quotedSelections.length === 0) || !connected) return;
     if (isStreaming) return;
     if (sending) return;
     if (modelSwitching) return;
@@ -966,9 +966,9 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       if (docContextAttached) setDocContextAttached(false);
 
       // 引用片段
-      const qs = useStore.getState().quotedSelection;
-      if (qs) {
-        const quoteStr = formatQuotedSelectionForPrompt(qs);
+      const quotes = useStore.getState().quotedSelections;
+      if (quotes.length > 0) {
+        const quoteStr = quotes.map(formatQuotedSelectionForPrompt).join('\n\n');
         finalText = finalText ? `${finalText}\n\n${quoteStr}` : quoteStr;
       }
 
@@ -978,8 +978,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       editor.commands.clearContent();
       if (currentSessionPath) clearDraft(currentSessionPath);
       clearAttachedFiles();
-      const qs2 = useStore.getState().quotedSelection;
-      if (qs2) useStore.getState().clearQuotedSelection();
+      if (useStore.getState().quotedSelections.length > 0) useStore.getState().clearQuotedSelections();
 
       const ws = getWebSocket();
       const wsMsg: Record<string, unknown> = {
@@ -990,7 +989,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
         displayMessage: {
           text,
           skills: skills.length > 0 ? skills : undefined,
-          quotedText: qs?.text,
+          quotedText: quotes.length > 0 ? quotes.map(q => q.text).join('\n\n') : undefined,
           attachments: allFiles.length > 0 ? allFiles.map(f => {
             const cached = imageBase64Map.get(f.path);
             const cachedVideo = videoBase64Map.get(f.path);
@@ -1151,7 +1150,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       <InputContextRow
         attachedFiles={attachedFiles}
         removeAttachedFile={removeAttachedFile}
-        hasQuotedSelection={!!quotedSelection}
+        hasQuotedSelection={quotedSelections.length > 0}
         sessionTodos={sessionTodos}
         onCompleteTodos={handleCompleteTodos}
         completingTodos={completingTodos}

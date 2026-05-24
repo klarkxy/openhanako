@@ -69,6 +69,8 @@ describe('ChatArea continuous bottom scroll', () => {
     useStore.setState({
       currentSessionPath: '/chat/scroll.jsonl',
       welcomeVisible: false,
+      quoteCandidate: null,
+      quotedSelections: [],
       quotedSelection: null,
       chatSessions: {
         '/chat/scroll.jsonl': {
@@ -158,7 +160,7 @@ describe('ChatArea continuous bottom scroll', () => {
     selectElementText(document.getElementById('message-a-quote')!);
     fireEvent.mouseUp(container.querySelector('[class*="sessionPanel"]') as HTMLElement);
 
-    expect(useStore.getState().quotedSelection).toMatchObject({
+    expect(useStore.getState().quoteCandidate).toMatchObject({
       text: '可以引用的话',
       sourceKind: 'chat',
       sourceMessageId: 'a-quote',

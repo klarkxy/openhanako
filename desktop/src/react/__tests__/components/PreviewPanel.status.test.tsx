@@ -46,6 +46,8 @@ describe('PreviewPanel markdown editor status', () => {
       openTabs: ['note'],
       activeTabId: 'note',
       markdownPreviewIds: [],
+      quoteCandidate: null,
+      quotedSelections: [],
       quotedSelection: null,
     } as Partial<StoreState>);
   });
@@ -58,6 +60,8 @@ describe('PreviewPanel markdown editor status', () => {
       openTabs: [],
       activeTabId: null,
       markdownPreviewIds: [],
+      quoteCandidate: null,
+      quotedSelections: [],
       quotedSelection: null,
     } as Partial<StoreState>);
   });

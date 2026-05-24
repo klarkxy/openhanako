@@ -6,6 +6,7 @@
  */
 
 import { memo, useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useStore } from '../../stores';
 import { loadMoreMessages } from '../../stores/session-actions';
 import { captureChatSelection } from '../../stores/selection-actions';
@@ -71,6 +72,9 @@ function PanelHost() {
 // ── Panel：一个 session 的原生滚动容器 ──
 
 const SCROLL_THRESHOLD = 50;
+const TIMELINE_HOVER_ZONE_PX = 64;
+const TIMELINE_TOP_OFFSET_PX = 76;
+const TIMELINE_HEIGHT_RATIO = 0.5;
 
 const Panel = memo(function Panel({ path, active }: { path: string; active: boolean }) {
   const items = useStore(s => s.chatSessions[path]?.items || EMPTY_ITEMS);
@@ -81,6 +85,7 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
   const ref = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const messageElementsRef = useRef(new Map<string, HTMLDivElement>());
+  const [timelineRailVisible, setTimelineRailVisible] = useState(false);
   const bottomScroll = useContinuousBottomScroll({
     scrollRef: ref,
     contentRef,
@@ -99,6 +104,18 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
     if (!active) return;
     captureChatSelection(path);
   }, [active, path]);
+  const handleShellPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const xFromRight = rect.right - event.clientX;
+    const yFromTop = event.clientY - rect.top;
+    const inRailX = xFromRight >= 0 && xFromRight <= TIMELINE_HOVER_ZONE_PX;
+    const inRailY = yFromTop >= TIMELINE_TOP_OFFSET_PX
+      && yFromTop <= TIMELINE_TOP_OFFSET_PX + rect.height * TIMELINE_HEIGHT_RATIO;
+    setTimelineRailVisible(inRailX && inRailY);
+  }, []);
+  const handleShellPointerLeave = useCallback(() => {
+    setTimelineRailVisible(false);
+  }, []);
 
   // scroll 事件维护 sticky 标志 + 上滑加载更多 + 滚动中显现 scrollbar
   useEffect(() => {
@@ -189,6 +206,8 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
   return (
     <div
       className={styles.sessionShell}
+      onPointerMove={handleShellPointerMove}
+      onPointerLeave={handleShellPointerLeave}
       style={{
         visibility: active ? 'visible' : 'hidden',
         zIndex: active ? 1 : 0,
@@ -227,6 +246,7 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
         contentRef={contentRef}
         messageElementsRef={messageElementsRef}
         active={active}
+        railVisible={timelineRailVisible}
       />
     </div>
   );

@@ -182,12 +182,14 @@ function seedLayeredInputState() {
       }],
     },
     docContextAttached: false,
-    quotedSelection: {
+    quoteCandidate: null,
+    quotedSelections: [{
       text: 'quoted',
       sourceTitle: 'note.md',
       sourceKind: 'preview',
       charCount: 6,
-    },
+    }],
+    quotedSelection: null,
     todosBySession: {
       [sessionPath]: [{
         content: '读上下文',

@@ -56,7 +56,7 @@ describe('SidebarUpdateNoticeCard', () => {
     window.localStorage.clear();
   });
 
-  it('does not render for non-actionable updater states', () => {
+  it('stays silent until the update is ready to install', () => {
     const { container, rerender } = render(
       <SidebarUpdateNoticeCard state={updateState({ status: 'idle' })} />,
     );
@@ -64,14 +64,30 @@ describe('SidebarUpdateNoticeCard', () => {
 
     rerender(<SidebarUpdateNoticeCard state={updateState({ status: 'latest' })} />);
     expect(container).toBeEmptyDOMElement();
+
+    rerender(<SidebarUpdateNoticeCard state={updateState({ status: 'available', version: '0.234.0' })} />);
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(<SidebarUpdateNoticeCard state={updateState({
+      status: 'downloading',
+      version: '0.234.0',
+      progress: { percent: 42, bytesPerSecond: 0, transferred: 0, total: 0 },
+    })} />);
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(<SidebarUpdateNoticeCard state={updateState({ status: 'installing', version: '0.234.0' })} />);
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(<SidebarUpdateNoticeCard state={updateState({ status: 'error', version: '0.234.0', error: 'network' })} />);
+    expect(container).toBeEmptyDOMElement();
   });
 
-  it('keeps an available update visible until the user dismisses that version', () => {
+  it('keeps a ready update visible until the user dismisses that version', () => {
     const { container, rerender } = render(
-      <SidebarUpdateNoticeCard state={updateState({ status: 'available', version: '0.234.0' })} />,
+      <SidebarUpdateNoticeCard state={updateState({ status: 'downloaded', version: '0.234.0' })} />,
     );
 
-    expect(screen.getByText('有新版本可用：v0.234.0')).toBeInTheDocument();
+    expect(screen.getByText('v0.234.0 已就绪')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(container).toBeEmptyDOMElement();
@@ -79,8 +95,8 @@ describe('SidebarUpdateNoticeCard', () => {
     rerender(<SidebarUpdateNoticeCard state={updateState({ status: 'downloaded', version: '0.234.0' })} />);
     expect(container).toBeEmptyDOMElement();
 
-    rerender(<SidebarUpdateNoticeCard state={updateState({ status: 'available', version: '0.235.0' })} />);
-    expect(screen.getByText('有新版本可用：v0.235.0')).toBeInTheDocument();
+    rerender(<SidebarUpdateNoticeCard state={updateState({ status: 'downloaded', version: '0.235.0' })} />);
+    expect(screen.getByText('v0.235.0 已就绪')).toBeInTheDocument();
   });
 
   it('offers install action once the update is downloaded', () => {

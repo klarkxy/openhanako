@@ -4,13 +4,6 @@ import type { AutoUpdateState } from '../../types';
 import styles from './SidebarNoticeSlot.module.css';
 
 const DISMISSED_UPDATE_KEY = 'hana-sidebar-update-dismissed-key';
-const ACTIONABLE_UPDATE_STATUSES = new Set<AutoUpdateState['status']>([
-  'available',
-  'downloading',
-  'downloaded',
-  'installing',
-  'error',
-]);
 
 type NoticeStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
@@ -48,14 +41,8 @@ function writeDismissedKey(storage: NoticeStorage | null, key: string): void {
 }
 
 function updateNoticeKey(state: AutoUpdateState | null): string | null {
-  if (!state || !ACTIONABLE_UPDATE_STATUSES.has(state.status)) return null;
-  if (state.status === 'error' && !state.version) return null;
+  if (!state || state.status !== 'downloaded') return null;
   return state.version ? `version:${state.version}` : `status:${state.status}`;
-}
-
-function percentOf(state: AutoUpdateState): number {
-  const rawPercent = state.progress?.percent ?? 0;
-  return Math.max(0, Math.min(100, Math.round(rawPercent)));
 }
 
 function UpdateIcon() {
@@ -79,34 +66,11 @@ function CloseIcon() {
 }
 
 function updateTitle(state: AutoUpdateState): string {
-  if (state.status === 'downloaded') {
-    return tr('settings.about.updateReadyInstall', { version: state.version ?? '' });
-  }
-  if (state.status === 'installing') {
-    return tr('settings.about.updateInstalling');
-  }
-  if (state.status === 'error') {
-    if (state.error === 'disk_space_insufficient') return tr('settings.about.updateDiskSpace');
-    if (state.error === 'running_from_dmg') return tr('settings.about.updateNeedInstall');
-    return tr('settings.about.updateError');
-  }
-  return tr('settings.about.updateAvailable', { version: state.version ?? '' });
+  return tr('settings.about.updateReadyInstall', { version: state.version ?? '' });
 }
 
-function updateBody(state: AutoUpdateState): string | null {
-  if (state.status === 'downloading') {
-    return tr('settings.about.updateDownloading', {
-      agentName: 'Hanako',
-      percent: percentOf(state),
-    });
-  }
-  if (state.status === 'downloaded') {
-    return tr('settings.about.updateInstallManualHint');
-  }
-  if (state.status === 'error' && state.error && state.error !== 'disk_space_insufficient' && state.error !== 'running_from_dmg') {
-    return state.error;
-  }
-  return null;
+function updateBody(): string {
+  return tr('settings.about.updateInstallManualHint');
 }
 
 export function SidebarUpdateNoticeCard({
@@ -126,7 +90,7 @@ export function SidebarUpdateNoticeCard({
     if (!state || !noticeKey || dismissedKey === noticeKey) return null;
     return {
       title: updateTitle(state),
-      body: updateBody(state),
+      body: updateBody(),
     };
   }, [dismissedKey, noticeKey, state]);
 
@@ -136,7 +100,6 @@ export function SidebarUpdateNoticeCard({
     writeDismissedKey(resolvedStorage, noticeKey);
     setDismissedKey(noticeKey);
   };
-  const percent = state.status === 'downloading' ? percentOf(state) : null;
 
   return (
     <div className={styles.slot}>
@@ -146,15 +109,7 @@ export function SidebarUpdateNoticeCard({
         </span>
         <div className={styles.content}>
           <div className={styles.title}>{content.title}</div>
-          {content.body && <div className={styles.body}>{content.body}</div>}
-          {percent !== null && (
-            <div className={styles.progressRow}>
-              <div className={styles.progressTrack} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
-                <span className={styles.progressFill} style={{ width: `${percent}%` }} />
-              </div>
-              <span className={styles.progressValue}>{tr('settings.about.updateProgress', { percent })}</span>
-            </div>
-          )}
+          <div className={styles.body}>{content.body}</div>
           {state.status === 'downloaded' && onInstall && (
             <div className={styles.actions}>
               <button type="button" className={styles.actionButton} onClick={() => void onInstall()}>

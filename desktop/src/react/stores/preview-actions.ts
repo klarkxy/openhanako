@@ -159,7 +159,7 @@ export function togglePreviewPanel(forceOpen?: boolean): void {
   const s = useStore.getState();
   const open = forceOpen ?? !s.previewOpen;
   if (open === s.previewOpen) return;
-  if (!open && s.quotedSelection?.sourceKind === 'preview') s.clearQuotedSelection();
+  if (!open && s.quoteCandidate?.sourceKind === 'preview') s.clearQuoteCandidate();
   s.setPreviewOpen(open);
   updateLayout();
   schedulePersistCurrentWorkspaceUiState();
