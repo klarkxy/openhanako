@@ -136,6 +136,7 @@ export class Poller {
           mediaKind: task.type === "video" ? "video" : "image",
           deliveryIntent: "ui_only",
           triggerParentTurn: false,
+          ...(task.type === "image" ? { notifyAgentOnFailure: true } : {}),
           prompt: task.prompt,
           ...(task.deliveryTarget ? { deliveryTarget: task.deliveryTarget } : {}),
         },

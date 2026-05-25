@@ -81,6 +81,27 @@ describe("DeferredResultExtension", () => {
     expect(store.query("t1")).toMatchObject({ delivered: false });
   });
 
+  it("session-start delivers failed UI-only image results when failure notification is enabled", async () => {
+    store.defer("t1", "/s/a", {
+      type: "image-generation",
+      deliveryIntent: "ui_only",
+      triggerParentTurn: false,
+      notifyAgentOnFailure: true,
+    });
+    store.fail("t1", "quota exhausted");
+
+    pi._trigger("session_start", {}, { sessionManager: { getSessionFile: () => "/s/a" } });
+    await vi.advanceTimersByTimeAsync(500);
+
+    const [msg, opts] = pi.sendMessage.mock.calls.find(([message]) => (
+      message.customType === "hana-background-result"
+    ));
+    expect(msg.content).toContain("status=\"failed\"");
+    expect(msg.content).toContain("quota exhausted");
+    expect(opts).toMatchObject({ deliverAs: "steer", triggerTurn: true });
+    expect(store.query("t1")).toMatchObject({ delivered: true });
+  });
+
   it("does not fallback-deliver bridge-owned tasks through Pi session_start", async () => {
     store.defer("t1", "/s/a", {
       type: "image-generation",

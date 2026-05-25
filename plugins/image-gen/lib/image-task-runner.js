@@ -61,6 +61,7 @@ export function imageDeferredMeta({ prompt, deliveryTarget = null } = {}) {
     mediaKind: "image",
     deliveryIntent: "ui_only",
     triggerParentTurn: false,
+    notifyAgentOnFailure: true,
     prompt,
     ...(deliveryTarget ? { deliveryTarget } : {}),
   };
