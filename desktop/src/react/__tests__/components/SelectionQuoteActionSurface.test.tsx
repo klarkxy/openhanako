@@ -77,4 +77,45 @@ describe('SelectionQuoteActionSurface', () => {
     expect(surface.style.left).toBe('147px');
     expect(surface.style.top).toBe('86px');
   });
+
+  it('follows the live native selection rect when the transcript scrolls', () => {
+    let liveRect = { left: 100, right: 180, top: 120, bottom: 140, width: 80, height: 20 };
+    const getSelection = vi.spyOn(window, 'getSelection').mockReturnValue({
+      rangeCount: 1,
+      toString: () => '第一段引用',
+      getRangeAt: () => ({
+        getBoundingClientRect: () => liveRect,
+      }),
+    } as unknown as Selection);
+    const requestAnimationFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback) => {
+        callback(0);
+        return 1;
+      });
+    const cancelAnimationFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    useStore.getState().setQuoteCandidate({
+      text: '第一段引用',
+      sourceTitle: 'Assistant message',
+      sourceKind: 'chat',
+      charCount: 5,
+      anchorRect: { left: 100, right: 180, top: 120, bottom: 140, width: 80, height: 20 },
+    });
+    render(<SelectionQuoteActionSurface />);
+
+    const surface = screen.getByRole('button', { name: '引用到对话' }).closest('[data-selection-ignore="true"]') as HTMLElement;
+    expect(surface.style.top).toBe('86px');
+
+    liveRect = { left: 100, right: 180, top: 70, bottom: 90, width: 80, height: 20 };
+    act(() => {
+      document.dispatchEvent(new Event('scroll'));
+    });
+
+    expect(surface.style.top).toBe('36px');
+
+    getSelection.mockRestore();
+    requestAnimationFrame.mockRestore();
+    cancelAnimationFrame.mockRestore();
+  });
 });

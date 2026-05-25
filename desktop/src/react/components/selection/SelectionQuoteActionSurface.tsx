@@ -21,6 +21,7 @@ export function SelectionQuoteActionSurface() {
   const clearQuoteCandidate = useStore(s => s.clearQuoteCandidate);
   const requestInputFocus = useStore(s => s.requestInputFocus);
   const [viewport, setViewport] = useState(() => getViewportSize());
+  const [scrollTick, setScrollTick] = useState(0);
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const tooltipTimerRef = useRef<number | null>(null);
 
@@ -31,11 +32,29 @@ export function SelectionQuoteActionSurface() {
   }, []);
 
   useEffect(() => {
+    let rafId = 0;
+    const handleScroll = () => {
+      if (rafId) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        setScrollTick(tick => tick + 1);
+      });
+    };
+    document.addEventListener('scroll', handleScroll, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('scroll', handleScroll, { capture: true });
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, []);
+
+  useEffect(() => {
     setTooltipVisible(false);
   }, [quoteCandidate?.updatedAt]);
 
   const position = useMemo(() => {
-    const anchorRect = quoteCandidate?.anchorRect;
+    const liveAnchorRect = getLiveSelectionAnchorRect(quoteCandidate?.text, viewport);
+    if (liveAnchorRect === null) return null;
+    const anchorRect = liveAnchorRect ?? quoteCandidate?.anchorRect;
     if (!anchorRect || viewport.width <= 0 || viewport.height <= 0) return null;
     return computeFloatingInputPosition(
       anchorRect,
@@ -46,7 +65,7 @@ export function SelectionQuoteActionSurface() {
       'top',
       TOOLBAR_CROSS_AXIS_OFFSET,
     );
-  }, [quoteCandidate?.anchorRect, viewport]);
+  }, [quoteCandidate?.anchorRect, quoteCandidate?.text, viewport, scrollTick]);
 
   const showTooltipLater = useCallback(() => {
     if (tooltipTimerRef.current !== null) window.clearTimeout(tooltipTimerRef.current);
@@ -115,6 +134,29 @@ export function SelectionQuoteActionSurface() {
       )}
     </div>
   );
+}
+
+function getLiveSelectionAnchorRect(candidateText: string | undefined, viewport: { width: number; height: number }) {
+  if (!candidateText) return undefined;
+  const sel = window.getSelection();
+  const selectionText = sel?.toString().trim();
+  if (!sel || sel.rangeCount === 0 || !selectionText) return undefined;
+  if (selectionText !== candidateText && !selectionText.startsWith(candidateText)) return undefined;
+  const range = sel.getRangeAt(0);
+  if (typeof range.getBoundingClientRect !== 'function') return undefined;
+  const rect = range.getBoundingClientRect();
+  if (rect.width <= 0 && rect.height <= 0) return undefined;
+  if (rect.bottom < 0 || rect.top > viewport.height || rect.right < 0 || rect.left > viewport.width) {
+    return null;
+  }
+  return {
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height,
+  };
 }
 
 function QuoteIcon() {
