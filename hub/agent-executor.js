@@ -192,7 +192,7 @@ export async function runAgentSession(agentId, rounds, { engine, signal, session
 
   // 7. 去掉 MOOD 块（backtick 和 XML 两种格式，一次过）
   const text = capturedText
-    .replace(/```(?:mood|pulse|reflect)[\s\S]*?```\n*|<(?:mood|pulse|reflect)>[\s\S]*?<\/(?:mood|pulse|reflect)>\n*/gi, "")
+    .replace(/```(?:mood|pulse|reflect)[\s\S]*?```\n*|<(?:mood|pulse|reflect)\s*>[\s\S]*?<\/(?:mood|pulse|reflect)\s*>\n*/gi, "")
     .trim();
 
   debugLog()?.log("agent-executor", `${agentId} done, ${text.length} chars captured`);
@@ -634,7 +634,7 @@ export async function runAgentPhoneSession(agentId, rounds, {
   }
 
   const text = capturedText
-    .replace(/```(?:mood|pulse|reflect)[\s\S]*?```\n*|<(?:mood|pulse|reflect)>[\s\S]*?<\/(?:mood|pulse|reflect)>\n*/gi, "")
+    .replace(/```(?:mood|pulse|reflect)[\s\S]*?```\n*|<(?:mood|pulse|reflect)\s*>[\s\S]*?<\/(?:mood|pulse|reflect)\s*>\n*/gi, "")
     .trim();
 
   debugLog()?.log("agent-executor", `${agentId} phone done, ${text.length} chars captured`);
