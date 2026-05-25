@@ -11,7 +11,7 @@ import { getAgentPhoneProjectionPath } from "../lib/conversations/agent-phone-pr
 
 // ── 测试工具 ────────────────────────────────────────────────────────────────
 
-const LATEST_DATA_VERSION = 30;
+const LATEST_DATA_VERSION = 31;
 
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "hana-migrations-"));
@@ -276,6 +276,79 @@ describe("migration #30: cron jobs to automation read model", () => {
       },
     });
     expect(job.createdBy).toEqual({ kind: "agent", agentId: "hana" });
+    expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
+  });
+});
+
+describe("migration #31: learned skills converge into the global skill pool", () => {
+  let tmpDir, agentsDir, userDir, skillsDir;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    agentsDir = path.join(tmpDir, "agents");
+    userDir = path.join(tmpDir, "user");
+    skillsDir = path.join(tmpDir, "skills");
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.mkdirSync(skillsDir, { recursive: true });
+  });
+
+  afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  function writeSkill(dir, content) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "SKILL.md"), content, "utf-8");
+  }
+
+  it("moves each agent learned skill into the global pool and enables only the source agent", () => {
+    const prefs = makePrefs(userDir);
+    prefs.savePreferences({ _dataVersion: 30 });
+    writeAgentConfig(agentsDir, "agent-a", {
+      agent: { name: "Agent A" },
+      skills: { enabled: ["existing"] },
+    });
+    writeAgentConfig(agentsDir, "agent-b", {
+      agent: { name: "Agent B" },
+      skills: { enabled: [] },
+    });
+
+    const sharedContent = "---\nname: shared-skill\n---\n# Shared\n";
+    writeSkill(path.join(skillsDir, "shared-skill"), sharedContent);
+    writeSkill(path.join(agentsDir, "agent-a", "learned-skills", "shared-skill"), sharedContent);
+    writeSkill(
+      path.join(agentsDir, "agent-b", "learned-skills", "shared-skill"),
+      "---\nname: shared-skill\n---\n# Different\n",
+    );
+    writeSkill(
+      path.join(agentsDir, "agent-b", "learned-skills", "solo-skill"),
+      "---\nname: solo-skill\nmetadata:\n  default-enabled: true\n---\n# Solo\n",
+    );
+
+    runMigrations({
+      hanakoHome: tmpDir,
+      agentsDir,
+      prefs,
+      providerRegistry: makeRegistryWithModels({}),
+      log: () => {},
+    });
+
+    expect(fs.existsSync(path.join(agentsDir, "agent-a", "learned-skills"))).toBe(false);
+    expect(fs.existsSync(path.join(agentsDir, "agent-b", "learned-skills"))).toBe(false);
+    expect(fs.readFileSync(path.join(skillsDir, "shared-skill", "SKILL.md"), "utf-8")).toBe(sharedContent);
+
+    const renamedPath = path.join(skillsDir, "shared-skill-agent-b", "SKILL.md");
+    expect(fs.existsSync(renamedPath)).toBe(true);
+    expect(fs.readFileSync(renamedPath, "utf-8")).toContain("name: shared-skill-agent-b");
+    expect(fs.readFileSync(renamedPath, "utf-8")).toContain("default-enabled: false");
+
+    const soloPath = path.join(skillsDir, "solo-skill", "SKILL.md");
+    expect(fs.existsSync(soloPath)).toBe(true);
+    expect(fs.readFileSync(soloPath, "utf-8")).toContain("default-enabled: false");
+
+    expect(readAgentConfig(agentsDir, "agent-a").skills.enabled).toEqual(["existing", "shared-skill"]);
+    expect(readAgentConfig(agentsDir, "agent-b").skills.enabled).toEqual([
+      "shared-skill-agent-b",
+      "solo-skill",
+    ]);
     expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
   });
 });

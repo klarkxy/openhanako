@@ -265,6 +265,44 @@ describe('chat-slice', () => {
       ]);
     });
 
+    it('允许重试后的完成块替换失败的媒体生成块', () => {
+      slice.initSession('/a', [{
+        type: 'message',
+        data: {
+          id: 'a1',
+          role: 'assistant',
+          blocks: [{
+            type: 'media_generation',
+            taskId: 'task-img',
+            kind: 'image',
+            status: 'failed',
+            reason: 'API returned no images',
+            prompt: 'a moonlit room',
+          }],
+        },
+      }], false);
+
+      expect(slice.resolveBlockByTaskId('/a', 'task-img', {
+        type: 'file',
+        replacesTaskId: 'task-img',
+        fileId: 'sf_retry',
+        filePath: '/tmp/retry.png',
+        label: 'retry.png',
+        ext: 'png',
+      })).toBe(true);
+
+      const message = slice.chatSessions['/a']?.items[0];
+      expect(message?.type).toBe('message');
+      if (message?.type !== 'message') throw new Error('expected message item');
+      expect(message.data.blocks).toEqual([
+        expect.objectContaining({
+          type: 'file',
+          fileId: 'sf_retry',
+          filePath: '/tmp/retry.png',
+        }),
+      ]);
+    });
+
     it('不在错误 session 或非 assistant 消息里替换', () => {
       slice.initSession('/a', [{
         type: 'message',

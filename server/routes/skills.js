@@ -544,23 +544,16 @@ export function createSkillsRoute(engine) {
         return c.json({ error: t("error.skillInvalidName") }, 400);
       }
 
-      // SkillsTab 的 per-agent selector 会显式带上 agentId,此时必须严格按该 agent
-      // 定位 learned-skills 目录,不能 fallback 到焦点 agent(#419 cross-agent 串删)。
-      // 历史调用方(无 query 参数)仍走 resolveAgent 保持兼容。
       const queryAgentId = c.req.query("agentId");
       let targetAgentId;
-      let agentDir;
       if (queryAgentId) {
         if (!validateId(queryAgentId) || !agentExists(engine, queryAgentId)) {
           return c.json({ error: "agent not found" }, 404);
         }
         targetAgentId = queryAgentId;
-        agentDir = engine.getAgent(queryAgentId)?.agentDir
-          || path.join(engine.agentsDir, queryAgentId);
       } else {
         const resolved = resolveAgent(engine, c);
-        agentDir = resolved?.agentDir;
-        targetAgentId = agentDir ? path.basename(agentDir) : "";
+        targetAgentId = resolved?.agentDir ? path.basename(resolved.agentDir) : "";
       }
 
       // 外部技能不可删除（用该 agent 的视角查 readonly 即可，与 enabled 无关）
@@ -570,21 +563,13 @@ export function createSkillsRoute(engine) {
         return c.json({ error: t("error.skillExternalCannotDelete") }, 403);
       }
 
-      // 优先查用户技能目录，再查 agent 自学目录
       const userSkillPath = path.join(engine.skillsDir, name);
-      const learnedSkillPath = agentDir ? path.join(agentDir, "learned-skills", name) : null;
-
-      let skillPath;
-      if (fs.existsSync(userSkillPath)) {
-        skillPath = userSkillPath;
-      } else if (learnedSkillPath && fs.existsSync(learnedSkillPath)) {
-        skillPath = learnedSkillPath;
-      } else {
+      if (!fs.existsSync(userSkillPath)) {
         return c.json({ error: t("error.skillNotExists") }, 404);
       }
 
       // 删除目录
-      rmDirSync(skillPath);
+      rmDirSync(userSkillPath);
 
       // 从所有 agent 的 enabled 列表中移除
       const agentsDir = engine.agentsDir;

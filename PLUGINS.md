@@ -27,7 +27,7 @@ export async function execute(input) {
 }
 ```
 
-2. 打开 Hanako → 设置 → 插件，把文件夹拖进安装区（或压缩成 .zip 拖入）
+2. 打开 HanaAgent → 设置 → 插件，把文件夹拖进安装区（或压缩成 .zip 拖入）
 3. 安装后 Agent 立即可以调用 `my-plugin_hello` 工具
 4. 卸载：在插件页面点删除按钮
 
@@ -173,7 +173,7 @@ restricted 插件的 tool/command 代码在主进程运行，有完整的 Node.j
 }
 ```
 
-`minAppVersion`（可选）声明插件运行所需的最低 Hanako 版本。如果当前 app 版本低于该值，插件不会加载，状态标记为 `incompatible`。建议所有插件都声明此字段，避免用户在旧版本上遇到不兼容问题。
+`minAppVersion`（可选）声明插件运行所需的最低 HanaAgent 版本。如果当前 app 版本低于该值，插件不会加载，状态标记为 `incompatible`。建议所有插件都声明此字段，避免用户在旧版本上遇到不兼容问题。
 
 用户需要在设置 → 插件页面开启"允许全权插件"开关。**开关关着时，full-access 插件完全不会加载**（不会部分加载），直到用户主动打开开关。
 
@@ -504,8 +504,8 @@ CLI provider 必须使用结构化参数绑定。不要拼 shell 字符串；Han
 per-agent 和 per-session 配置要显式传归属：
 
 ```js
-await ctx.config.set("agentMode", "strict", { scope: "per-agent", agentId: "hanako" });
-const value = await ctx.config.get("agentMode", { scope: "per-agent", agentId: "hanako" });
+await ctx.config.set("agentMode", "strict", { scope: "per-agent", agentId: "agent-123" });
+const value = await ctx.config.get("agentMode", { scope: "per-agent", agentId: "agent-123" });
 ```
 
 ### Page（插件页面）⚡ full-access

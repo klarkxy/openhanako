@@ -340,7 +340,7 @@ function MobileLoadingScreen() {
     <main className="onboarding">
       <section className="onboarding-step active">
         <img className="onboarding-avatar" src="./icon.png" alt="" />
-        <h1 className="onboarding-title">Hana Mobile</h1>
+        <h1 className="onboarding-title">HanaAgent</h1>
         <p className="onboarding-subtitle">正在连接 Hana...</p>
       </section>
     </main>

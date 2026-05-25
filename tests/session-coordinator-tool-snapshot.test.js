@@ -50,7 +50,7 @@ const SDK_BUILTIN_OBJS = [
   "read", "bash", "edit", "write", "grep", "find", "ls",
 ].map(makeTool);
 
-// OpenHanako custom tools — in production these come from agent.tools getter
+// HanaAgent custom tools — in production these come from agent.tools getter
 // and flow through buildTools.customTools. create_artifact is intentionally
 // absent from fresh sessions; it is a restore-only compatibility tool.
 const HANAKO_CUSTOM_OBJS = [

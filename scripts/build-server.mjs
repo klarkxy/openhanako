@@ -54,6 +54,7 @@ import {
   collectInstalledOptionalDependencyDirs,
   verifyExternalEntrypoints,
 } from "./build-server-deps.mjs";
+import { copyBundledPluginRuntimeDependencies } from "./build-server-plugin-runtime-deps.mjs";
 import { copyServerRuntimeAssets } from "./build-server-runtime-assets.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -275,6 +276,12 @@ const pluginsSrc = path.join(ROOT, "plugins");
 if (fs.existsSync(pluginsSrc)) {
   fs.cpSync(pluginsSrc, path.join(outDir, "plugins"), { recursive: true });
   console.log("[build-server]   plugins/");
+}
+
+// 内置插件以源码形式动态 import。插件跨出 plugins/ 引用宿主侧共享运行期模块时，
+// 这些模块必须按原相对路径落到 packaged server root，否则开发环境和安装包会分裂。
+for (const copiedDependency of await copyBundledPluginRuntimeDependencies({ rootDir: ROOT, outDir })) {
+  console.log(`[build-server]   ${copiedDependency}`);
 }
 
 console.log("[build-server] resource files copied");

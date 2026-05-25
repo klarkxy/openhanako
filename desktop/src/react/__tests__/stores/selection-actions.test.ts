@@ -2,7 +2,7 @@
 
 import { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureChatSelection, captureSelection, clearSelection, initQuotedSelectionLifecycle } from '../../stores/selection-actions';
 import { useStore } from '../../stores';
 import type { PreviewItem } from '../../types';
@@ -22,6 +22,10 @@ describe('captureSelection', () => {
     useStore.getState().clearQuoteCandidate();
     useStore.getState().clearQuotedSelections();
     useStore.setState({ selectedIdsBySession: {}, chatSessions: {} } as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('uses the trimmed quoted text range for lineEnd when selection includes a trailing newline', () => {
@@ -93,6 +97,75 @@ describe('captureSelection', () => {
       charCount: 8,
     });
     expect(useStore.getState().quotedSelections).toEqual([]);
+  });
+
+  it('captures chat text from the document-level mouseup lifecycle when release happens outside the chat panel', () => {
+    const dispose = initQuotedSelectionLifecycle(document);
+    try {
+      seedChatFixture();
+      document.body.innerHTML = `
+        <section data-chat-selection-root="" data-session-path="/session/a.jsonl">
+          <article data-message-id="assistant-1">
+            <p><span id="selected-text">document mouseup quote</span></p>
+          </article>
+        </section>
+        <aside id="outside-chat">outside</aside>
+      `;
+      selectElementText(document.getElementById('selected-text')!);
+
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+
+      expect(useStore.getState().quoteCandidate).toMatchObject({
+        text: 'document mouseup quote',
+        sourceKind: 'chat',
+        sourceSessionPath: '/session/a.jsonl',
+        sourceMessageId: 'assistant-1',
+      });
+    } finally {
+      dispose();
+    }
+  });
+
+  it('falls back to the message element bounds when the native selection range has no usable rects', () => {
+    seedChatFixture();
+    document.body.innerHTML = `
+      <section data-chat-selection-root="" data-session-path="/session/a.jsonl">
+        <article id="message" data-message-id="assistant-1">
+          <p><span id="selected-text">fallback bounds quote</span></p>
+        </article>
+      </section>
+    `;
+    const message = document.getElementById('message')!;
+    Object.defineProperty(message, 'getBoundingClientRect', {
+      value: () => domRect({ left: 24, right: 224, top: 80, bottom: 128, width: 200, height: 48 }),
+    });
+    const range = selectElementText(document.getElementById('selected-text')!);
+    Object.defineProperty(range, 'getClientRects', {
+      configurable: true,
+      value: () => [] as unknown as DOMRectList,
+    });
+    Object.defineProperty(range, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => domRect({
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      }),
+    });
+
+    captureChatSelection('/session/a.jsonl');
+
+    expect(useStore.getState().quoteCandidate?.anchorRect).toEqual({
+      left: 24,
+      right: 224,
+      top: 80,
+      bottom: 128,
+      width: 200,
+      height: 48,
+    });
   });
 
   it('keeps added quotes when composer focus cancels the native selection candidate', () => {
@@ -275,12 +348,43 @@ describe('captureSelection', () => {
   });
 });
 
-function selectElementText(element: HTMLElement): void {
+function seedChatFixture(): void {
+  useStore.setState({
+    chatSessions: {
+      '/session/a.jsonl': {
+        items: [
+          {
+            type: 'message',
+            data: {
+              id: 'assistant-1',
+              role: 'assistant',
+              blocks: [{ type: 'text', html: '<p>document mouseup quote</p>', source: 'document mouseup quote' }],
+            },
+          },
+        ],
+        hasMore: false,
+        loadingMore: false,
+      },
+    },
+  } as never);
+}
+
+function domRect(rect: { left: number; right: number; top: number; bottom: number; width: number; height: number }): DOMRect {
+  return {
+    ...rect,
+    x: rect.left,
+    y: rect.top,
+    toJSON: () => rect,
+  } as DOMRect;
+}
+
+function selectElementText(element: HTMLElement): Range {
   const range = document.createRange();
   range.selectNodeContents(element);
   const selection = window.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
+  return range;
 }
 
 function selectAcrossElements(startElement: HTMLElement, endElement: HTMLElement): void {

@@ -32,6 +32,7 @@ import { SESSION_PREFIX_MAP } from "../lib/bridge/session-key.js";
 import { migrateLegacyApiKeyAuthToProviders } from "./provider-auth-migration.js";
 import { createModuleLogger } from "../lib/debug-log.js";
 import { patchAutomationJobForMigration } from "../lib/desk/automation-normalizer.js";
+import { parseSkillMetadata } from "../lib/skills/skill-metadata.js";
 
 const moduleLog = createModuleLogger("migrations");
 
@@ -101,6 +102,8 @@ const migrations = {
   29: migrateHeartbeatDefaultExplicitOff,
   // cron → automation read model：补齐 trigger / executor / createdBy，保留旧字段兼容
   30: migrateCronJobsToAutomationReadModel,
+  // learned-skills 收敛进全局 skill pool，并只为来源 agent 默认启用
+  31: migrateLearnedSkillsToGlobalSkillPool,
 };
 
 // ── Runner ──────────────────────────────────────────────────────────────────
@@ -940,7 +943,7 @@ function migrateVisionToImage(ctx) {
     }
     if (changed) {
       const header =
-        "# Hanako 供应商配置（全局，跨 agent 共享）\n" +
+        "# HanaAgent 供应商配置（全局，跨 agent 共享）\n" +
         "# 由设置页面管理\n\n";
       const yamlStr = header + YAML.dump(raw, {
         indent: 2,
@@ -1153,6 +1156,201 @@ function patchCronJobsFileForAutomation(jobsPath, log) {
 
   atomicWriteSync(jobsPath, JSON.stringify({ ...data, jobs }, null, 2) + "\n");
   return { changed: true, patchedJobs };
+}
+
+const MIGRATION_SAFE_SKILL_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
+
+function sanitizeMigrationSkillName(raw, fallback = "skill") {
+  const candidate = typeof raw === "string" ? raw.trim() : "";
+  if (MIGRATION_SAFE_SKILL_NAME.test(candidate)) return candidate;
+  const slug = candidate
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^[^a-zA-Z0-9]+/, "")
+    .replace(/-+/g, "-")
+    .slice(0, 64)
+    .replace(/[-_]+$/, "");
+  if (MIGRATION_SAFE_SKILL_NAME.test(slug)) return slug;
+  const fallbackCandidate = typeof fallback === "string" ? fallback.trim() : "skill";
+  if (MIGRATION_SAFE_SKILL_NAME.test(fallbackCandidate)) return fallbackCandidate;
+  return "skill";
+}
+
+function escapeYamlScalar(value) {
+  const text = String(value);
+  return MIGRATION_SAFE_SKILL_NAME.test(text) ? text : JSON.stringify(text);
+}
+
+function upsertFrontmatterLine(frontmatter, key, value) {
+  const line = `${key}: ${value}`;
+  const re = new RegExp(`(^|\\r?\\n)${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*.*(?=\\r?\\n|$)`, "m");
+  if (re.test(frontmatter)) {
+    return frontmatter.replace(re, (match, prefix = "") => `${prefix}${line}`);
+  }
+  const trimmed = frontmatter.replace(/\s*$/, "");
+  return `${trimmed}${trimmed ? "\n" : ""}${line}`;
+}
+
+function rewriteSkillContentForGlobalPool(content, skillName) {
+  const body = typeof content === "string" ? content : "";
+  const match = body.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(\r?\n|$)([\s\S]*)$/);
+  if (!match) {
+    return [
+      "---",
+      `name: ${escapeYamlScalar(skillName)}`,
+      "default-enabled: false",
+      "---",
+      "",
+      body,
+    ].join("\n");
+  }
+
+  let frontmatter = match[1] || "";
+  frontmatter = upsertFrontmatterLine(frontmatter, "name", escapeYamlScalar(skillName));
+  frontmatter = upsertFrontmatterLine(frontmatter, "default-enabled", "false");
+  return `---\n${frontmatter}\n---${match[2] || "\n"}${match[3] || ""}`;
+}
+
+function skillFileContent(dirPath) {
+  return fs.readFileSync(path.join(dirPath, "SKILL.md"), "utf-8");
+}
+
+function skillContentsEquivalent(a, b) {
+  return String(a) === String(b);
+}
+
+function uniqueMigratedSkillName(skillsDir, preferredName, sourceContent, agentId) {
+  const preferredPath = path.join(skillsDir, preferredName, "SKILL.md");
+  if (!fs.existsSync(preferredPath)) {
+    return { name: preferredName, copy: true };
+  }
+  const existingContent = fs.readFileSync(preferredPath, "utf-8");
+  if (skillContentsEquivalent(existingContent, sourceContent)) {
+    return { name: preferredName, copy: false };
+  }
+
+  const suffixBase = sanitizeMigrationSkillName(agentId, "agent");
+  let index = 0;
+  while (index < 1000) {
+    const suffix = index === 0 ? suffixBase : `${suffixBase}-${index + 1}`;
+    const stemMax = Math.max(1, 64 - suffix.length - 1);
+    const stem = preferredName.slice(0, stemMax).replace(/[-_]+$/, "") || "skill";
+    const candidate = sanitizeMigrationSkillName(`${stem}-${suffix}`, `${stem}-agent`);
+    const candidatePath = path.join(skillsDir, candidate, "SKILL.md");
+    const rewritten = rewriteSkillContentForGlobalPool(sourceContent, candidate);
+    if (!fs.existsSync(candidatePath)) {
+      return { name: candidate, copy: true };
+    }
+    const existing = fs.readFileSync(candidatePath, "utf-8");
+    if (skillContentsEquivalent(existing, rewritten)) {
+      return { name: candidate, copy: false };
+    }
+    index += 1;
+  }
+
+  throw new Error(`unable to find a free skill name for migrated skill "${preferredName}"`);
+}
+
+function copyMigratedSkillDir(srcDir, dstDir, skillName, content) {
+  fs.mkdirSync(path.dirname(dstDir), { recursive: true });
+  const tmpDir = `${dstDir}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.cpSync(srcDir, tmpDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "SKILL.md"),
+      rewriteSkillContentForGlobalPool(content, skillName),
+      "utf-8",
+    );
+    fs.renameSync(tmpDir, dstDir);
+  } catch (err) {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    throw err;
+  }
+}
+
+function enableSkillForAgentConfig(configPath, skillNames) {
+  if (!fs.existsSync(configPath)) return false;
+  const cfg = safeReadYAMLSync(configPath, null, YAML) || {};
+  const current = Array.isArray(cfg.skills?.enabled) ? cfg.skills.enabled : [];
+  const next = [...current];
+  let changed = false;
+  for (const name of skillNames) {
+    if (!next.includes(name)) {
+      next.push(name);
+      changed = true;
+    }
+  }
+  if (!changed) return false;
+  saveConfig(configPath, { skills: { enabled: next } });
+  return true;
+}
+
+/**
+ * #31 — learned-skills 收敛到全局 skill pool
+ *
+ * 旧结构把 Agent 自学技能放在 `agents/<id>/learned-skills/`，这会让“经验”、
+ * “反省”和“技能安装”混在一起，也让列表刷新出现多条来源链。新结构只有一个
+ * 全局 skill pool：迁移时复制旧技能到 `{HANA_HOME}/skills`，并只把复制后的
+ * skill name 写入来源 Agent 的 enabled 列表。为避免未来新 Agent 默认打开这些
+ * 个性化技能，迁移出的 SKILL.md 会显式写入 `default-enabled: false`。
+ */
+function migrateLearnedSkillsToGlobalSkillPool(ctx) {
+  const { hanakoHome, agentsDir, log } = ctx;
+  const skillsDir = path.join(hanakoHome, "skills");
+  fs.mkdirSync(skillsDir, { recursive: true });
+
+  let migrated = 0;
+  let reused = 0;
+  let renamed = 0;
+  let agentsPatched = 0;
+
+  let agentDirs;
+  try {
+    agentDirs = fs.readdirSync(agentsDir, { withFileTypes: true }).filter(d => d.isDirectory());
+  } catch {
+    return;
+  }
+
+  for (const agentEntry of agentDirs) {
+    const agentId = agentEntry.name;
+    const agentDir = path.join(agentsDir, agentId);
+    const learnedDir = path.join(agentDir, "learned-skills");
+    if (!fs.existsSync(learnedDir)) continue;
+
+    const enableNames = [];
+    const skillEntries = fs.readdirSync(learnedDir, { withFileTypes: true }).filter(d => d.isDirectory());
+    for (const skillEntry of skillEntries) {
+      const srcDir = path.join(learnedDir, skillEntry.name);
+      const skillFile = path.join(srcDir, "SKILL.md");
+      if (!fs.existsSync(skillFile)) continue;
+
+      const sourceContent = skillFileContent(srcDir);
+      const meta = parseSkillMetadata(sourceContent, skillEntry.name);
+      const baseName = sanitizeMigrationSkillName(meta.name || skillEntry.name, skillEntry.name);
+      const target = uniqueMigratedSkillName(skillsDir, baseName, sourceContent, agentId);
+      const dstDir = path.join(skillsDir, target.name);
+
+      if (target.copy) {
+        copyMigratedSkillDir(srcDir, dstDir, target.name, sourceContent);
+        migrated += 1;
+        if (target.name !== baseName) renamed += 1;
+      } else {
+        reused += 1;
+      }
+      enableNames.push(target.name);
+    }
+
+    if (enableNames.length > 0) {
+      const configPath = path.join(agentDir, "config.yaml");
+      if (enableSkillForAgentConfig(configPath, enableNames)) {
+        agentsPatched += 1;
+      }
+    }
+
+    fs.rmSync(learnedDir, { recursive: true, force: true });
+  }
+
+  log?.(`[migrations] #31: learned skills migrated to global pool (copied=${migrated}, reused=${reused}, renamed=${renamed}, agents=${agentsPatched})`);
 }
 
 /**
@@ -1374,7 +1572,7 @@ function migrateGeminiOpenAICompatToNative(ctx) {
 
   if (patched > 0) {
     const header =
-      "# Hanako 供应商配置（全局，跨 agent 共享）\n" +
+      "# HanaAgent 供应商配置（全局，跨 agent 共享）\n" +
       "# 由设置页面管理\n\n";
     const yamlStr = header + YAML.dump(raw, {
       indent: 2,
@@ -1718,7 +1916,7 @@ function promoteAgentVideoOverrides(ctx) {
 
   if (addedModelsChanged) {
     const header =
-      "# Hanako 供应商配置（全局，跨 agent 共享）\n" +
+      "# HanaAgent 供应商配置（全局，跨 agent 共享）\n" +
       "# 由设置页面管理\n\n";
     const tmp = ymlPath + ".tmp";
     fs.writeFileSync(
@@ -1909,7 +2107,7 @@ function repairLegacyDeepSeekProviderModelIds(ctx) {
 
   if (patched > 0) {
     const header =
-      "# Hanako 供应商配置（全局，跨 agent 共享）\n" +
+      "# HanaAgent 供应商配置（全局，跨 agent 共享）\n" +
       "# 由设置页面管理\n\n";
     const tmp = ymlPath + ".tmp";
     fs.writeFileSync(

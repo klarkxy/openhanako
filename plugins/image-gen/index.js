@@ -7,7 +7,9 @@ import { Poller } from "./lib/poller.js";
 import { volcengineImageAdapter } from "./adapters/volcengine.js";
 import { openaiImageAdapter } from "./adapters/openai.js";
 import { openaiCodexImageAdapter } from "./adapters/openai-codex.js";
-import { ollamaImageAdapter } from "./adapters/ollama.js";
+import { minimaxImageAdapter } from "./adapters/minimax.js";
+import { dashscopeImageAdapter } from "./adapters/dashscope.js";
+import { geminiImageAdapter } from "./adapters/gemini.js";
 
 export default class ImageGenPlugin {
   async onload() {
@@ -23,6 +25,7 @@ export default class ImageGenPlugin {
       store,
       registry,
       bus,
+      dataDir,
       generatedDir,
       log,
       registerSessionFile: this.ctx.registerSessionFile,
@@ -30,10 +33,11 @@ export default class ImageGenPlugin {
 
     // Built-in adapters
     registry.register(volcengineImageAdapter);
-    registry.register({ ...volcengineImageAdapter, id: "volcengine-coding" });
     registry.register(openaiImageAdapter);
     registry.register(openaiCodexImageAdapter);
-    registry.register(ollamaImageAdapter);
+    registry.register(minimaxImageAdapter);
+    registry.register(dashscopeImageAdapter);
+    registry.register(geminiImageAdapter);
 
     // Attach to ctx for tools
     this.ctx._mediaGen = { registry, store, poller, generatedDir };

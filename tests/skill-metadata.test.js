@@ -81,14 +81,11 @@ describe("parseSkillMetadata", () => {
 });
 
 describe("SkillManager metadata scanning", () => {
-  it("external 和 learned skills 都只暴露 frontmatter 元数据，并保留 disable-model-invocation", () => {
+  it("external skills 只暴露 frontmatter 元数据，并保留 disable-model-invocation", () => {
     const root = makeTmpRoot();
     const externalDir = path.join(root, "external");
-    const agentDir = path.join(root, "agents", "hana");
-    const learnedDir = path.join(agentDir, "learned-skills", "learned-skill");
     const externalSkillDir = path.join(externalDir, "external-skill");
 
-    fs.mkdirSync(learnedDir, { recursive: true });
     fs.mkdirSync(externalSkillDir, { recursive: true });
 
     fs.writeFileSync(path.join(externalSkillDir, "SKILL.md"), [
@@ -103,24 +100,12 @@ describe("SkillManager metadata scanning", () => {
       "",
     ].join("\n"), "utf-8");
 
-    fs.writeFileSync(path.join(learnedDir, "SKILL.md"), [
-      "---",
-      "description: >",
-      "  Learned skill description.",
-      "---",
-      "",
-      "name: should-not-win-from-body",
-      "description: pretend this is metadata",
-      "",
-    ].join("\n"), "utf-8");
-
     const manager = new SkillManager({
       skillsDir: path.join(root, "skills"),
       externalPaths: [{ dirPath: externalDir, label: "Claude Code" }],
     });
 
     const externalSkills = manager.scanExternalSkills();
-    const learnedSkills = manager.scanLearnedSkills(agentDir);
 
     expect(externalSkills).toHaveLength(1);
     expect(externalSkills[0].name).toBe("external-skill");
@@ -134,21 +119,6 @@ describe("SkillManager metadata scanning", () => {
       baseDir: externalSkillDir,
       editable: false,
       readonly: true,
-    });
-
-    expect(learnedSkills).toHaveLength(1);
-    expect(learnedSkills[0].name).toBe("learned-skill");
-    expect(learnedSkills[0].description).toBe("Learned skill description.");
-    expect(learnedSkills[0].disableModelInvocation).toBe(false);
-    expect(learnedSkills[0].defaultEnabled).toBe(true);
-    expect(learnedSkills[0].sourceIdentity).toMatchObject({
-      kind: "skill_source",
-      owner: "learned",
-      skillName: "learned-skill",
-      filePath: path.join(learnedDir, "SKILL.md"),
-      baseDir: learnedDir,
-      editable: true,
-      readonly: false,
     });
   });
 

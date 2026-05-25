@@ -495,6 +495,82 @@ describe("model sync related routes", () => {
     expect(allData.models[1].xhigh).toBe(true);
   });
 
+  it("auxiliary vision route exposes availability without settings secrets", async () => {
+    const { createModelsRoute } = await import("../server/routes/models.js");
+    const app = new Hono();
+    const engine = {
+      availableModels: [],
+      currentModel: null,
+      config: {},
+      getSharedModels: vi.fn(() => ({
+        vision_enabled: true,
+        vision: { id: "qwen-vl", provider: "dashscope" },
+      })),
+      resolveModelWithCredentials: vi.fn(() => ({
+        model: {
+          id: "qwen-vl",
+          provider: "dashscope",
+          name: "Qwen VL",
+          input: ["text", "image"],
+        },
+        provider: "dashscope",
+        api: "openai-completions",
+        api_key: "sk-test-secret",
+        base_url: "https://dashscope.example/v1",
+      })),
+    };
+
+    app.route("/api", createModelsRoute(engine));
+
+    const res = await app.request("/api/models/auxiliary-vision");
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data).toEqual({
+      auxiliaryVision: {
+        enabled: true,
+        configured: true,
+        available: true,
+        unavailableReason: null,
+        model: { id: "qwen-vl", provider: "dashscope" },
+      },
+    });
+    expect(JSON.stringify(data)).not.toContain("sk-test-secret");
+    expect(JSON.stringify(data)).not.toContain("dashscope.example");
+  });
+
+  it("auxiliary vision route reports text-only configured models as unavailable", async () => {
+    const { createModelsRoute } = await import("../server/routes/models.js");
+    const app = new Hono();
+    const engine = {
+      availableModels: [],
+      currentModel: null,
+      config: {},
+      getSharedModels: vi.fn(() => ({
+        vision_enabled: true,
+        vision: { id: "deepseek-chat", provider: "deepseek" },
+      })),
+      resolveModelWithCredentials: vi.fn(() => ({
+        model: { id: "deepseek-chat", provider: "deepseek", input: ["text"] },
+        provider: "deepseek",
+      })),
+    };
+
+    app.route("/api", createModelsRoute(engine));
+
+    const res = await app.request("/api/models/auxiliary-vision");
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.auxiliaryVision).toEqual({
+      enabled: true,
+      configured: true,
+      available: false,
+      unavailableReason: "model_without_image_input",
+      model: { id: "deepseek-chat", provider: "deepseek" },
+    });
+  });
+
   it("model health accepts explicit model refs and uses the utility LLM path", async () => {
     const { createModelsRoute } = await import("../server/routes/models.js");
     const app = new Hono();

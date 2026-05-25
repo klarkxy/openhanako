@@ -333,6 +333,7 @@ export class ChannelRouter {
       onEvent: (event, data) => {
         this._hub.eventBus.emit({ type: event, ...data }, null);
       },
+      isEnabled: () => engine.isChannelsEnabled?.() !== false,
     });
     this._ticker.start();
   }
@@ -461,7 +462,6 @@ export class ChannelRouter {
     mentionTargeted = false,
     deliveryWindow = null,
   } = {}) {
-    const engine = this._engine;
     const msgText = formatMessagesForLLM(newMessages);
     const isZh = getLocale().startsWith("zh");
     const lastNewMessage = newMessages[newMessages.length - 1] || null;

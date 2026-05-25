@@ -702,7 +702,7 @@
     "editor": {
       "title": "편집기",
       "markdownBodyFontSize": "본문 크기",
-      "markdownBodyFontSizeHint": "Markdown 편집기 본문은 Notion에 가까운 16px를 기본값으로 사용해요.",
+      "markdownBodyFontSizeHint": "Markdown 편집기 본문은 15px를 기본값으로 사용해요.",
       "markdownHeading1FontSize": "제목 1 크기",
       "markdownHeading1FontSizeHint": "# 제목에 사용돼요.",
       "markdownHeading2FontSize": "제목 2 크기",
@@ -809,14 +809,15 @@
       "updateChecking": "업데이트 확인 중…",
       "updateDownloading": "{agentName}이(가) 새 집을 준비하는 중 {percent}%",
       "updateReadyInstall": "v{version} 설치 준비 완료",
-      "updateInstalling": "업데이트를 설치하는 중입니다. Hanako가 자동으로 다시 시작됩니다…",
+      "updateInstalling": "업데이트를 설치하는 중입니다. HanaAgent가 자동으로 다시 시작됩니다…",
       "updateInstallManualHint": "다시 시작하여 업데이트를 누른 뒤 설치합니다. 종료만으로는 자동 설치하지 않습니다",
       "updateInstall": "재시작하여 업데이트",
+      "updateInstallNow": "지금 재시작하여 업데이트",
       "updateProgress": "{percent}%",
       "updateError": "업데이트 확인 실패",
       "updateLatest": "최신 버전입니다",
       "updateCheckBtn": "업데이트 확인",
-      "updateNeedInstall": "먼저 Hanako를 응용 프로그램 폴더로 이동하세요",
+      "updateNeedInstall": "먼저 HanaAgent를 응용 프로그램 폴더로 이동하세요",
       "updateDiskSpace": "디스크 공간이 부족하여 업데이트를 다운로드할 수 없습니다",
       "launchAtLogin": "로그인 시 자동 실행",
       "betaUpdates": "베타 업데이트 수신",
@@ -827,7 +828,7 @@
       "mobileAccess": "모바일 접근",
       "desktopAccess": "컴퓨터 접근",
       "lanToggle": "LAN 기기 접근 허용",
-      "lanHint": "같은 LAN의 휴대폰과 컴퓨터가 이 Hana Server에 접근할 수 있어요",
+      "lanHint": "같은 LAN의 휴대폰과 컴퓨터가 이 HanaAgent Server에 접근할 수 있어요",
       "port": "고정 포트",
       "portHint": "북마크와 QR 코드에 사용합니다. 변경 후 Hana를 다시 시작해야 적용돼요",
       "mobileUrl": "모바일 URL",
@@ -862,7 +863,7 @@
       "desktopKeyFailed": "생성 실패",
       "connectLanServer": "LAN 서버 연결",
       "remoteServerUrl": "서버 URL",
-      "remoteServerUrlHint": "다른 컴퓨터나 NAS의 Hana Server URL을 입력하세요",
+      "remoteServerUrlHint": "다른 컴퓨터나 NAS의 HanaAgent Server URL을 입력하세요",
       "remoteServerKey": "접근 키",
       "remoteServerKeyHint": "그 서버 설정 페이지에서 생성한 컴퓨터 접근 키를 입력하세요",
       "remoteServerConnected": "LAN 서버 연결됨",
@@ -1192,7 +1193,7 @@
       "homeFolderBrowse": "찾아보기"
     },
     "toolCaps": {
-      "title": "자기 학습 스킬"
+      "title": "스킬 설치 권한"
     },
     "skills": {
       "title": "스킬",
@@ -1201,8 +1202,6 @@
       "agentConfigTitle": "Agent Skill Configuration",
       "configureFor": "Configuring:",
       "userSkillsTitle": "Agent Skill Toggles",
-      "learnedSkillsTitle": "Learned Skills",
-      "learnedEmpty": "This agent hasn't learned any skills yet",
       "user": "사용자 스킬",
       "system": "시스템 스킬",
       "add": "스킬 추가",
@@ -1213,8 +1212,6 @@
       "enabled": "활성화됨",
       "disabled": "비활성화됨",
       "noSkills": "사용 가능한 스킬이 없어요",
-      "learned": "에이전트가 배운 것",
-      "noLearned": "에이전트가 아직 배운 스킬이 없어요",
       "noUser": "사용자 정의 스킬 없음",
       "copyToSkills": "내 스킬로 복사",
       "copied": "복사됨 ✓",
@@ -1231,7 +1228,7 @@
       "compatAutoDiscovered": "자동 발견됨",
       "compatNotInstalled": "미설치",
       "learnCreate": "스킬 생성 / 설치",
-      "learnCreateDesc": "에이전트가 새 스킬을 작성하거나 도구 호출로 설치하는 것을 허용해요",
+      "learnCreateDesc": "에이전트가 새 스킬을 작성하거나 공유 스킬 풀에 설치하는 것을 허용해요. 기본적으로 현재 Agent에만 활성화돼요",
       "fetchRemote": "GitHub / ClawHub에서 스킬 가져오기",
       "fetchRemoteDesc": "활성화하면 에이전트가 전문 작업 수행 시 적합한 스킬을 검색하고 설치해요. 주의해서 사용하세요",
       "safetyReview": "설치 전 안전 검토",
@@ -1833,7 +1830,7 @@
     "skillMissingName": "SKILL.md에 name 필드가 없어요",
     "skillNameInvalid": "스킬 이름이 유효하지 않아요 (\"{name}\"). 영문자, 숫자, 밑줄, 하이픈만 사용할 수 있어요.",
     "skillPathMustBeAbsolute": "경로는 절대 경로여야 해요: {path}",
-    "skillCannotAddSelfDir": "Hanako 자체의 스킬 디렉토리는 추가할 수 없어요",
+    "skillCannotAddSelfDir": "HanaAgent 자체의 스킬 디렉토리는 추가할 수 없어요",
     "skillInvalidName": "유효하지 않은 스킬 이름이에요",
     "skillExternalCannotDelete": "외부 호환 스킬은 여기서 삭제할 수 없어요",
     "skillNotExists": "스킬이 존재하지 않아요",
@@ -1906,7 +1903,7 @@
     "subagentStopReason": "서브 에이전트가 정상적으로 완료되지 않았어요 (stopReason: {reason}).",
     "subagentToolFailed": "서브 에이전트 도구 실행 실패: {msg}",
     "subagentDispatched": "서브 작업을 보냈어요 (task-id: {taskId}). 완료되면 결과가 자동으로 전달돼요.",
-    "installSkillDisabled": "자가 학습 스킬 기능이 활성화되지 않았어요. 설정에서 「Agent의 스킬 생성/설치 허용」을 켜주세요.",
+    "installSkillDisabled": "스킬 설치 기능이 활성화되지 않았어요. 설정에서 「Agent의 스킬 생성/설치 허용」을 켜주세요.",
     "installSkillGithubDisabled": "GitHub 스킬 가져오기가 활성화되지 않았어요. 설정에서 「GitHub에서 스킬 가져오기 허용」을 켜주세요.",
     "installSkillInvalidGithubUrl": "잘못된 GitHub URL: {url}",
     "installSkillGithubApiFailed": "리포지토리 정보를 가져올 수 없어요 (HTTP {status}). URL을 확인해 주세요.",
@@ -2002,7 +1999,7 @@
   },
   "main": {
     "tray": {
-      "show": "Hanako 표시",
+      "show": "HanaAgent 표시",
       "settings": "설정",
       "quit": "종료"
     },
@@ -2010,17 +2007,17 @@
       "selectFolder": "작업 폴더 선택",
       "selectSkill": "스킬 선택",
       "selectPlugin": "플러그인 선택",
-      "launchFailedTitle": "Hanako 실행 실패",
-      "launchFailedBody": "Hanako v{version}\n\n{detail}\n\n상세 로그 저장 위치:\n{logPath}\n\n이 스크린샷이나 로그 파일을 개발자에게 보내주세요.",
-      "serverRestartFailed": "Hanako v{version}\n\nServer가 충돌 후 재시작에 실패했어요.\n{error}\n\n앱을 다시 시작해 주세요.",
-      "serverMultipleCrash": "Hanako v{version}\n\nServer가 여러 번 충돌했어요 ({reason}).\n\n앱을 다시 시작해 주세요.",
+      "launchFailedTitle": "HanaAgent 실행 실패",
+      "launchFailedBody": "HanaAgent v{version}\n\n{detail}\n\n상세 로그 저장 위치:\n{logPath}\n\n이 스크린샷이나 로그 파일을 개발자에게 보내주세요.",
+      "serverRestartFailed": "HanaAgent v{version}\n\nServer가 충돌 후 재시작에 실패했어요.\n{error}\n\n앱을 다시 시작해 주세요.",
+      "serverMultipleCrash": "HanaAgent v{version}\n\nServer가 여러 번 충돌했어요 ({reason}).\n\n앱을 다시 시작해 주세요.",
       "serverStartTimeout": "Server 시작 시간 초과",
       "serverKilledBySignal": "Server가 시그널로 종료되었어요 ({signal})",
       "serverExitedWithCode": "Server가 종료되었어요. 코드: {code}",
-      "serverFilesNotReady": "자동 업데이트가 방금 완료되었고, 새 버전 파일이 아직 디스크에 쓰이고 있어요 ({missing} 없음). {waited}초 동안 기다렸지만 준비되지 않았어요. 잠시 후 Hanako를 다시 시작해 주세요.",
-      "serverModuleMissing": "Server 시작 실패: 모듈 {module}을(를) 찾을 수 없어요.\n자동 업데이트가 완료된 직후 파일이 아직 디스크에 쓰이는 중일 때 자주 발생해요.\n권장: 1-2분 기다린 후 Hanako를 다시 시작해 주세요. 반복되면 GitHub에 신고해 주세요.",
-      "installFailedTitle": "Hanako 업데이트",
-      "installFailedBody": "업데이트 설치에 실패했어요:\n{error}\n\nHanako를 다시 시작한 후 재시도하거나, 설정 페이지에서 수동으로 업데이트를 확인해 주세요."
+      "serverFilesNotReady": "자동 업데이트가 방금 완료되었고, 새 버전 파일이 아직 디스크에 쓰이고 있어요 ({missing} 없음). {waited}초 동안 기다렸지만 준비되지 않았어요. 잠시 후 HanaAgent를 다시 시작해 주세요.",
+      "serverModuleMissing": "Server 시작 실패: 모듈 {module}을(를) 찾을 수 없어요.\n자동 업데이트가 완료된 직후 파일이 아직 디스크에 쓰이는 중일 때 자주 발생해요.\n권장: 1-2분 기다린 후 HanaAgent를 다시 시작해 주세요. 반복되면 GitHub에 신고해 주세요.",
+      "installFailedTitle": "HanaAgent 업데이트",
+      "installFailedBody": "업데이트 설치에 실패했어요:\n{error}\n\nHanaAgent를 다시 시작한 후 재시도하거나, 설정 페이지에서 수동으로 업데이트를 확인해 주세요."
     },
     "notification": {
       "ready": "알림이 준비되었어요"
@@ -2188,16 +2185,15 @@
     },
     "installSkill": {
       "label": "스킬 설치",
-      "description": "자신에게 새로운 스킬을 설치해요. 모드 A: GitHub 저장소 URL (SKILL.md 포함)을 제공해서 자동으로 가져오고 설치해요. 모드 B: skill_content + skill_name을 직접 제공, 직접 작성한 스킬용이에요. 설치 후 즉시 적용돼요.",
+      "description": "새 스킬을 공유 스킬 풀에 설치하고 기본적으로 현재 Agent에만 활성화해요. 모드 A: GitHub 저장소 URL (SKILL.md 포함)을 제공해서 자동으로 가져오고 설치해요. 모드 B: skill_content + skill_name을 직접 제공, 직접 작성한 스킬용이에요.",
       "githubUrlDesc": "GitHub 저장소 URL (모드 A)",
       "skillContentDesc": "SKILL.md의 전체 내용 (모드 B)",
       "skillNameDesc": "스킬 이름 (모드 B에 필수)",
-      "reasonDesc": "이 스킬이 필요한 이유 설명 (감사용, 필수)",
-      "userRequestedDesc": "사용자가 명시적으로 설치를 요청했는지 여부 (true = 사용자 스킬, false = 학습 스킬)"
+      "reasonDesc": "이 스킬이 필요한 이유 설명 (감사용, 필수)"
     },
     "updateSettings": {
       "label": "설정",
-      "description": "Hanako의 설정을 변경해요. 두 가지 작업을 지원해요:\n- search + query: 키워드로 설정 항목을 검색하고, 현재 값과 옵션을 확인\n- apply + key + value: 지정한 설정을 변경 (사용자 확인 필요)\n\n정확한 키를 알고 있다면 바로 apply할 수 있어요.",
+      "description": "HanaAgent의 설정을 변경해요. 두 가지 작업을 지원해요:\n- search + query: 키워드로 설정 항목을 검색하고, 현재 값과 옵션을 확인\n- apply + key + value: 지정한 설정을 변경 (사용자 확인 필요)\n\n정확한 키를 알고 있다면 바로 apply할 수 있어요.",
       "actionDesc": "작업 유형: search로 설정 검색 / apply로 설정 변경",
       "queryDesc": "검색 키워드 (search 시 필수)",
       "keyDesc": "설정 키 (search로 확인)",
@@ -2286,7 +2282,7 @@
     "inputHelp": "/help로 명령어 목록 보기"
   },
   "sandbox": {
-    "blocked": "[보안] {reason}\n\n이 작업은 Hanako의 샌드박스 보안 정책에 의해 차단되었어요. 이는 명령이 경로나 권한 경계를 넘었다는 뜻이에요. 먼저 현재 워크스페이스, 정확한 경로 표기, 대상 파일이 허용된 워크스페이스 또는 session 경로에 있어야 하는지 확인하세요. 차단된 경로와 이유를 사용자에게 설명하고, 사용자가 명확히 결정한 경우에만 샌드박스 설정 변경을 논의하세요.",
+    "blocked": "[보안] {reason}\n\n이 작업은 HanaAgent의 샌드박스 보안 정책에 의해 차단되었어요. 이는 명령이 경로나 권한 경계를 넘었다는 뜻이에요. 먼저 현재 워크스페이스, 정확한 경로 표기, 대상 파일이 허용된 워크스페이스 또는 session 경로에 있어야 하는지 확인하세요. 차단된 경로와 이유를 사용자에게 설명하고, 사용자가 명확히 결정한 경우에만 샌드박스 설정 변경을 논의하세요.",
     "noSudo": "sudo 사용이 금지되어 있어요",
     "noSu": "su 사용자 전환이 금지되어 있어요",
     "noChmod": "파일 권한 변경이 금지되어 있어요",

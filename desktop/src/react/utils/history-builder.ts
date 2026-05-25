@@ -8,6 +8,7 @@ import type { ChatMessage, ChatListItem, ContentBlock } from '../stores/chat-typ
 import type { TodoItem } from '../types';
 import { parseMoodFromContent, parseCardFromContent, parseUserAttachments } from './message-parser';
 import { renderMarkdown } from './markdown';
+import { extOfName } from './file-kind';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- API 历史消息 JSON 结构动态，难以静态收窄 */
 
@@ -70,7 +71,7 @@ export interface HistoryApiResponse {
  * 因为老 session 的 toolResult.details 没有 jobData/settingKey 字段。
  */
 function normalizeBlocks(data: HistoryApiResponse): Array<any> {
-  if (data.blocks) return data.blocks;
+  if (data.blocks) return data.blocks.map(normalizeHistoryBlock).filter((block): block is Record<string, any> => !!block);
   const blocks: Array<any> = [];
   for (const fo of (data.fileOutputs || [])) {
     for (const f of fo.files) {
@@ -122,6 +123,70 @@ function normalizeBlocks(data: HistoryApiResponse): Array<any> {
   }
 
   return blocks;
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? value : null;
+}
+
+function normalizeBlockAfterIndex(value: unknown): number | null {
+  return Number.isInteger(value) && (value as number) >= 0 ? value as number : null;
+}
+
+function basenamePortable(value: string): string {
+  const normalized = value.replace(/\\/g, '/');
+  const slash = normalized.lastIndexOf('/');
+  return slash >= 0 ? normalized.slice(slash + 1) : normalized;
+}
+
+function normalizeHistoryBlock(raw: unknown): Record<string, any> | null {
+  if (!isRecord(raw)) return null;
+  const type = nonEmptyString(raw.type);
+  const afterIndex = normalizeBlockAfterIndex(raw.afterIndex);
+  if (!type || afterIndex === null) return null;
+
+  if (type === 'file') {
+    const filePath = nonEmptyString(raw.filePath);
+    if (!filePath) return null;
+    const label = nonEmptyString(raw.label) || basenamePortable(filePath);
+    const ext = nonEmptyString(raw.ext) || extOfName(label) || extOfName(filePath) || '';
+    return { ...raw, type, afterIndex, filePath, label, ext };
+  }
+
+  if (type === 'plugin_card') {
+    if (!isRecord(raw.card)) return null;
+    const pluginId = nonEmptyString(raw.card.pluginId);
+    const route = nonEmptyString(raw.card.route);
+    if (!pluginId || !route) return null;
+    return { ...raw, type, afterIndex, card: { ...raw.card, pluginId, route } };
+  }
+
+  if (type === 'cron_confirm') {
+    if (!isRecord(raw.jobData)) return null;
+    return {
+      ...raw,
+      type,
+      afterIndex,
+      jobData: raw.jobData,
+      status: nonEmptyString(raw.status) || 'approved',
+    };
+  }
+
+  if (type === 'screenshot') {
+    if (!nonEmptyString(raw.base64) || !nonEmptyString(raw.mimeType)) return null;
+  } else if (type === 'settings_update') {
+    if (!isRecord(raw.update)) return null;
+  } else if (type === 'skill') {
+    if (!nonEmptyString(raw.skillName)) return null;
+  }
+
+  return { ...raw, type, afterIndex };
 }
 
 // ── 构建 ──

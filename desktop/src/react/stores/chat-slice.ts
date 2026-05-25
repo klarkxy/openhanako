@@ -217,7 +217,7 @@ export const createChatSlice = (
         if (blockIdx < 0) continue;
 
         consumed = true;
-        if (isResolvedTaskBlock(blocks[blockIdx], taskId)) {
+        if (isResolvedFileTaskBlock(blocks[blockIdx], taskId)) {
           return {};
         }
 
@@ -383,4 +383,8 @@ function isResolvedTaskBlock(block: ContentBlock, taskId: string): boolean {
   return block.type === 'media_generation' &&
     block.taskId === taskId &&
     block.status !== 'pending';
+}
+
+function isResolvedFileTaskBlock(block: ContentBlock, taskId: string): boolean {
+  return block.type === 'file' && block.replacesTaskId === taskId;
 }

@@ -12,7 +12,7 @@
  * and marks the task successful immediately.
  */
 
-import { join as pathJoin } from "node:path";
+import { dirname, join as pathJoin } from "node:path";
 import { readImageSize } from "./image-size.js";
 
 const TICK_MS = 5_000;
@@ -39,15 +39,17 @@ export class Poller {
    *   store: import("./task-store.js").TaskStore,
    *   registry: import("./adapter-registry.js").AdapterRegistry,
  *   bus: object,
- *   generatedDir: string,
- *   log: object,
- *   registerSessionFile?: Function,
- * }} opts
- */
-  constructor({ store, registry, bus, generatedDir, log, registerSessionFile }) {
+	 *   dataDir?: string,
+	 *   generatedDir: string,
+	 *   log: object,
+	 *   registerSessionFile?: Function,
+	 * }} opts
+	 */
+  constructor({ store, registry, bus, dataDir, generatedDir, log, registerSessionFile }) {
     this._store        = store;
     this._registry     = registry;
     this._bus          = bus;
+    this._dataDir      = dataDir || dirname(generatedDir);
     this._generatedDir = generatedDir;
     this._log          = log;
     this._registerSessionFile = registerSessionFile || null;
@@ -73,6 +75,8 @@ export class Poller {
    * @param {string} taskId
    */
   add(taskId) {
+    this._cancelled.delete(taskId);
+    this._errorCounts.delete(taskId);
     this._active.add(taskId);
   }
 
@@ -274,7 +278,9 @@ export class Poller {
     }
 
     // Real async: delegate to the adapter.
-    const adapter = this._registry.get(task.adapterId);
+    const adapter = (task.protocolId && this._registry.getProtocol?.(task.protocolId))
+      || this._registry.get(task.adapterId)
+      || this._registry.get(task.providerId);
     if (!adapter) {
       const err = new Error(`[image-gen] no adapter registered for "${task.adapterId}"`);
       this._store.update(taskId, {
@@ -289,6 +295,7 @@ export class Poller {
     }
 
     const ctx = {
+      dataDir: this._dataDir,
       generatedDir: this._generatedDir,
       bus: this._bus,
       log: this._log,

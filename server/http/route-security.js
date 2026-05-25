@@ -74,6 +74,9 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   if (routePath === "/api/models") {
     return verb === "GET" ? scoped("chat") : LOCAL_ONLY;
   }
+  if (routePath === "/api/models/auxiliary-vision") {
+    return verb === "GET" ? scoped("chat") : LOCAL_ONLY;
+  }
   if (routePath === "/api/models/set" || routePath === "/api/models/switch") {
     return verb === "POST" ? scoped("chat") : LOCAL_ONLY;
   }

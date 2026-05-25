@@ -8,9 +8,13 @@
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
-import { createAgentSession, SessionManager, estimateTokens, findCutPoint, generateSummary, refreshSessionModelFromRegistry } from "../lib/pi-sdk/index.js";
+import { createAgentSession, SessionManager, estimateTokens, refreshSessionModelFromRegistry } from "../lib/pi-sdk/index.js";
 import { createDefaultSettings } from "./session-defaults.js";
 import { computeHardTruncation } from "./compaction-utils.js";
+import {
+  appendCompactionResultToSession,
+  runCachePreservingCompactionForSession,
+} from "./session-compactor.js";
 import { teardownSessionResources } from "./session-teardown.js";
 import { evaluateSessionHealth } from "./session-health.js";
 import { createModuleLogger } from "../lib/debug-log.js";
@@ -54,6 +58,13 @@ import {
   diffCachePrefixContracts,
   summarizeCachePrefixContract,
 } from "../lib/llm/cache-prefix-contract.js";
+import {
+  SESSION_PROMPT_SNAPSHOT_VERSION,
+  freezeAgentsFilesResult,
+  freezeSkillsResult,
+  normalizeSessionPromptSnapshot,
+  normalizeStringArray,
+} from "./session-prompt-snapshot.js";
 
 const log = createModuleLogger("session");
 
@@ -148,7 +159,6 @@ function isolatedCompletionError(stopReason, errorMessage) {
 }
 
 const MAX_CACHED_SESSIONS = 20;
-const SESSION_PROMPT_SNAPSHOT_VERSION = 1;
 const MiB = 1024 * 1024;
 const DEFAULT_RUNTIME_PRESSURE_THRESHOLDS = Object.freeze({
   checkDelayMs: 1500,
@@ -157,33 +167,6 @@ const DEFAULT_RUNTIME_PRESSURE_THRESHOLDS = Object.freeze({
   highRssBytes: 1536 * MiB,
   highExternalBytes: 512 * MiB,
 });
-
-function jsonClone(value, fallback) {
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch {
-    return fallback;
-  }
-}
-
-function normalizeStringArray(value) {
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
-}
-
-function freezeSkillsResult(value) {
-  const next = {
-    skills: Array.isArray(value?.skills) ? value.skills : [],
-    diagnostics: Array.isArray(value?.diagnostics) ? value.diagnostics : [],
-  };
-  return jsonClone(next, { skills: [], diagnostics: [] });
-}
-
-function freezeAgentsFilesResult(value) {
-  const next = {
-    agentsFiles: Array.isArray(value?.agentsFiles) ? value.agentsFiles : [],
-  };
-  return jsonClone(next, { agentsFiles: [] });
-}
 
 function normalizeMemoryPressureOptions(raw) {
   if (raw === false || raw?.enabled === false) {
@@ -247,22 +230,6 @@ function estimateRetainedValueBytes(value, seen, budget, depth = 0) {
     total += estimateRetainedValueBytes(child, seen, budget, depth + 1);
   }
   return total;
-}
-
-function normalizePromptSnapshot(value) {
-  if (!value || typeof value !== "object") return null;
-  if (value.version !== SESSION_PROMPT_SNAPSHOT_VERSION) return null;
-  if (typeof value.systemPrompt !== "string") return null;
-  return {
-    version: SESSION_PROMPT_SNAPSHOT_VERSION,
-    systemPrompt: value.systemPrompt,
-    appendSystemPrompt: normalizeStringArray(value.appendSystemPrompt),
-    skillsResult: freezeSkillsResult(value.skillsResult),
-    agentsFilesResult: freezeAgentsFilesResult(value.agentsFilesResult),
-    ...(typeof value.finalSystemPrompt === "string"
-      ? { finalSystemPrompt: value.finalSystemPrompt }
-      : {}),
-  };
 }
 
 function makeBackgroundTaskPrompt(locale) {
@@ -713,7 +680,7 @@ export class SessionCoordinator {
     //   C. restore=false                       → fresh compute from agent config
     //
     // allToolNames must cover the COMPLETE active set: Pi SDK built-ins
-    // (read/bash/edit/write/grep/find/ls) from sessionTools + OpenHanako
+    // (read/bash/edit/write/grep/find/ls) from sessionTools + HanaAgent
     // customs + plugin tools from sessionCustomTools. Using only agent.tools
     // would silently drop SDK built-ins and plugin tools when
     // setActiveToolsByName is applied.
@@ -1227,8 +1194,9 @@ export class SessionCoordinator {
 
         // 尝试压缩
         try {
-          await this._compactWithModel(session, effectiveWindow, oldModel);
-          adaptations.push("compacted");
+          const compactionResult = await this._compactWithModel(session, effectiveWindow, oldModel);
+          const hardTruncated = compactionResult?.details?.reason === "cache-preserving-compaction-hard-truncate";
+          adaptations.push(hardTruncated ? "truncated" : "compacted");
         } catch (compactErr) {
           log.warn(`compactWithModel failed, falling back to hard truncate: ${compactErr.message}`);
           // 压缩失败，尝试硬截断
@@ -1269,93 +1237,20 @@ export class SessionCoordinator {
   }
 
   /**
-   * 用 LLM 生成摘要来压缩对话历史（为 model switch 准备窗口）。
+   * 用主模型同前缀摘要来压缩对话历史（为 model switch 准备窗口）。
    * @private
    */
   async _compactWithModel(session, effectiveWindow, model) {
-    const sm = session.sessionManager;
-    const pathEntries = sm.getBranch();
-
-    // keepRecentTokens = effectiveWindow：保留尽可能多的近期上下文
-    const keepRecentTokens = effectiveWindow;
-
-    // 找到有 message 的 entry 的范围
-    const messageEntries = pathEntries.filter(e => e.type === "message");
-    if (messageEntries.length < 2) {
-      throw new Error("Not enough messages to compact");
-    }
-
-    // findCutPoint 操作的是 JSONL path entries
-    const startIndex = 0;
-    const endIndex = pathEntries.length;
-    const cutResult = findCutPoint(pathEntries, startIndex, endIndex, keepRecentTokens);
-
-    const { firstKeptEntryIndex, turnStartIndex, isSplitTurn } = cutResult;
-
-    // split-turn 时使用 turnStartIndex 避免 assistant 与 user prompt 分离
-    const effectiveCutIndex = isSplitTurn ? turnStartIndex : firstKeptEntryIndex;
-
-    if (effectiveCutIndex <= 0) {
-      throw new Error("Cut point at beginning — nothing to compact");
-    }
-
-    // 收集要摘要的消息（从 pathEntries[i].message，非 agent.state.messages）
-    const messagesToSummarize = [];
-    for (let i = 0; i < effectiveCutIndex; i++) {
-      if (pathEntries[i].type === "message" && pathEntries[i].message) {
-        messagesToSummarize.push(pathEntries[i].message);
-      }
-    }
-
-    if (messagesToSummarize.length === 0) {
-      throw new Error("No messages to summarize before cut point");
-    }
-
-    // 链接之前的 compaction summary
-    let previousSummary;
-    for (const entry of pathEntries) {
-      if (entry.type === "compaction" && entry.summary) {
-        previousSummary = entry.summary;
-      }
-    }
-
-    // 获取 API key
-    const models = this._d.getModels();
-    const auth = await models.modelRegistry.getApiKeyAndHeaders(model);
-    if (!auth.ok) {
-      throw new Error(`Auth failed for model ${model.id}: ${auth.error}`);
-    }
-    if (!auth.apiKey) {
-      throw new Error(`No API key for provider ${model.provider}`);
-    }
-
-    // 计算压缩前 token 数
-    const tokensBefore = messagesToSummarize.reduce((sum, m) => sum + estimateTokens(m), 0);
-
-    // 保留 token 数给摘要本身
-    const reserveTokens = 4000;
-
-    // 生成摘要
-    const summary = await generateSummary(
-      messagesToSummarize,
+    return await runCachePreservingCompactionForSession(session, {
       model,
-      reserveTokens,
-      auth.apiKey,
-      auth.headers,
-      undefined,        // signal
-      undefined,        // customInstructions
-      previousSummary,
-    );
-
-    // firstKeptEntryId 是要保留的第一个 entry 的 id
-    const firstKeptEntryId = pathEntries[effectiveCutIndex].id;
-
-    // 持久化
-    sm.appendCompaction(summary, firstKeptEntryId, tokensBefore, {});
-
-    // 重建上下文
-    const ctx = sm.buildSessionContext();
-    session.agent.replaceMessages(ctx.messages);
+      settings: {
+        enabled: true,
+        reserveTokens: 4000,
+        keepRecentTokens: effectiveWindow,
+      },
+      emitLifecycle: true,
+      lifecycleReason: "model_switch",
+    });
   }
 
   /**
@@ -1365,19 +1260,39 @@ export class SessionCoordinator {
   async _hardTruncate(session, effectiveWindow) {
     const sm = session.sessionManager;
     const pathEntries = sm.getBranch();
+    const reason = "model_switch";
+    session?._emit?.({ type: "compaction_start", reason });
 
-    const result = computeHardTruncation(pathEntries, effectiveWindow, {
-      summary: "[由于模型切换，早期对话历史已被截断]",
-      reason: "model-switch-truncation",
-    });
-    if (!result) {
-      throw new Error("Cannot hard-truncate: not enough messages or cut at beginning");
+    try {
+      const result = computeHardTruncation(pathEntries, effectiveWindow, {
+        summary: "[由于模型切换，早期对话历史已被截断]",
+        reason: "model-switch-truncation",
+      });
+      if (!result) {
+        throw new Error("Cannot hard-truncate: not enough messages or cut at beginning");
+      }
+
+      const saved = await appendCompactionResultToSession(session, result, { fromExtension: false });
+      session?._emit?.({
+        type: "compaction_end",
+        reason,
+        result: saved,
+        aborted: false,
+        willRetry: false,
+      });
+      return saved;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      session?._emit?.({
+        type: "compaction_end",
+        reason,
+        result: undefined,
+        aborted: false,
+        willRetry: false,
+        errorMessage: `Compaction failed: ${message}`,
+      });
+      throw error;
     }
-
-    sm.appendCompaction(result.summary, result.firstKeptEntryId, result.tokensBefore, result.details);
-
-    const ctx = sm.buildSessionContext();
-    session.agent.replaceMessages(ctx.messages);
   }
 
   /** Get plan mode for the current (focused) session */
@@ -1787,37 +1702,44 @@ export class SessionCoordinator {
 
   // ── Session 关闭 ──
 
-  async closeSession(sessionPath) {
+  async discardSessionRuntime(sessionPath, reason = "discard") {
+    if (!sessionPath) return false;
     this._clearRuntimePressureTimer(sessionPath);
-    this._hibernatedSessionMeta.delete(sessionPath);
+    const hadHibernated = this._hibernatedSessionMeta.delete(sessionPath);
     const entry = this._sessions.get(sessionPath);
     if (entry) {
       const agent = this._d.getAgentById(entry.agentId) || this._d.getAgent();
       agent?._memoryTicker?.notifySessionEnd(sessionPath).catch((err) =>
-        log.warn(`closeSession ${path.basename(sessionPath)}: notifySessionEnd failed: ${err.message}`),
+        log.warn(`discardSessionRuntime ${path.basename(sessionPath)}: notifySessionEnd failed: ${err.message}`),
       );
       if (entry.session.isStreaming) {
-        this._forceReleaseStreamingSession(entry, sessionPath, "close");
+        this._forceReleaseStreamingSession(entry, sessionPath, reason);
       } else {
-        await this._teardownSessionEntry(entry, sessionPath, "close");
+        await this._teardownSessionEntry(entry, sessionPath, reason);
         this._sessions.delete(sessionPath);
       }
-
-      // 清理该 session 的 pending confirmation
-      this._d.getConfirmStore?.()?.abortBySession(sessionPath);
-      this._d.getDeferredResultStore?.()?.clearBySession(sessionPath);
     }
+
+    // 清理该 session 的 pending confirmation / deferred result
+    this._d.getConfirmStore?.()?.abortBySession(sessionPath);
+    this._d.getDeferredResultStore?.()?.clearBySession(sessionPath);
     if (sessionPath) {
       try {
         this._d.closeTerminalsForSession?.(sessionPath);
       } catch (err) {
-        log.warn(`closeSession ${path.basename(sessionPath)}: close terminals failed: ${err.message}`);
+        log.warn(`discardSessionRuntime ${path.basename(sessionPath)}: close terminals failed: ${err.message}`);
       }
     }
     if (sessionPath === this.currentSessionPath) {
       this._session = null;
       this._currentSessionPath = null;
+      this._sessionStarted = false;
     }
+    return !!entry || hadHibernated;
+  }
+
+  async closeSession(sessionPath) {
+    return this.discardSessionRuntime(sessionPath, "close");
   }
 
   async closeAllSessions() {
@@ -1900,6 +1822,51 @@ export class SessionCoordinator {
     } catch {
       return false;
     }
+  }
+
+  async reloadSessionRuntime(sessionPath) {
+    this._assertActiveDesktopSessionPath(sessionPath, "reloadSessionRuntime");
+    const targetAgentId = this._d.agentIdFromSessionPath(sessionPath);
+    if (!targetAgentId) {
+      throw new Error(`reloadSessionRuntime: cannot resolve agentId for ${sessionPath}`);
+    }
+    const agent = this._d.getAgentById(targetAgentId);
+    if (!agent) {
+      throw new Error(`reloadSessionRuntime: agent "${targetAgentId}" not found`);
+    }
+
+    const oldEntry = this._sessions.get(sessionPath);
+    if (oldEntry) {
+      if (oldEntry.session?.isStreaming || oldEntry.session?.isCompacting || oldEntry._switching) {
+        throw new Error("reloadSessionRuntime: session is busy");
+      }
+      await this._teardownSessionEntry(oldEntry, sessionPath, "reload");
+      this._sessions.delete(sessionPath);
+    }
+    this._hibernatedSessionMeta.delete(sessionPath);
+
+    let memoryEnabled = oldEntry?.memoryEnabled ?? true;
+    try {
+      const metaPath = path.join(agent.sessionDir, "session-meta.json");
+      const meta = await this._readMetaCached(metaPath);
+      const sessKey = path.basename(sessionPath);
+      if (meta[sessKey]?.memoryEnabled === false) memoryEnabled = false;
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        log.warn(`reloadSessionRuntime: session-meta.json read failed: ${err.message}`);
+      }
+    }
+
+    this._emitSessionHealthWarning(sessionPath);
+    const sessionMgr = SessionManager.open(sessionPath, agent.sessionDir);
+    const cwd = sessionMgr.getCwd?.() || undefined;
+    const result = await this.createSession(sessionMgr, cwd, memoryEnabled, null, {
+      restore: true,
+      agent,
+      agentId: targetAgentId,
+      preserveAgentMemoryState: true,
+    });
+    return result.session;
   }
 
   /**
@@ -2221,7 +2188,7 @@ export class SessionCoordinator {
     try {
       const metaPath = path.join(agent.sessionDir, "session-meta.json");
       const meta = await this._readMetaCached(metaPath);
-      return normalizePromptSnapshot(meta[path.basename(sessionPath)]?.promptSnapshot);
+      return normalizeSessionPromptSnapshot(meta[path.basename(sessionPath)]?.promptSnapshot);
     } catch {
       return null;
     }

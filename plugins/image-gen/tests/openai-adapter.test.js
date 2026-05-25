@@ -53,7 +53,7 @@ describe("openaiImageAdapter", () => {
 
     const result = await openaiImageAdapter.submit({
       prompt: "draw a lantern",
-      model: "gpt-image-2",
+      model: "gpt-image-1.5",
       filename: "lantern",
     }, ctx);
 

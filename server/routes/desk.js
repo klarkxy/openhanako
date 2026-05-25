@@ -623,7 +623,7 @@ export function createDeskRoute(engine, hub) {
     try {
       fs.rmSync(skillDir, { recursive: true, force: true });
       if (realPath(cwd) === realPath(engine.deskCwd)) {
-        await engine.syncWorkspaceSkillPaths(cwd, { reload: true, emitEvent: true });
+        await engine.syncWorkspaceSkillPaths(cwd, { reload: true, emitEvent: true, force: true });
       }
       return c.json({ ok: true });
     } catch (err) {

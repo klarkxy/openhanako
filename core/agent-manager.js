@@ -862,12 +862,22 @@ export class AgentManager {
       getEngine,  // update-settings-tool 仍需要完整 engine
     });
     ag.setOnInstallCallback(async (skillName) => {
-      const skills = this._d.getSkills();
-      await skills.reload(this._d.getResourceLoader?.(), this._agents);
       const enabled = new Set(ag.config?.skills?.enabled || []);
       enabled.add(skillName);
-      ag.updateConfig({ skills: { enabled: [...enabled] } });
-      skills.syncAgentSkills(ag);
+      const engine = this._d.getEngine?.();
+      if (engine?.reloadSkills) {
+        await engine.reloadSkills();
+      } else {
+        const skills = this._d.getSkills();
+        await skills.reload(this._d.getResourceLoader?.(), this._agents);
+      }
+      if (engine?.updateConfig) {
+        await engine.updateConfig({ skills: { enabled: [...enabled] } }, { agentId: ag.id });
+      } else {
+        ag.updateConfig({ skills: { enabled: [...enabled] } });
+        this._d.getSkills()?.syncAgentSkills?.(ag);
+      }
+      engine?._emitAppEvent?.("skills-changed", { agentId: ag.id });
     });
     ag.setNotifyHandler((payload) => {
       const engine = this._d.getEngine?.();

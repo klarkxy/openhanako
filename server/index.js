@@ -1,5 +1,5 @@
 /**
- * Hanako Server — HTTP + WebSocket API
+ * HanaAgent Server — HTTP + WebSocket API
  *
  * 启动方式：
  *   node server/index.js              （独立运行）
@@ -22,16 +22,11 @@ import { ensureFirstRun } from "../core/first-run.js";
 import { initDebugLog, createModuleLogger } from "../lib/debug-log.js";
 import { setUsageLogHome } from "../lib/llm/usage-observer.js";
 import { redactLogLabel, redactLogText } from "../lib/log-redactor.js";
-import {
-  runWin32LegacySandboxMigration,
-  summarizeWin32LegacySandboxMigration,
-} from "../lib/sandbox/win32-legacy-migration.js";
 import { safeJson } from "./hono-helpers.js";
 
 const log = createModuleLogger("server");
 const checkpointLog = createModuleLogger("checkpoint");
 const sessionFilesLog = createModuleLogger("session-files");
-const win32SandboxMigrationLog = createModuleLogger("win32-sandbox-migration");
 import { createOutboundProxyRuntime } from "../lib/net/outbound-proxy.js";
 import { createServerAuthService } from "../core/server-auth.js";
 import { resolveServerListenOptions } from "../core/server-network-config.js";
@@ -274,29 +269,7 @@ dlog.header(appVersion, {
   channelsDir: engine.channelsDir,
 });
 
-if (process.platform === "win32") {
-  const workspaceRoots = [
-    engine.homeCwd,
-    ...(Array.isArray(engine.config?.cwd_history) ? engine.config.cwd_history : []),
-  ].filter(Boolean);
-  runWin32LegacySandboxMigration({
-    hanakoHome,
-    workspaceRoots,
-    cleanup: true,
-  }).then((result) => {
-    const summary = summarizeWin32LegacySandboxMigration(result);
-    if (result.status === "failed") {
-      const detail = result.error || result.stderr || `exit=${result.exitCode ?? "unknown"}`;
-      win32SandboxMigrationLog.warn(`legacy migration failed: ${summary}; ${detail}`);
-      return;
-    }
-    if (result.status !== "skipped") {
-      win32SandboxMigrationLog.log(`legacy migration ${summary}`);
-    }
-  }).catch((err) => {
-    win32SandboxMigrationLog.warn(`legacy migration crashed: ${err?.message || String(err)}`);
-  });
-}
+if (process.platform === "win32") engine.startWin32LegacySandboxMaintenance();
 
 // ── 初始化 Hub（调度中枢，包装 engine） ──
 const hub = new Hub({ engine });
@@ -437,6 +410,11 @@ hub.eventBus.handle("deferred:register", ({ taskId, sessionPath, meta }) => {
   deferredResultStore.defer(taskId, sessionPath, meta);
   return { ok: true, sessionPath };
 });
+hub.eventBus.handle("deferred:retry", ({ taskId, sessionPath, meta }) => {
+  if (!sessionPath) return { ok: false, error: "sessionPath is required" };
+  deferredResultStore.retry(taskId, sessionPath, meta);
+  return { ok: true, sessionPath };
+});
 hub.eventBus.handle("deferred:resolve", ({ taskId, result, files, sessionFiles }) => {
   deferredResultStore.resolve(taskId, normalizeDeferredResolveResult({ result, files, sessionFiles }));
   return { ok: true };
@@ -513,7 +491,7 @@ hub.eventBus.handle("session:get-titles", async ({ paths }) => {
 
 // Register Pi SDK extension factory
 await engine.registerExtensionFactory(createDeferredResultExtension(deferredResultStore));
-// Compaction guard — 防 session 因上下文超限死锁（issue#437）
+// Cache-preserving compaction — 接管 Pi auto/manual compact，避免原生 summarizer 冷读上下文
 await engine.registerExtensionFactory(createCompactionGuardExtension());
 
 // ── 启动默认 session ──
@@ -619,7 +597,7 @@ app.route("/api", createCharacterCardsRoute(engine));
 app.route("/api", createDeskRoute(engine, hub));
 app.route("/api", createSkillsRoute(engine));
 app.route("/api", createChannelsRoute(engine, hub));
-app.route("/api", createDmRoute(engine));
+app.route("/api", createDmRoute(engine, hub));
 app.route("/api", createFsRoute(engine));
 app.route("/api", createPreferencesRoute(engine));
 app.route("/api", createBridgeRoute(engine, bridgeManagerRef));
@@ -868,7 +846,7 @@ try {
   const actualPort = address.port;
   serverRuntimeState.actualPort = actualPort;
 
-  log.log(`Hanako Server 运行在 http://${host}:${actualPort}`);
+  log.log(`HanaAgent Server 运行在 http://${host}:${actualPort}`);
   dlog.log("server", `listening on :${actualPort}`);
 
   // 写 server-info 文件，供 Electron 检测复用或外部工具查询。
@@ -886,6 +864,8 @@ try {
       networkMode: serverRuntimeState.mode,
       token: SERVER_TOKEN,
       version: appVersion,
+      ownerKind: process.env.HANA_SERVER_OWNER === "desktop" ? "desktop" : "standalone",
+      ownerPid: Number.parseInt(process.env.HANA_SERVER_OWNER_PID || "", 10) || null,
       serverId: runtimeContext.serverId || null,
       serverNodeId: runtimeContext.serverNodeId || runtimeContext.serverId || null,
       studioId: runtimeContext.studioId || null,

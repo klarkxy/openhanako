@@ -708,13 +708,22 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const canSend = hasContent && connected && !isStreaming && !modelSwitching && !pendingSessionSwitchPath;
 
   const loadVisionAuxiliaryConfig = useCallback(async () => {
+    if (surface === 'mobile') {
+      const res = await hanaFetch('/api/models/auxiliary-vision');
+      const data = await res.json();
+      const auxiliaryVision = data?.auxiliaryVision;
+      return {
+        enabled: auxiliaryVision?.available === true,
+        model: auxiliaryVision?.model || null,
+      };
+    }
     const res = await hanaFetch('/api/preferences/models');
     const data = await res.json();
     return {
       enabled: data?.models?.vision_enabled === true,
       model: data?.models?.vision || null,
     };
-  }, []);
+  }, [surface]);
 
   // ── Paste image ──
   // 与拖拽对齐：剪贴板图片同样落盘到 uploads 目录，入 store 的形态和拖拽完全一致

@@ -81,6 +81,7 @@ function makePoller(overrides = {}) {
     store: mockStore,
     registry: mockRegistry,
     bus: mockBus,
+    dataDir: "/tmp/image-gen-data",
     generatedDir: "/tmp/image-gen-generated",
     log,
     registerSessionFile: overrides.registerSessionFile,
@@ -129,6 +130,39 @@ describe("Poller", () => {
     poller.start();
     poller.add("task1");
     expect(poller.hasPending("task1")).toBe(true);
+    poller.stop();
+  });
+
+  it("re-adding a cancelled task clears the cancellation fence for retry", async () => {
+    const task = {
+      taskId: "task1",
+      adapterId: "test-adapter",
+      status: "pending",
+      submitState: "submitted",
+      adapterTaskId: "provider-task-1",
+      files: [],
+      createdAt: new Date().toISOString(),
+      sessionPath: "/sessions/main.jsonl",
+    };
+    const { poller, mockStore, mockAdapter } = makePoller({
+      adapter: makeAdapter({ query: vi.fn(async () => ({ status: "success", files: [] })) }),
+      store: {
+        get: vi.fn(() => task),
+        update: vi.fn(() => task),
+      },
+    });
+
+    poller.start();
+    poller.add("task1");
+    poller.cancel("task1");
+    poller.add("task1");
+
+    await poller.checkNow("task1");
+
+    expect(mockAdapter.query).toHaveBeenCalledWith("provider-task-1", expect.any(Object));
+    expect(mockStore.update).toHaveBeenCalledWith("task1", expect.objectContaining({
+      status: "done",
+    }));
     poller.stop();
   });
 
@@ -199,7 +233,10 @@ describe("Poller", () => {
 
     expect(mockAdapter.query).toHaveBeenCalledWith(
       "task1",
-      expect.objectContaining({ generatedDir: "/tmp/image-gen-generated" })
+      expect.objectContaining({
+        dataDir: "/tmp/image-gen-data",
+        generatedDir: "/tmp/image-gen-generated",
+      })
     );
 
     poller.stop();
@@ -255,7 +292,10 @@ describe("Poller", () => {
 
     expect(mockAdapter.query).toHaveBeenCalledWith(
       "remote-task",
-      expect.objectContaining({ generatedDir: "/tmp/image-gen-generated" }),
+      expect.objectContaining({
+        dataDir: "/tmp/image-gen-data",
+        generatedDir: "/tmp/image-gen-generated",
+      }),
     );
     expect(mockBus.request).toHaveBeenCalledWith(
       "deferred:resolve",

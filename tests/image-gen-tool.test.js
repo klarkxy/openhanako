@@ -33,6 +33,7 @@ function makeMediaGen(adapterOverrides = {}) {
   const adapter = makeAdapter(adapterOverrides);
   const registry = {
     get: vi.fn((id) => (id === adapter.id ? adapter : undefined)),
+    getProtocol: vi.fn(() => null),
     getDefault: vi.fn((_type) => adapter),
     getByType: vi.fn((_type) => [adapter]),
   };
@@ -121,7 +122,8 @@ describe("generate-image tool — adapter resolution", () => {
     const ctx = makeCtx({ registry, store, poller });
 
     const result = await execute({ prompt: "a cat", provider: "nonexistent" }, ctx);
-    expect(result.content[0].text).toContain("没有可用的图片生成 provider");
+    expect(result.content[0].text).toContain('指定的图片生成 provider "nonexistent" 不可用');
+    expect(store.add).not.toHaveBeenCalled();
   });
 
   it("uses explicit provider via registry.get when provider is specified", async () => {
@@ -131,6 +133,65 @@ describe("generate-image tool — adapter resolution", () => {
 
     await execute({ prompt: "a cat", provider: "fake-provider" }, ctx);
     expect(registry.get).toHaveBeenCalledWith("fake-provider");
+  });
+
+  it("does not fall back to another provider when explicit media provider resolution fails", async () => {
+    const requestedAdapter = makeAdapter({
+      id: "minimax",
+      submit: vi.fn(async () => ({ taskId: "task-minimax" })),
+    });
+    const defaultAdapter = makeAdapter({
+      id: "openai",
+      submit: vi.fn(async () => ({ taskId: "task-openai" })),
+    });
+    const registry = {
+      get: vi.fn((id) => (id === "minimax" ? requestedAdapter : defaultAdapter)),
+      getProtocol: vi.fn(() => null),
+      getByType: vi.fn(() => [defaultAdapter]),
+    };
+    const store = { add: vi.fn(), update: vi.fn() };
+    const poller = { add: vi.fn() };
+    const ctx = makeCtx({ registry, store, poller }, {
+      request: vi.fn(async (type) => {
+        if (type === "provider:resolve-media-model") return { error: "no_credentials" };
+        return {};
+      }),
+    });
+
+    const result = await execute({ prompt: "a cat", provider: "minimax", model: "image-01" }, ctx);
+
+    expect(result.content[0].text).toContain('指定的图片生成 provider "minimax" 不可用');
+    expect(requestedAdapter.submit).not.toHaveBeenCalled();
+    expect(defaultAdapter.submit).not.toHaveBeenCalled();
+    expect(store.add).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to an arbitrary provider when an explicit model cannot be resolved", async () => {
+    const { registry, store, poller, adapter } = makeMediaGen({
+      submit: vi.fn(async () => ({ taskId: "task-openai" })),
+    });
+    const ctx = makeCtx({ registry, store, poller }, {
+      request: vi.fn(async (type) => {
+        if (type === "provider:media-providers") {
+          return {
+            providers: {
+              openai: {
+                providerId: "openai",
+                models: [{ id: "gpt-image-1.5", protocolId: "openai-images" }],
+                hasCredentials: true,
+              },
+            },
+          };
+        }
+        return {};
+      }),
+    });
+
+    const result = await execute({ prompt: "a cat", model: "image-01" }, ctx);
+
+    expect(result.content[0].text).toContain('指定的图片生成模型 "image-01" 不可用');
+    expect(adapter.submit).not.toHaveBeenCalled();
+    expect(store.add).not.toHaveBeenCalled();
   });
 
   it("uses last registered adapter when no provider specified", async () => {

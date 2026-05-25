@@ -30,7 +30,6 @@ describe("Windows sandbox policy projection", () => {
       externalDir,
       path.join(agentDir, "memory"),
       path.join(agentDir, "sessions"),
-      path.join(agentDir, "learned-skills"),
       path.join(hanakoHome, "user"),
       path.join(hanakoHome, "skills"),
       path.join(hanakoHome, "session-files"),

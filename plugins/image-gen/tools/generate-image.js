@@ -5,7 +5,16 @@
  * submits to the provider in the background. Completion is delivered through
  * Poller + DeferredResultStore.
  */
-import path from "node:path";
+import {
+  bridgeDeliveryTarget,
+  buildImageParams,
+  createSubmitContext,
+  createTaskId,
+  imageDeferredMeta,
+  normalizeSessionPath,
+  resolveImageTarget,
+  runSubmitInBackground,
+} from "../lib/image-task-runner.js";
 
 export const name = "generate-image";
 export const description =
@@ -25,97 +34,6 @@ export const parameters = {
   required: ["prompt"],
 };
 
-async function adapterIsAvailable(adapter, submitCtx) {
-  if (typeof adapter?.checkAuth !== "function") return true;
-  try {
-    const result = await adapter.checkAuth(submitCtx);
-    return result?.ok !== false;
-  } catch {
-    return false;
-  }
-}
-
-function createTaskId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-}
-
-function errorMessage(err) {
-  return err?.message || String(err || "未知错误");
-}
-
-function normalizeSessionPath(ctx) {
-  const sessionPath = typeof ctx?.sessionPath === "string" ? ctx.sessionPath.trim() : "";
-  return sessionPath || null;
-}
-
-function bridgeDeliveryTarget(ctx) {
-  const bridge = ctx?.bridgeContext;
-  if (bridge?.isBridgeSession !== true || !bridge.platform || !bridge.chatId) return null;
-  return {
-    kind: "bridge",
-    platform: bridge.platform,
-    chatId: bridge.chatId,
-    ...(bridge.sessionKey ? { sessionKey: bridge.sessionKey } : {}),
-    ...(bridge.agentId ? { agentId: bridge.agentId } : {}),
-    ...(bridge.chatType ? { chatType: bridge.chatType } : {}),
-  };
-}
-
-export async function resolveImageAdapter(input, registry, submitCtx) {
-  if (input.provider) return registry.get(input.provider);
-
-  const defaultProvider = submitCtx.config?.get?.("defaultImageModel")?.provider;
-  if (defaultProvider) {
-    const adapter = registry.get(defaultProvider);
-    if (adapter && await adapterIsAvailable(adapter, submitCtx)) return adapter;
-  }
-
-  const adapters = registry.getByType("image");
-  for (let i = adapters.length - 1; i >= 0; i--) {
-    const adapter = adapters[i];
-    if (await adapterIsAvailable(adapter, submitCtx)) return adapter;
-  }
-  return adapters.at(-1) || null;
-}
-
-function markSubmitFailed({ taskId, err, store, ctx }) {
-  const message = errorMessage(err);
-  store.update(taskId, {
-    status: "failed",
-    failReason: message,
-    submitState: "failed",
-    completedAt: new Date().toISOString(),
-  });
-  ctx.bus.request("deferred:fail", { taskId, error: err }).catch(() => {});
-  ctx.bus.request("task:remove", { taskId }).catch(() => {});
-  ctx.log?.error?.(`[image-gen] submit failed for ${taskId}:`, message);
-}
-
-async function runSubmitInBackground({ taskId, adapter, params, submitCtx, store, poller, ctx }) {
-  try {
-    const result = await adapter.submit(params, submitCtx);
-    const hasProviderTaskId = typeof result?.taskId === "string" && result.taskId.trim();
-    const adapterTaskId = hasProviderTaskId ? result.taskId : taskId;
-    const files = Array.isArray(result?.files) ? result.files.filter(Boolean) : [];
-
-    if (!hasProviderTaskId && files.length === 0) {
-      throw new Error("图片生成 provider 没有返回 taskId 或文件");
-    }
-
-    store.update(taskId, {
-      submitState: "submitted",
-      adapterTaskId,
-      ...(files.length ? { files } : {}),
-    });
-
-    if (files.length && typeof poller.checkNow === "function") {
-      void poller.checkNow(taskId);
-    }
-  } catch (err) {
-    markSubmitFailed({ taskId, err, store, ctx });
-  }
-}
-
 export async function execute(input, ctx) {
   const { registry, store, poller } = ctx._mediaGen || {};
   if (!registry || !store || !poller) {
@@ -128,11 +46,16 @@ export async function execute(input, ctx) {
   }
 
   // Build adapter context
-  const generatedDir = path.join(ctx.dataDir, "generated");
-  const submitCtx = { dataDir: ctx.dataDir, bus: ctx.bus, log: ctx.log, generatedDir, config: ctx.config };
+  const submitCtx = createSubmitContext(ctx);
 
-  // Resolve adapter: explicit → configured default → latest credentialed adapter.
-  const adapter = await resolveImageAdapter(input, registry, submitCtx);
+  // Resolve target: explicit → configured default → first credentialed media provider → legacy adapter fallback.
+  let target;
+  try {
+    target = await resolveImageTarget(input, registry, submitCtx);
+  } catch (err) {
+    return { content: [{ type: "text", text: err?.message || String(err) }] };
+  }
+  const adapter = target?.adapter || null;
   if (!adapter) {
     return { content: [{ type: "text", text: "没有可用的图片生成 provider" }] };
   }
@@ -141,30 +64,27 @@ export async function execute(input, ctx) {
   const batchId = createTaskId();
 
   const params = {
-    type: "image",
-    prompt: input.prompt,
-    ...(input.ratio && { ratio: input.ratio }),
-    ...(input.resolution && { resolution: input.resolution }),
-    ...(input.model && { model: input.model }),
-    ...(input.image && { image: input.image }),
+    ...buildImageParams(input),
+    providerId: target.providerId,
+    ...(target.modelId ? { modelId: target.modelId, model: target.modelId } : {}),
+    ...(target.protocolId ? { protocolId: target.protocolId } : {}),
+    ...(target.credentialLaneId ? { credentialLaneId: target.credentialLaneId } : {}),
+    ...(target.credentialProviderId ? { credentialProviderId: target.credentialProviderId } : {}),
   };
 
   const submitted = [];
   const deliveryTarget = bridgeDeliveryTarget(ctx);
-  const deferredMeta = {
-    type: "image-generation",
-    mediaKind: "image",
-    deliveryIntent: "ui_only",
-    triggerParentTurn: false,
-    prompt: input.prompt,
-    ...(deliveryTarget ? { deliveryTarget } : {}),
-  };
+  const deferredMeta = imageDeferredMeta({ prompt: input.prompt, deliveryTarget });
 
   for (let i = 0; i < count; i++) {
     const taskId = createTaskId();
     store.add({
       taskId,
       adapterId: adapter.id,
+      providerId: target.providerId,
+      modelId: target.modelId,
+      protocolId: target.protocolId,
+      credentialLaneId: target.credentialLaneId,
       batchId,
       type: "image",
       prompt: input.prompt,
@@ -194,7 +114,9 @@ export async function execute(input, ctx) {
         parentSessionPath: sessionPath,
         meta: deferredMeta,
       });
-    } catch {}
+    } catch {
+      // TaskRegistry is best-effort visibility; generation delivery still uses deferred results.
+    }
 
     // Add to poller (handles fake-async detection internally)
     poller.add(taskId);

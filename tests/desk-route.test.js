@@ -67,6 +67,40 @@ describe("desk route", () => {
     }
   });
 
+  it("desk/delete-skill forces workspace skill reload even when the skill path list is unchanged", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
+    try {
+      const cwd = path.join(tempRoot, "workspace");
+      const skillDir = path.join(cwd, ".agents", "skills", "old-skill");
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, "SKILL.md"), "---\nname: old-skill\n---\n", "utf-8");
+
+      const syncWorkspaceSkillPaths = vi.fn(async () => {});
+      const engine = {
+        deskCwd: cwd,
+        homeCwd: cwd,
+        syncWorkspaceSkillPaths,
+      };
+
+      const { createDeskRoute } = await import("../server/routes/desk.js");
+      const app = new Hono();
+      app.route("/api", createDeskRoute(engine, null));
+
+      const res = await app.request("/api/desk/delete-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skillDir }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      expect(fs.existsSync(skillDir)).toBe(false);
+      expect(syncWorkspaceSkillPaths).toHaveBeenCalledWith(cwd, { reload: true, emitEvent: true, force: true });
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("allows explicit desk dirs from workspace scope and rejects arbitrary siblings", async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
     try {

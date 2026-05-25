@@ -153,6 +153,16 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
       }
       break;
     }
+    case 'skills-changed': {
+      useStore.setState((state: any) => ({
+        skillCatalogVersion: (Number(state.skillCatalogVersion) || 0) + 1,
+      }));
+      window.dispatchEvent(new CustomEvent('hana-skills-changed', { detail: data || {} }));
+      if (options.source === 'server') {
+        window.platform?.settingsChanged?.('skills-changed', data || {});
+      }
+      break;
+    }
     case 'agent-created':
     case 'agent-deleted':
       loadAgents();

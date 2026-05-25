@@ -25,10 +25,30 @@ export function initQuotedSelectionLifecycle(target: Document = document): () =>
   const handleSelectionChange = () => {
     clearSelectionIfNativeSelectionIsEmpty(target);
   };
+  const handledSelectionCommitEvents = new WeakSet<Event>();
+  const handleSelectionCommit = (event: Event) => {
+    if (handledSelectionCommitEvents.has(event)) return;
+    handledSelectionCommitEvents.add(event);
+    captureDocumentChatSelection(target, eventAnchorRect(event));
+  };
   target.addEventListener('selectionchange', handleSelectionChange);
+  target.addEventListener('mouseup', handleSelectionCommit);
+  target.addEventListener('touchend', handleSelectionCommit);
+  target.addEventListener('keyup', handleSelectionCommit);
+
+  const targetWindow = target.defaultView;
+  targetWindow?.addEventListener('mouseup', handleSelectionCommit);
+  targetWindow?.addEventListener('touchend', handleSelectionCommit);
+  targetWindow?.addEventListener('keyup', handleSelectionCommit);
 
   const cleanup = () => {
     target.removeEventListener('selectionchange', handleSelectionChange);
+    target.removeEventListener('mouseup', handleSelectionCommit);
+    target.removeEventListener('touchend', handleSelectionCommit);
+    target.removeEventListener('keyup', handleSelectionCommit);
+    targetWindow?.removeEventListener('mouseup', handleSelectionCommit);
+    targetWindow?.removeEventListener('touchend', handleSelectionCommit);
+    targetWindow?.removeEventListener('keyup', handleSelectionCommit);
     if (quotedSelectionLifecycle?.target === target) {
       quotedSelectionLifecycle = null;
     }
@@ -76,7 +96,7 @@ function captureCMSelection(previewItem: PreviewItem, view: EditorView): void {
     lineStart,
     lineEnd,
     charCount: text.length,
-    anchorRect: getCMSelectionAnchorRect(view, textStart, textEnd),
+    anchorRect: getCMSelectionAnchorRect(view, textStart, textEnd) ?? getElementAnchorRect((view as EditorView & { dom?: Element }).dom ?? null),
     updatedAt: Date.now(),
   });
 }
@@ -96,12 +116,14 @@ function captureDOMSelection(previewItem: PreviewItem): void {
     sourceKind: 'preview',
     sourceFilePath: previewItem.filePath,
     charCount: text.length,
-    anchorRect: sel && sel.rangeCount > 0 ? getRangeAnchorRect(sel.getRangeAt(0)) : undefined,
+    anchorRect: sel && sel.rangeCount > 0
+      ? getRangeAnchorRect(sel.getRangeAt(0)) ?? getElementAnchorRect(nodeElement(sel.anchorNode))
+      : undefined,
     updatedAt: Date.now(),
   });
 }
 
-export function captureChatSelection(sessionPath: string): void {
+export function captureChatSelection(sessionPath: string, fallbackAnchorRect?: FloatingAnchorRect): void {
   const sel = window.getSelection();
   const text = sel?.toString().trim();
   if (!sel || !text || sel.rangeCount === 0) {
@@ -132,10 +154,29 @@ export function captureChatSelection(sessionPath: string): void {
     sourceMessageId: message.id,
     sourceRole: message.role,
     charCount: text.length,
-    anchorRect: getRangeAnchorRect(sel.getRangeAt(0)),
+    anchorRect: getRangeAnchorRect(sel.getRangeAt(0)) ?? getElementAnchorRect(anchorMessage) ?? fallbackAnchorRect,
     updatedAt: Date.now(),
   };
   useStore.getState().setQuoteCandidate(quotedSelection);
+}
+
+function captureDocumentChatSelection(target: Document, fallbackAnchorRect?: FloatingAnchorRect): void {
+  const sel = getNativeSelection(target);
+  const text = sel?.toString().trim();
+  if (!sel || !text || sel.rangeCount === 0) return;
+
+  const anchorElement = nodeElement(sel.anchorNode);
+  const focusElement = nodeElement(sel.focusNode);
+  if (!anchorElement || !focusElement) return;
+  if (isInteractiveSelectionElement(anchorElement) || isInteractiveSelectionElement(focusElement)) return;
+
+  const anchorRoot = closestChatSelectionRoot(anchorElement);
+  const focusRoot = closestChatSelectionRoot(focusElement);
+  if (!anchorRoot || !focusRoot || anchorRoot !== focusRoot) return;
+
+  const sessionPath = anchorRoot.dataset.sessionPath;
+  if (!sessionPath) return;
+  captureChatSelection(sessionPath, fallbackAnchorRect);
 }
 
 function clipQuotedText(text: string): string {
@@ -146,6 +187,10 @@ function nodeElement(node: Node | null): Element | null {
   if (!node) return null;
   if (node.nodeType === Node.ELEMENT_NODE) return node as Element;
   return node.parentElement;
+}
+
+function closestChatSelectionRoot(element: Element): HTMLElement | null {
+  return element.closest<HTMLElement>('[data-chat-selection-root][data-session-path]');
 }
 
 function closestMessageElement(element: Element): HTMLElement | null {
@@ -174,6 +219,31 @@ function toPlainRect(rect: DOMRect | ClientRect): FloatingAnchorRect {
     width: rect.width,
     height: rect.height,
   };
+}
+
+function eventAnchorRect(event: Event): FloatingAnchorRect | undefined {
+  if ('changedTouches' in event) {
+    const touchEvent = event as TouchEvent;
+    const touch = touchEvent.changedTouches.item(0);
+    if (!touch) return undefined;
+    return pointAnchorRect(touch.clientX, touch.clientY);
+  }
+  if ('clientX' in event && 'clientY' in event) {
+    return pointAnchorRect(Number(event.clientX), Number(event.clientY));
+  }
+  return undefined;
+}
+
+function pointAnchorRect(left: number, top: number): FloatingAnchorRect | undefined {
+  if (!Number.isFinite(left) || !Number.isFinite(top)) return undefined;
+  return { left, right: left + 1, top, bottom: top + 1, width: 1, height: 1 };
+}
+
+function getElementAnchorRect(element: Element | null): FloatingAnchorRect | undefined {
+  if (!element || typeof element.getBoundingClientRect !== 'function') return undefined;
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 && rect.height <= 0) return undefined;
+  return toPlainRect(rect);
 }
 
 function unionRects(rects: Array<DOMRect | ClientRect>): FloatingAnchorRect | undefined {

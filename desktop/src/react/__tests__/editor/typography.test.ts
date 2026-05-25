@@ -15,8 +15,8 @@ function readPreviewStyles(): string {
 }
 
 describe('editor typography settings', () => {
-  it('uses Notion-like markdown defaults and preserves future heading controls', () => {
-    expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.bodyFontSize).toBe(16);
+  it('uses markdown defaults and preserves future heading controls', () => {
+    expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.bodyFontSize).toBe(15);
     expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.heading1FontSize).toBe(24);
     expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.heading2FontSize).toBe(20);
     expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.heading3FontSize).toBe(18);

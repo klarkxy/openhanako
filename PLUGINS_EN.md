@@ -27,7 +27,7 @@ export async function execute(input) {
 }
 ```
 
-2. Open Hanako → Settings → Plugins, drag the folder into the install area (or drag a .zip)
+2. Open HanaAgent → Settings → Plugins, drag the folder into the install area (or drag a .zip)
 3. After installation, the Agent can immediately call `my-plugin_hello`
 4. Uninstall: click the delete button on the plugins page
 
@@ -132,7 +132,7 @@ Declare `"trust": "full-access"` in manifest:
 }
 ```
 
-`minAppVersion` (optional) declares the minimum Hanako version required to run the plugin. If the current app version is lower, the plugin will not load and its status is set to `incompatible`. All plugins should declare this field to prevent compatibility issues on older versions.
+`minAppVersion` (optional) declares the minimum HanaAgent version required to run the plugin. If the current app version is lower, the plugin will not load and its status is set to `incompatible`. All plugins should declare this field to prevent compatibility issues on older versions.
 
 The user must enable the "Allow full-access plugins" toggle in Settings → Plugins. **When the toggle is off, full-access plugins are not loaded at all** (no partial loading) until the user explicitly enables it.
 
@@ -724,7 +724,7 @@ Tool names are auto-prefixed with `pluginId_` and auto-removed on unload via `re
 
 ### Background Tasks ⚡ full-access
 
-Plugins can register background tasks so Hanako can track and abort them. Runtime lifecycle is managed by `TaskRegistry`.
+Plugins can register background tasks so HanaAgent can track and abort them. Runtime lifecycle is managed by `TaskRegistry`.
 
 **Register a task type handler** once in `onload()`:
 

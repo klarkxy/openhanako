@@ -57,4 +57,22 @@ describe('computeFloatingInputPosition', () => {
       origin: 'bottom-center',
     });
   });
+
+  it('can bias a compact selection toolbar slightly to the right of the selected text', () => {
+    const result = computeFloatingInputPosition(
+      { left: 100, right: 180, top: 120, bottom: 140, width: 80, height: 20 },
+      { width: 1024, height: 768 },
+      { width: 26, height: 26 },
+      8,
+      16,
+      'top',
+      20,
+    );
+
+    expect(result).toEqual({
+      left: 147,
+      top: 86,
+      origin: 'bottom-center',
+    });
+  });
 });

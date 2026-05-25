@@ -118,4 +118,31 @@ describe('buildItemsFromHistory user image restoration', () => {
       mimeType: 'image/png',
     }]);
   });
+
+  it('丢弃字段残缺的历史 sideband block，保留同消息的可渲染内容', () => {
+    const items = buildItemsFromHistory({
+      messages: [{
+        id: 'a1',
+        role: 'assistant',
+        content: '可见正文',
+      }],
+      blocks: [
+        { type: 'file', afterIndex: 0, label: 'missing-path.png', ext: 'png' },
+        { type: 'plugin_card', afterIndex: 0 },
+        { type: 'cron_confirm', afterIndex: 0, status: 'approved' },
+        { type: 'file', afterIndex: 0, filePath: '/tmp/report.pdf', label: 'report.pdf', ext: 'pdf' },
+      ],
+    });
+
+    const first = items[0];
+    expect(first.type).toBe('message');
+    if (first.type !== 'message') throw new Error('expected message');
+    expect(first.data.blocks?.map(block => block.type)).toEqual(['text', 'file']);
+    expect(first.data.blocks?.[1]).toMatchObject({
+      type: 'file',
+      filePath: '/tmp/report.pdf',
+      label: 'report.pdf',
+      ext: 'pdf',
+    });
+  });
 });
