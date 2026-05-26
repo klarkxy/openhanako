@@ -2237,6 +2237,33 @@
       "label": "Stop background task",
       "description": "Stop a running background task. Pass the task_id to terminate it. Supported task types include sub-agent tasks, image/video generation tasks, etc.",
       "taskIdDesc": "The task ID to stop"
+    },
+    "countChars": {
+      "label": "Count characters",
+      "description": "Count Chinese characters, all characters, and UTF-8 bytes in a text or file. Use when you need to count characters, check text length, or verify writing requirements. Supports direct text input or file path.",
+      "filePathDesc": "Absolute path to the document to count. Use either filePath or text.",
+      "textDesc": "Text content to count. Used when filePath is empty.",
+      "resultTitle": "📊 Character count",
+      "inputText": "input text",
+      "colItem": "Item",
+      "colCount": "Count",
+      "rowHan": "Chinese chars",
+      "rowNonHan": "Non-Chinese chars",
+      "rowTotal": "Total chars",
+      "rowBytes": "UTF-8 bytes",
+      "errorRead": "❌ Unable to read file: ",
+      "errorNoInput": "❌ Please provide a file path (filePath) or text content (text)."
+    },
+    "diff": {
+      "label": "Compare files",
+      "description": "Compare two files and show differences in unified diff format. Use when you need to see what changed between two files, compare versions, or review modifications. Pure JS implementation, works cross-platform without relying on system diff command.",
+      "filePathADesc": "Absolute path to the first file (old version / original)",
+      "filePathBDesc": "Absolute path to the second file (new version / modified)",
+      "contextDesc": "Number of context lines, defaults to 3",
+      "errorNoPaths": "❌ Please provide paths for both files (filePathA and filePathB).",
+      "errorRead": "❌ Unable to read file",
+      "noDifference": "The two files are identical.",
+      "summary": "📊 Diff: {added} lines added, {deleted} lines deleted."
     }
   },
   "cli": {

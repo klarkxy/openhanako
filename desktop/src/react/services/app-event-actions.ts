@@ -166,9 +166,12 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
     case 'agent-created':
     case 'agent-deleted':
       loadAgents();
+      window.platform?.settingsChanged?.(type, data);
       break;
     case 'agent-updated': {
       const currentAgentId = useStore.getState().currentAgentId;
+      // 始终转发到设置窗口，使其刷新 identity/ishiki 等 markdown 内容
+      window.platform?.settingsChanged?.('agent-updated', data);
       if (data.agentId && data.agentId !== currentAgentId) {
         loadAgents();
         break;

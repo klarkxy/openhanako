@@ -30,6 +30,8 @@ export const STANDARD_TOOL_NAMES = [
   "notify",
   "stage_files",
   "text_file",
+  "count_chars",
+  "diff",
   "subagent",
   "channel",
   "record_experience",

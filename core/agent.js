@@ -39,6 +39,8 @@ import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
 import { createTextFileTool } from "../lib/tools/text-file-tool.js";
+import { createCountCharsTool } from "../lib/tools/count-chars.js";
+import { createDiffTool } from "../lib/tools/diff.js";
 import { createFriendsContactsTools } from "../lib/tools/friends-contacts-tools.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
@@ -123,6 +125,8 @@ export class Agent {
     this._currentStatusTool = null;
     this._terminalTool = null;
     this._textFileTool = null;
+    this._countCharsTool = null;
+    this._diffTool = null;
 
 
     /**
@@ -343,6 +347,8 @@ export class Agent {
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
     });
+    this._countCharsTool = createCountCharsTool();
+    this._diffTool = createDiffTool();
     this._artifactTool = createArtifactTool({
       getHanakoHome: () => this._cb?.getEngine?.()?.hanakoHome,
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
@@ -647,6 +653,8 @@ export class Agent {
       this._automationTool,
       this._stageFilesTool,
       this._textFileTool,
+      this._countCharsTool,
+      this._diffTool,
       ...legacyArtifactTools,
       this._channelTool,
       this._dmTool,

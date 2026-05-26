@@ -145,8 +145,13 @@ export function SettingsContent({
     const platform = window.platform;
     if (!platform?.onSettingsChanged) return;
     const unsubscribe = platform.onSettingsChanged((type: string, data: unknown) => {
-      if (type !== 'skills-changed') return;
-      window.dispatchEvent(new CustomEvent('hana-skills-changed', { detail: data || {} }));
+      if (type === 'skills-changed') {
+        window.dispatchEvent(new CustomEvent('hana-skills-changed', { detail: data || {} }));
+      }
+      if (type === 'agent-updated' || type === 'agent-created' || type === 'agent-deleted') {
+        loadAgents().catch(() => {});
+        loadSettingsConfig().catch(() => {});
+      }
     });
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
   }, []);
