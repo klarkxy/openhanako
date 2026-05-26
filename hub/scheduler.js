@@ -312,26 +312,16 @@ export class Scheduler {
     const ac = new AbortController();
     this._executingJobs.set(job.id, ac);
     try {
-      const isZh = getLocale().startsWith("zh");
       const promptBody = executor.prompt || job.prompt || "";
       const model = executor.model || job.model || undefined;
-      const prompt = isZh
-        ? [
-            `[定时任务 ${job.id}: ${job.label}]`,
-            "",
-            "**注意：这是系统自动触发的定时任务，不是用户发来的。**",
-            "**不要在执行过程中创建新的定时任务。**",
-            "",
-            promptBody,
-          ].join("\n")
-        : [
-            `[Cron job ${job.id}: ${job.label}]`,
-            "",
-            "**Note: This is an automated cron job, NOT a user message.**",
-            "**Do not create new cron jobs during execution.**",
-            "",
-            promptBody,
-          ].join("\n");
+      const prompt = [
+        `[Cron job ${job.id}: ${job.label}]`,
+        "",
+        "**Note: This is an automated cron job, NOT a user message.**",
+        "**Do not create new cron jobs during execution.**",
+        "",
+        promptBody,
+      ].join("\n");
       await this._executeActivityForAgent(agentId, prompt, "cron", job.label, {
         model,
         signal: ac.signal,

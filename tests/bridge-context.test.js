@@ -5,14 +5,14 @@ import {
 } from "../lib/bridge/bridge-context.js";
 
 describe("bridge context", () => {
-  it("formats a low-salience Chinese platform line", () => {
+  it("formats a low-salience platform line (English-only prompt)", () => {
     const context = buildBridgeContext({
       sessionKey: "wx_dm_owner@hana",
       role: "owner",
     }, "zh");
 
-    expect(buildBridgePromptLine(context, "zh")).toBe(
-      "当前用户正通过微信与你对话，仅在需要理解当前平台或“这里”等指代时参考。",
+    expect(buildBridgePromptLine(context)).toBe(
+      "The user is currently talking with you through WeChat; use this only when interpreting the current platform or references like \"here.\"",
     );
   });
 
@@ -22,7 +22,7 @@ describe("bridge context", () => {
       role: "owner",
     }, "en");
 
-    expect(buildBridgePromptLine(context, "en")).toBe(
+    expect(buildBridgePromptLine(context)).toBe(
       "The user is currently talking with you through Feishu; use this only when interpreting the current platform or references like \"here.\"",
     );
   });

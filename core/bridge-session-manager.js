@@ -473,12 +473,12 @@ export class BridgeSessionManager {
         ? { forceExperienceEnabled: agent.experienceEnabled === true }
         : {}),
     });
-    const systemPrompt = appendBridgePromptLine(ownerPromptBase, bridgeContext, getLocale());
+    const systemPrompt = appendBridgePromptLine(ownerPromptBase, bridgeContext);
     return this._buildPromptSnapshot(agent, systemPrompt);
   }
 
   _buildGuestPromptSnapshot(agent, bridgeContext, opts = {}) {
-    const bridgePromptLine = appendBridgePromptLine("", bridgeContext, getLocale()).trim();
+    const bridgePromptLine = appendBridgePromptLine("", bridgeContext).trim();
     const parts = [agent.yuanPrompt, agent.publicIshiki, opts.contextTag, bridgePromptLine].filter(Boolean);
     return this._buildPromptSnapshot(agent, parts.join("\n\n"), {
       appendSystemPrompt: [],

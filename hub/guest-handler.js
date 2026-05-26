@@ -6,7 +6,6 @@
  * B: system prompt 注入对话上下文（不暴露任何主人隐私）
  */
 
-import { getLocale } from "../server/i18n.js";
 import {
   buildBridgeAudiencePrompt,
   bridgeRelationLabel,
@@ -14,15 +13,14 @@ import {
   normalizeBridgeRelation,
 } from "../lib/bridge/contacts/policy.js";
 
-function formatSenderTag({ relation, senderName, text, locale }) {
-  const isZh = String(locale || "").startsWith("zh");
+function formatSenderTag({ relation, senderName, text }) {
   const safeSenderName = typeof senderName === "string" ? senderName.trim() : "";
   const alreadyNamed = safeSenderName && (text.startsWith(`${safeSenderName}: `) || text.startsWith(`${safeSenderName}：`));
-  const label = bridgeRelationLabel(relation, locale) || (isZh ? "访客" : "guest");
+  const label = bridgeRelationLabel(relation, "en") || "guest";
   if (alreadyNamed) {
-    return relation === "stranger" ? (isZh ? "访客" : "guest") : label;
+    return relation === "stranger" ? "guest" : label;
   }
-  if (!safeSenderName) return relation === "stranger" ? (isZh ? "访客" : "guest") : label;
+  if (!safeSenderName) return relation === "stranger" ? "guest" : label;
   if (relation === "stranger") return safeSenderName;
   return `${label} ${safeSenderName}`;
 }
@@ -45,21 +43,17 @@ export class GuestHandler {
    * @returns {Promise<string|null>}
    */
   async handle(text, sessionKey, meta, opts = {}) {
-    const locale = getLocale();
-    const isZh = locale.startsWith("zh");
     const relation = normalizeBridgeRelation(opts.bridgeAudience?.relation || "stranger");
     const policy = getEffectiveBridgeRelationPolicy(relation, opts.bridgeAudience || null);
-    const senderName = meta?.name || opts.bridgeAudience?.contactName || (isZh ? "访客" : "Guest");
+    const senderName = meta?.name || opts.bridgeAudience?.contactName || "Guest";
     const isGroup = opts.isGroup || false;
 
-    // A: 消息前缀
-    const senderTag = formatSenderTag({ relation, senderName, text, locale });
-    const prefixed = isZh
-      ? `[来自${senderTag}] ${text}`
-      : `[From ${senderTag}] ${text}`;
+    // A: message prefix (behavior instruction context → English)
+    const senderTag = formatSenderTag({ relation, senderName, text });
+    const prefixed = `[From ${senderTag}] ${text}`;
 
-    // B: 上下文标签（注入到 system prompt 末尾）
-    const contextTag = buildBridgeAudiencePrompt({ relation, policy, senderName, isGroup, locale });
+    // B: context tag injected into system prompt (→ English)
+    const contextTag = buildBridgeAudiencePrompt({ relation, policy, senderName, isGroup });
 
     return this._hub.engine.executeExternalMessage(prefixed, sessionKey, meta, {
       guest: true,

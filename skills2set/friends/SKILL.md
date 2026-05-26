@@ -1,6 +1,6 @@
 ---
 name: friends
-description: "Maintain the host's built-in contact book. Suitable for adding, modifying, deleting, organizing, and querying contacts, as well as resolving platform accounts (QQ, WeChat, Feishu, Telegram, etc.) into a four-tier relationship policy: self, family, friend, and stranger."
+description: "维护主机的内置通讯录，适合增删改查联系人，以及将平台账号（QQ、微信、飞书、Telegram 等）解析为四级关系策略：自己、家人、朋友、陌生人。 Maintain the host's built-in contact book. Suitable for adding, modifying, deleting, organizing, and querying contacts, as well as resolving platform accounts (QQ, WeChat, Feishu, Telegram, etc.) into a four-tier relationship policy: self, family, friend, and stranger. "
 ---
 
 # Contact Book

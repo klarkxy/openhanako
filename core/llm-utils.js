@@ -134,19 +134,10 @@ export function buildLocalSummary(assistantText, toolCalls) {
  */
 export async function summarizeTitle(utilConfig, userText, assistantText, opts = {}) {
   try {
-    const isZh = getLocale().startsWith("zh");
     const { utility: model, api_key, base_url, api } = utilConfig;
     if (!api_key || !base_url || !api) return null;
 
-    const systemContent = isZh
-      ? `你是一个对话标题生成器。根据用户和助手的第一轮对话，用一句极短的话概括对话主题。
-
-规则：
-1. 标题长度严格控制在 10 个字以内（中文）或 5 个单词以内（英文）
-2. 语言必须和用户说的第一句话一致：用户说中文就用中文，用户说英文就用英文
-3. 不要加引号、句号或其他标点
-4. 直接输出标题，不要解释`
-      : `You are a conversation title generator. Based on the first exchange between user and assistant, summarize the topic in a very short phrase.
+    const systemContent = `You are a conversation title generator. Based on the first exchange between user and assistant, summarize the topic in a very short phrase.
 
 Rules:
 1. Keep the title under 5 words (English) or 10 characters (Chinese)
@@ -154,8 +145,8 @@ Rules:
 3. No quotes, periods, or other punctuation
 4. Output the title directly, no explanation`;
 
-    const userLabel = isZh ? "用户" : "User";
-    const assistantLabel = isZh ? "助手" : "Assistant";
+    const userLabel = "User";
+    const assistantLabel = "Assistant";
 
     return await callLlm({
       model, api, api_key, base_url,
@@ -190,15 +181,12 @@ export async function translateSkillNames(utilConfig, names, lang) {
   try {
     const { utility: model, api_key, base_url, api } = utilConfig;
     if (!api_key || !base_url || !api) return {};
-    const isZh = getLocale().startsWith("zh");
     const text = await callLlm({
       model, api, api_key, base_url,
       messages: [
         {
           role: "system",
-          content: isZh
-            ? `将下列 kebab-case 英文技能名翻译成简短的${label}名称（2-4 个字）。直接输出 JSON 对象，key 为原名，value 为翻译。不解释。`
-            : `Translate the following kebab-case English skill names into short ${label} names (2-4 characters). Output a JSON object directly, key = original name, value = translation. No explanation.`,
+          content: `Translate the following kebab-case English skill names into short ${label} names (2-4 characters). Output a JSON object directly, key = original name, value = translation. No explanation.`,
         },
         { role: "user", content: JSON.stringify(names) },
       ],
@@ -224,7 +212,6 @@ export async function translateSkillNames(utilConfig, names, lang) {
  */
 export async function summarizeActivity(utilConfig, sessionPath, emitDevLog, preloaded) {
   const log = emitDevLog || (() => {});
-  const isZh = getLocale().startsWith("zh");
   try {
     let userText, assistantText, toolCalls;
     if (preloaded) {
@@ -240,9 +227,7 @@ export async function summarizeActivity(utilConfig, sessionPath, emitDevLog, pre
     }
 
     const toolInfo = toolCalls.length > 0
-      ? (isZh
-          ? `\n\n调用的工具：${[...new Set(toolCalls)].join("、")}`
-          : `\n\nTools used: ${[...new Set(toolCalls)].join(", ")}`)
+      ? `\n\nTools used: ${[...new Set(toolCalls)].join(", ")}`
       : "";
     const { utility_large: model, large_api_key: api_key, large_base_url: base_url, large_api: api } = utilConfig;
     if (!api_key || !base_url || !api) {
@@ -250,26 +235,14 @@ export async function summarizeActivity(utilConfig, sessionPath, emitDevLog, pre
       return null;
     }
 
-    const systemContent = isZh
-      ? `你是一个执行摘要生成器。根据 Agent 的巡检上下文、执行结果和使用的工具，概括它做了什么。
-
-规则：
-1. 用中文，50 字以内
-2. 直接输出摘要，不要前缀、不要解释
-3. 说清楚做了什么具体动作（拆解待办、搜索信息、标记完成、读取文件等）
-4. 如果调用了工具，提一下工具名称和做了什么
-5. 如果 Agent 回复了「一切正常」或没有执行动作，就说「巡检完毕，一切正常」`
-      : `You are an execution summary generator. Based on the Agent's patrol context, execution results, and tools used, summarize what it did.
+    const systemContent = `You are an execution summary generator. Based on the Agent's patrol context, execution results, and tools used, summarize what it did.
 
 Rules:
-1. In English, under 30 words
+1. Under 30 words, in the same language as the input
 2. Output the summary directly, no prefix or explanation
 3. Be specific about what actions were taken (broke down tasks, searched info, marked complete, read files, etc.)
 4. If tools were called, mention the tool names and what they did
 5. If the Agent reported "all clear" or took no action, say "Patrol complete, all clear"`;
-
-    const contextLabel = isZh ? "巡检上下文" : "Patrol context";
-    const replyLabel = isZh ? "Agent 回复" : "Agent reply";
 
     const text = await callText({
       api, model,
@@ -279,7 +252,7 @@ Rules:
         { role: "system", content: systemContent },
         {
           role: "user",
-          content: `${contextLabel}：\n${userText.slice(0, 600)}\n\n${replyLabel}：\n${assistantText.slice(0, 600)}${toolInfo}`,
+          content: `Patrol context:\n${userText.slice(0, 600)}\n\nAgent reply:\n${assistantText.slice(0, 600)}${toolInfo}`,
         },
       ],
       temperature: 0.3,
@@ -303,7 +276,6 @@ Rules:
  */
 export async function summarizeActivityQuick(utilConfig, sessionPath) {
   if (!fs.existsSync(sessionPath)) return null;
-  const isZh = getLocale().startsWith("zh");
   try {
     const { userText, assistantText } = parseSessionContent(sessionPath, {
       userLimit: 800, assistantLimit: 800,
@@ -313,12 +285,7 @@ export async function summarizeActivityQuick(utilConfig, sessionPath) {
     const { utility: model, api_key, base_url, api } = utilConfig;
     if (!api_key || !base_url || !api) return null;
 
-    const systemContent = isZh
-      ? `根据 Agent 的巡检上下文和执行结果，用一两句话概括它做了什么。30 字以内，中文，直接输出。`
-      : `Based on the Agent's patrol context and execution results, summarize what it did in one or two sentences. Under 15 words, English, output directly.`;
-
-    const contextLabel = isZh ? "巡检上下文" : "Patrol context";
-    const replyLabel = isZh ? "Agent 回复" : "Agent reply";
+    const systemContent = `Based on the Agent's patrol context and execution results, summarize what it did in one or two sentences. Under 15 words, in the same language as the input, output directly.`;
 
     return await callText({
       api, model,
@@ -328,7 +295,7 @@ export async function summarizeActivityQuick(utilConfig, sessionPath) {
         { role: "system", content: systemContent },
         {
           role: "user",
-          content: `${contextLabel}：\n${userText.slice(0, 400)}\n\n${replyLabel}：\n${assistantText.slice(0, 400)}`,
+          content: `Patrol context:\n${userText.slice(0, 400)}\n\nAgent reply:\n${assistantText.slice(0, 400)}`,
         },
       ],
       temperature: 0.3,
@@ -390,27 +357,13 @@ export async function generateAgentId(utilConfig, name, agentsDir) {
   let base = "";
 
   try {
-    const isZh = getLocale().startsWith("zh");
     const { utility: model, api_key, base_url, api } = utilConfig;
     const text = await callLlm({
       model, api, api_key, base_url,
       messages: [
         {
           role: "system",
-          content: isZh
-            ? `根据给定的助手名字，生成一个简短的英文小写 ID（用于文件夹名）。
-规则：
-1. 纯小写英文字母，可以用连字符
-2. 2~12 个字符
-3. 尽量是名字的英文音译或缩写
-4. 直接输出 ID，不要解释
-
-示例：
-- "花子" → "hanako"
-- "ミク" → "miku"
-- "小助手" → "helper"
-- "Alice" → "alice"`
-            : `Given an assistant's display name, generate a short lowercase English ID (for use as a folder name).
+          content: `Given an assistant's display name, generate a short lowercase English ID (for use as a folder name).
 Rules:
 1. Lowercase English letters only, hyphens allowed
 2. 2–12 characters
@@ -465,10 +418,10 @@ export async function generateDescription(utilConfig, personality, locale) {
     const { utility: model, api_key, base_url, api } = utilConfig;
     if (!api_key || !base_url || !api) return null;
 
-    const isZh = String(locale || "").startsWith("zh");
-    const systemContent = isZh
-      ? "你是产品花名册的第三方编辑。根据以下 AI agent 的公开人格材料，写一段 100 字以内的第三人称简介。要求：像介绍一位助手，而不是替助手自述；涵盖人格特征、专长领域、沟通风格、适合的任务类型；不要使用第一人称；不要输出 <mood>、Vibe、Sparks、Pulse、Reflect 或任何内部标签。纯文本，不要用 markdown 格式。直接输出简介，不要解释。"
-      : "You are a third-person product roster editor. Based on the public persona material below, write a public-facing description of this AI agent in under 100 characters. Describe the assistant from the outside, not in first person. Cover personality traits, expertise, communication style, and suitable tasks. Do not output <mood>, Vibe, Sparks, Pulse, Reflect, or any internal tags. Plain text, no markdown. Output the description directly, no explanation.";
+    const langInstruction = String(locale || "").startsWith("zh")
+      ? "Write the description in Chinese, under 100 characters."
+      : "Write the description in English, under 100 characters.";
+    const systemContent = `You are a third-person product roster editor. Based on the public persona material below, write a public-facing description of this AI agent. Describe the assistant from the outside, not in first person. Cover personality traits, expertise, communication style, and suitable tasks. Do not output <mood>, Vibe, Sparks, Pulse, Reflect, or any internal tags. Plain text, no markdown. ${langInstruction} Output the description directly, no explanation.`;
 
     const raw = await callLlm({
       model, api, api_key, base_url,

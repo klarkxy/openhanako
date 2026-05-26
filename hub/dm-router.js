@@ -188,9 +188,7 @@ export class DmRouter {
         agent: toAgent,
         agentsDir,
         settings: phoneSettings,
-        isZh,
-        zhConversationName: "私聊",
-        enConversationName: "DM",
+        conversationName: "DM",
       });
       await this._recordPhoneActivity(
         toId,
@@ -211,21 +209,13 @@ export class DmRouter {
         toId,
         [
           {
-            text: isZh
-              ? `你的手机收到了来自「${fromName}」的私信。\n\n`
-                + `以下是你们最近的聊天记录：\n\n${msgText}\n\n`
-                + `---\n\n`
-                + `${promptGuidance}\n\n`
-                + `请给出你的回复（第 ${round + 1}/${MAX_ROUNDS} 轮）。直接输出内容，不要加前缀。\n`
-                + `如果你觉得对话可以结束了，在末尾加 <done/>。\n`
-                + `如果你不想回复，输出 [NO_REPLY]。`
-              : `You received a DM from "${fromName}".\n\n`
-                + `Here is your recent chat history:\n\n${msgText}\n\n`
-                + `---\n\n`
-                + `${promptGuidance}\n\n`
-                + `Give your reply (round ${round + 1}/${MAX_ROUNDS}). Output directly, no prefix.\n`
-                + `If you think the conversation can end, append <done/>.\n`
-                + `If you don't want to reply, output [NO_REPLY].`,
+            text: `You received a DM from "${fromName}".\n\n`
+              + `Here is your recent chat history:\n\n${msgText}\n\n`
+              + `---\n\n`
+              + `${promptGuidance}\n\n`
+              + `Give your reply (round ${round + 1}/${MAX_ROUNDS}). Output directly, no prefix.\n`
+              + `If you think the conversation can end, append <done/>.\n`
+              + `If you don't want to reply, output [NO_REPLY].`,
             capture: true,
           },
         ],

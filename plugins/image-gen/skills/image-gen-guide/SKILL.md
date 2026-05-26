@@ -1,6 +1,6 @@
 ---
 name: image-gen-guide
-description: Required reading when using image/video generation tools. Covers tool parameters, non-blocking workflow, and task routing.
+description: "使用图片/视频生成工具时的必读指南，涵盖工具参数、非阻塞工作流和任务路由。 Required reading when using image/video generation tools. Covers tool parameters, non-blocking workflow, and task routing. "
 ---
 
 # Media Generation Tool Guide
@@ -9,10 +9,10 @@ description: Required reading when using image/video generation tools. Covers to
 
 Generation is asynchronous. After submitting, the tool immediately returns a card. You **do not need to wait** and **do not need to call stage_files**. The image/video files are registered as SessionFile by the image-gen plugin when complete in the background. The card only shows task status and result references; file lifecycle is managed by StageFile.
 
-1. 调用工具，传入 prompt 和参数
-2. **告诉用户正在生成，完成后会自动显示**
-3. **继续对话**，不要等待
-4. 生成完成由 UI 原地替换占位，Bridge 会按当前会话体验自动发送媒体；不要等待后台完成，也不要因为完成结果打断接下来的回复
+1. Call the tool, passing the prompt and parameters
+2. **Tell the user that generation is in progress and will display automatically when complete**
+3. **Continue the conversation** — do not wait
+4. When generation completes, the UI replaces the placeholder in-place; Bridge sends the media according to the current session experience. Do not wait for the background to finish, and do not interrupt the ongoing reply because of a completion result
 
 ## Tool Parameters
 

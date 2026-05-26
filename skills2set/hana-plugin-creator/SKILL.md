@@ -1,6 +1,6 @@
 ---
 name: hana-plugin-creator
-description: Create Hana plugin scaffolds and guide users through beginner or developer plugin planning, capability checks, manifest setup, runtime tools, iframe UI, SDK templates, and install-ready plugin directories. Use when HanaAgent/Codex needs to explain what Hana plugins can do, help a user describe a plugin idea, check whether the SDK supports it, or generate/update a Hana plugin with @hana/plugin-runtime, @hana/plugin-sdk, and @hana/plugin-components.
+description: "创建 Hana 插件脚手架，引导用户完成新手或开发者模式的插件规划、能力检查、manifest 配置、运行时工具、iframe UI、SDK 模板和可安装的插件目录。 Create Hana plugin scaffolds and guide users through beginner or developer plugin planning, capability checks, manifest setup, runtime tools, iframe UI, SDK templates, and install-ready plugin directories. Use when HanaAgent/Codex needs to explain what Hana plugins can do, help a user describe a plugin idea, check whether the SDK supports it, or generate/update a Hana plugin with @hana/plugin-runtime, @hana/plugin-sdk, and @hana/plugin-components. "
 metadata:
   default-enabled: false
 ---
