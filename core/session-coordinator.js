@@ -102,6 +102,41 @@ function buildPromptMediaOptions(opts) {
   };
 }
 
+function recordAssistantUsage({ ledger, event, sessionPath, agentId, model, source, attribution }) {
+  if (!ledger || event?.type !== "message_end" || event.message?.role !== "assistant") return null;
+  const usageContext = {
+    source,
+    attribution: attribution || {
+      kind: "session",
+      agentId: agentId || null,
+      sessionPath,
+    },
+  };
+  const modelMeta = {
+    provider: model?.provider ?? null,
+    modelId: model?.id ?? null,
+    api: model?.api ?? null,
+  };
+  if (event.message?.usage) {
+    return ledger.record({
+      model: modelMeta,
+      usage: event.message.usage,
+      usageContext,
+      costRates: model?.cost,
+    });
+  }
+  const errorMessage = event.message?.errorMessage || event.message?.error?.message || null;
+  if (event.message?.stopReason === "error" || errorMessage) {
+    const request = ledger.start({
+      model: modelMeta,
+      usageContext,
+      costRates: model?.cost,
+    });
+    return ledger.recordError(request.requestId, new Error(errorMessage || "provider request failed"));
+  }
+  return null;
+}
+
 function collectAssistantTextFromMessage(message) {
   if (!message) return "";
   if (typeof message.text === "string") return message.text;
@@ -242,7 +277,7 @@ function makeBackgroundTaskPrompt(locale) {
 1. 先继续做手头还没做完的工作，不要立刻停下来等
 2. 手头工作做完后，调 check_pending_tasks 查看后台任务状态
 3. 如果还有任务未完成，根据任务复杂度自行估算等待时间，调 wait 等待后再查。最多查 2 次，之后不再轮询，告知用户任务仍在后台运行，完成后会自动处理
-4. 只有需要你继续处理的后台任务，系统才会以 <hana-background-result> 消息送达结果；媒体生成这类 UI 结果由界面和 Bridge 自动处理，不要等待或主动追问`
+4. 只有需要你继续处理的后台任务，系统才会以 <hana-background-result> 消息送达结果；媒体生成成功由界面和 Bridge 自动处理，不要等待或主动追问。媒体生成失败可能会以 <hana-background-result> 送达：只说明失败原因，并询问用户是否要你新生成一张；原地重新生成只由用户在 UI 中操作`
     : `## Background Tasks
 
 After dispatching subagent or other background tasks:
@@ -250,7 +285,7 @@ After dispatching subagent or other background tasks:
 1. Continue with any remaining work first — do not stop immediately to wait
 2. Once your other work is done, call check_pending_tasks to check status
 3. If tasks are still pending, estimate a reasonable wait time based on task complexity, then call wait and check again. Check at most 2 times — after that, stop polling and tell the user the task is still running and will be handled in the background
-4. Only background tasks that need your follow-up are delivered via <hana-background-result> messages. Media generation is handled by the UI and Bridge automatically; do not wait for it or ask about it again`;
+4. Only background tasks that need your follow-up are delivered via <hana-background-result> messages. Successful media generation is handled by the UI and Bridge automatically; do not wait for it or ask about it again. Failed media generation may be delivered via <hana-background-result>: explain only why it failed, then ask whether the user wants you to create a new image. In-place regeneration is a UI-only action for the user`;
 }
 
 function buildAppendSystemPromptSnapshot({
@@ -662,6 +697,19 @@ export class SessionCoordinator {
     }
     const creatingAgentId = ownerAgentId;
     const unsub = session.subscribe((event) => {
+      recordAssistantUsage({
+        ledger: this._d.getUsageLedger?.(),
+        event,
+        sessionPath,
+        agentId: creatingAgentId,
+        model: resolvedModel,
+        source: {
+          subsystem: "session",
+          operation: "reply",
+          surface: "desktop",
+          trigger: "user",
+        },
+      });
       this._d.emitEvent(
         event.agentId ? event : { ...event, agentId: creatingAgentId },
         sessionPath,
@@ -1241,6 +1289,7 @@ export class SessionCoordinator {
    * @private
    */
   async _compactWithModel(session, effectiveWindow, model) {
+    const sessionPath = session?.sessionManager?.getSessionFile?.() || this.currentSessionPath;
     return await runCachePreservingCompactionForSession(session, {
       model,
       settings: {
@@ -1250,6 +1299,20 @@ export class SessionCoordinator {
       },
       emitLifecycle: true,
       lifecycleReason: "model_switch",
+      usageLedger: this._d.getUsageLedger?.(),
+      usageContext: {
+        source: {
+          subsystem: "compaction",
+          operation: "compact",
+          surface: "desktop",
+          trigger: "overflow",
+        },
+        attribution: {
+          kind: "session",
+          agentId: this._d.agentIdFromSessionPath?.(sessionPath) || this._d.getActiveAgentId?.() || null,
+          sessionPath,
+        },
+      },
     });
   }
 
@@ -2622,6 +2685,46 @@ export class SessionCoordinator {
       const sessionFiles = [];
       const toolErrors = [];
       const unsub = session.subscribe((event) => {
+        const parentSessionPath = typeof opts.parentSessionPath === "string" && opts.parentSessionPath.trim()
+          ? opts.parentSessionPath
+          : null;
+        recordAssistantUsage({
+          ledger: this._d.getUsageLedger?.(),
+          event,
+          sessionPath: childSessionPath,
+          agentId: targetAgent.id,
+          model: execModel,
+          source: {
+            subsystem: opts.subagentContext ? "subagent" : "automation",
+            operation: "run",
+            surface: opts.subagentContext ? "desktop" : "system",
+            trigger: opts.subagentContext ? "tool" : "scheduled",
+            ...(opts.subagentContext ? {
+              actor: {
+                kind: "subagent",
+                agentId: targetAgent.id || null,
+                sessionPath: childSessionPath,
+                taskId: opts.subagentTaskId || null,
+              },
+            } : {}),
+            ...(parentSessionPath ? {
+              parent: {
+                kind: "session",
+                sessionPath: parentSessionPath,
+              },
+            } : {}),
+          },
+          attribution: parentSessionPath
+            ? {
+                kind: "session",
+                agentId: this._d.agentIdFromSessionPath?.(parentSessionPath) || null,
+                sessionPath: parentSessionPath,
+                childAgentId: opts.subagentContext ? targetAgent.id || null : undefined,
+                childSessionPath: opts.subagentContext ? childSessionPath : undefined,
+                taskId: opts.subagentContext ? opts.subagentTaskId || null : undefined,
+              }
+            : { kind: opts.subagentContext ? "utility" : "automation", agentId: targetAgent.id || null },
+        });
         if (event.type === "message_update") {
           const sub = event.assistantMessageEvent;
           if (sub?.type === "text_delta") {

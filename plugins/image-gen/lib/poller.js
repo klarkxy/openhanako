@@ -136,6 +136,7 @@ export class Poller {
           mediaKind: task.type === "video" ? "video" : "image",
           deliveryIntent: "ui_only",
           triggerParentTurn: false,
+          ...(task.type === "image" ? { notifyAgentOnFailure: true } : {}),
           prompt: task.prompt,
           ...(task.deliveryTarget ? { deliveryTarget: task.deliveryTarget } : {}),
         },
@@ -217,6 +218,26 @@ export class Poller {
     return sessionFiles;
   }
 
+  _emitTaskDone(task, files, dims, sessionFiles) {
+    const latest = this._store.get(task.taskId) || task;
+    this._bus.emit({
+      type: "media-gen:task-done",
+      taskId: task.taskId,
+      batchId: task.batchId || null,
+      kind: task.type === "video" ? "video" : "image",
+      files: Array.isArray(files) ? files : [],
+      generatedDir: this._generatedDir,
+      sessionFiles: Array.isArray(sessionFiles) ? sessionFiles : [],
+      imageWidth: dims?.imageWidth ?? latest.imageWidth ?? null,
+      imageHeight: dims?.imageHeight ?? latest.imageHeight ?? null,
+      providerId: latest.providerId || null,
+      modelId: latest.modelId || null,
+      protocolId: latest.protocolId || null,
+      metadata: latest.metadata || null,
+      task: latest,
+    }, task.sessionPath || null);
+  }
+
   _tick() {
     this._tickCount += 1;
     const tick = this._tickCount;
@@ -270,6 +291,7 @@ export class Poller {
         files: task.files,
         ...(sessionFiles.length ? { sessionFiles } : {}),
       });
+      this._emitTaskDone(task, task.files, dims, sessionFiles);
       return;
     }
 
@@ -349,6 +371,7 @@ export class Poller {
         files,
         ...(sessionFiles.length ? { sessionFiles } : {}),
       });
+      this._emitTaskDone(task, files, dims, sessionFiles);
       return;
     }
 

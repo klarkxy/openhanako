@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createDmRoute } from "../server/routes/dm.js";
 import { appendMessage } from "../lib/channels/channel-store.js";
+import { getAgentPhoneRuntimePath, updateAgentPhoneRuntime } from "../lib/conversations/agent-phone-runtime.js";
 
 function mktemp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "hana-dm-route-test-"));
@@ -112,6 +113,20 @@ describe("dm route owner resolution", () => {
   });
 
   it("resets one owner projection without deleting the shared DM truth", async () => {
+    const alice = agents.get("alice");
+    await updateAgentPhoneRuntime({
+      agentDir: alice.agentDir,
+      agentId: "alice",
+      conversationId: "dm:bob",
+      conversationType: "dm",
+      patch: {
+        phoneSessionFile: "phone/sessions/dm_bob/old.jsonl",
+        lastPhoneSessionUsedAt: "2026-05-25T12:00:00.000Z",
+      },
+    });
+    const runtimePath = getAgentPhoneRuntimePath(alice.agentDir, "dm:bob");
+    expect(fs.existsSync(runtimePath)).toBe(true);
+
     const resetRes = await app.request("/api/dm/bob/reset?agentId=alice", {
       method: "POST",
     });
@@ -142,6 +157,7 @@ describe("dm route owner resolution", () => {
       conversationId: "dm:bob",
       conversationType: "dm",
     });
+    expect(fs.existsSync(runtimePath)).toBe(false);
 
     const otherOwnerRes = await app.request("/api/dm/bob?agentId=dana");
     expect((await otherOwnerRes.json()).messages.map((msg) => msg.body)).toEqual(["focus-owned thread"]);

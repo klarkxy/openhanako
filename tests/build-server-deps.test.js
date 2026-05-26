@@ -4,6 +4,7 @@ import path from "path";
 import { execFileSync } from "child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildBetterSqliteRuntimeSmokeScript,
   buildExternalPackage,
   buildJiebaRuntimeSmokeScript,
   collectInstalledOptionalDependencyDirs,
@@ -125,6 +126,33 @@ describe("build-server external dependency packaging", () => {
 
     const scriptPath = path.join(outDir, ".jieba-smoke.mjs");
     fs.writeFileSync(scriptPath, buildJiebaRuntimeSmokeScript());
+
+    expect(() => execFileSync(process.execPath, [scriptPath], { cwd: outDir }))
+      .not.toThrow();
+  });
+
+  it("generates a better-sqlite3 smoke script that opens a database", () => {
+    const outDir = makeTempDir();
+    const packageDir = path.join(outDir, "node_modules", "better-sqlite3");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, "package.json"), JSON.stringify({ type: "module" }));
+    fs.writeFileSync(path.join(packageDir, "index.js"), [
+      "module.exports = class Database {",
+      "  constructor(filename) { if (filename !== ':memory:') throw new Error('unexpected filename'); }",
+      "  prepare(sql) {",
+      "    if (sql !== 'select 1 as ok') throw new Error('unexpected sql');",
+      "    return { get: () => ({ ok: 1 }) };",
+      "  }",
+      "  close() { this.closed = true; }",
+      "}",
+    ].join("\n"));
+    fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({
+      name: "better-sqlite3",
+      main: "index.js",
+    }));
+
+    const scriptPath = path.join(outDir, ".better-sqlite3-smoke.mjs");
+    fs.writeFileSync(scriptPath, buildBetterSqliteRuntimeSmokeScript());
 
     expect(() => execFileSync(process.execPath, [scriptPath], { cwd: outDir }))
       .not.toThrow();

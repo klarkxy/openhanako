@@ -19,13 +19,13 @@
     "createTitle": "New Channel",
     "createName": "Channel name",
     "createNamePlaceholder": "e.g. design-team",
-    "createMembers": "Members",
+    "createMembers": "Agent members",
     "createIntro": "Description",
     "createIntroPlaceholder": "Describe what this channel is for...",
     "createCancel": "Cancel",
     "createConfirm": "Create",
     "nameRequired": "Please enter a channel name",
-    "minMembers": "Select at least 2 members",
+    "minMembers": "Select at least 2 Agent members",
     "created": "Channel #{name} created ✿",
     "createFailed": "Create failed",
     "alreadyExists": "Channel already exists",
@@ -631,12 +631,12 @@
       "skills": "Skills",
       "mcp": "Connectors",
       "bridge": "Social",
-      "contacts": "Contacts",
       "sharing": "Sharing",
       "access": "Access & Devices",
       "plugins": "Plugins",
       "about": "About",
-      "security": "Security"
+      "security": "Security",
+      "contacts": "Contacts"
     },
     "appearance": {
       "title": "Appearance",
@@ -775,13 +775,38 @@
         "title": "Tools",
         "description": "Tool switches take effect after restarting or starting a conversation. Active conversations keep using the tool set they started with.",
         "items": {
-          "automation": { "label": "Automation", "summary": "Let the agent create scheduled notifications and plugin actions" },
-          "browser": { "label": "Browser", "summary": "Control a headless browser to navigate web pages" },
-          "computer": { "label": "Computer Use", "summary": "Control approved desktop apps with a visible action overlay" },
-          "cron": { "label": "Scheduled Tasks", "summary": "Run tasks automatically at specified times" },
-          "dm": { "label": "Direct Message", "summary": "Send a one-on-one message to another agent" },
-          "install_skill": { "label": "Install Skill", "summary": "Install new skills from GitHub or the skill library" },
-          "update_settings": { "label": "Update Settings", "summary": "Allow the agent to modify application configuration" }
+          "automation": {
+            "label": "Automation",
+            "summary": "Let the agent create scheduled notifications and plugin actions"
+          },
+          "beautify": {
+            "label": "小花美术",
+            "summary": "Let the agent generate document covers and aesthetic enhancements"
+          },
+          "browser": {
+            "label": "Browser",
+            "summary": "Control a headless browser to navigate web pages"
+          },
+          "computer": {
+            "label": "Computer Use",
+            "summary": "Control approved desktop apps with a visible action overlay"
+          },
+          "cron": {
+            "label": "Scheduled Tasks",
+            "summary": "Run tasks automatically at specified times"
+          },
+          "dm": {
+            "label": "Direct Message",
+            "summary": "Send a one-on-one message to another agent"
+          },
+          "install_skill": {
+            "label": "Install Skill",
+            "summary": "Install new skills from GitHub or the skill library"
+          },
+          "update_settings": {
+            "label": "Update Settings",
+            "summary": "Allow the agent to modify application configuration"
+          }
         }
       },
       "computerUse": {
@@ -986,6 +1011,51 @@
       "noKey": "Not configured",
       "remove": "Remove",
       "deleteConfirm": "Delete provider {name}? Associated models will be removed."
+    },
+    "usage": {
+      "title": "Usage",
+      "note": "Usage is for reference only. Final totals are determined by the provider.",
+      "refresh": "Refresh usage",
+      "total": "All usage",
+      "requests": "Requests",
+      "totalTokens": "Total tokens",
+      "cacheRead": "Cache read",
+      "cacheHitRate": "Hit rate",
+      "estimatedCost": "Estimated cost",
+      "uncached": "Uncached",
+      "modelMix": "Model mix",
+      "dailyUsage": "Daily usage",
+      "requestLedger": "Request ledger",
+      "loading": "Loading usage…",
+      "empty": "No usage records yet",
+      "groupMeta": "{requests} requests · {errors} errors",
+      "cacheShort": "cache {tokens}",
+      "tokensShort": "{tokens} tok",
+      "cacheSummary": "Cache {cache} · uncached {uncached}",
+      "view": {
+        "overall": "Overall",
+        "daily": "By date",
+        "category": "Category",
+        "model": "Model"
+      },
+      "category": {
+        "session": "Session",
+        "phone": "Phone",
+        "memory": "Memory",
+        "automation": "Automation",
+        "subagent": "Subagent",
+        "compaction": "Compaction",
+        "plugin": "Plugin",
+        "utility": "Utility",
+        "vision": "Vision",
+        "unknown": "Unknown"
+      },
+      "status": {
+        "ok": "Ok",
+        "error": "Error",
+        "aborted": "Aborted",
+        "usage_missing": "No usage"
+      }
     },
     "media": {
       "imageGeneration": "Image Generation",
@@ -1401,13 +1471,6 @@
       "qqHint": "Get from QQ Bot Open Platform (q.qq.com/qqbot)",
       "wechat": "WeChat",
       "wechatHint": "Connect via WeChat iLink protocol",
-      "onebot": "OneBot",
-      "onebotApiBase": "OneBot API Base URL",
-      "onebotAccessToken": "Access Token",
-      "onebotSecret": "Signature Secret",
-      "onebotSelfId": "Bot QQ/ID (optional)",
-      "onebotHint": "For NapCat and other OneBot implementations. Callback URL: /api/bridge/onebot/event?agentId=<currentAgentId>",
-      "onebotNoApiBase": "Please enter OneBot API Base URL first",
       "wechatExclusive": "Each WeChat account can only be bound to one Agent. Binding a new Agent will invalidate the previous one.",
       "wechatScan": "Scan to Login",
       "wechatRescan": "Re-login",
@@ -1462,7 +1525,14 @@
         "Important: Go to \"Version Management\", create and publish a version first (long connection config requires a published app)",
         "Paste the App ID and App Secret into the input fields above and turn on the switch"
       ],
-      "whatsappHint": "Coming soon"
+      "whatsappHint": "Coming soon",
+      "onebot": "OneBot",
+      "onebotAccessToken": "Access Token",
+      "onebotSecret": "Signature Secret",
+      "onebotNoApiBase": "Please enter OneBot API Base URL first",
+      "onebotApiBase": "OneBot API Base URL",
+      "onebotHint": "For NapCat and other OneBot implementations. Callback URL: /api/bridge/onebot/event?agentId=<currentAgentId>",
+      "onebotSelfId": "Bot QQ/ID (optional)"
     }
   },
   "onboarding": {
@@ -2238,6 +2308,17 @@
       "description": "Stop a running background task. Pass the task_id to terminate it. Supported task types include sub-agent tasks, image/video generation tasks, etc.",
       "taskIdDesc": "The task ID to stop"
     },
+    "diff": {
+      "label": "Compare files",
+      "description": "Compare two files and show differences in unified diff format. Use when you need to see what changed between two files, compare versions, or review modifications. Pure JS implementation, works cross-platform without relying on system diff command.",
+      "filePathADesc": "Absolute path to the first file (old version / original)",
+      "filePathBDesc": "Absolute path to the second file (new version / modified)",
+      "contextDesc": "Number of context lines, defaults to 3",
+      "errorNoPaths": "❌ Please provide paths for both files (filePathA and filePathB).",
+      "errorRead": "❌ Unable to read file",
+      "noDifference": "The two files are identical.",
+      "summary": "📊 Diff: {added} lines added, {deleted} lines deleted."
+    },
     "countChars": {
       "label": "Count characters",
       "description": "Count Chinese characters, all characters, and UTF-8 bytes in a text or file. Use when you need to count characters, check text length, or verify writing requirements. Supports direct text input or file path.",
@@ -2253,17 +2334,6 @@
       "rowBytes": "UTF-8 bytes",
       "errorRead": "❌ Unable to read file: ",
       "errorNoInput": "❌ Please provide a file path (filePath) or text content (text)."
-    },
-    "diff": {
-      "label": "Compare files",
-      "description": "Compare two files and show differences in unified diff format. Use when you need to see what changed between two files, compare versions, or review modifications. Pure JS implementation, works cross-platform without relying on system diff command.",
-      "filePathADesc": "Absolute path to the first file (old version / original)",
-      "filePathBDesc": "Absolute path to the second file (new version / modified)",
-      "contextDesc": "Number of context lines, defaults to 3",
-      "errorNoPaths": "❌ Please provide paths for both files (filePathA and filePathB).",
-      "errorRead": "❌ Unable to read file",
-      "noDifference": "The two files are identical.",
-      "summary": "📊 Diff: {added} lines added, {deleted} lines deleted."
     }
   },
   "cli": {
@@ -2371,8 +2441,6 @@
   "preview.toggle": "Preview panel",
   "preview.markdownPreview": "Preview",
   "preview.exitMarkdownPreview": "Back to editing",
-  "preview.openInNewWindow": "Open in new window",
-  "preview.openInNewWindowUnsupported": "Not supported for this type",
   "preview.markdownEditorStatus": "Selected {selected} chars · Total {total} chars",
   "preview.markdownAttachmentInsertFailed": "Failed to insert attachment"
 }

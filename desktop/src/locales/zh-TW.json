@@ -19,13 +19,13 @@
     "createTitle": "新建頻道",
     "createName": "頻道名稱",
     "createNamePlaceholder": "例如：design-team",
-    "createMembers": "成員",
+    "createMembers": "Agent 成員",
     "createIntro": "頻道介紹",
     "createIntroPlaceholder": "描述一下這個頻道的用途...",
     "createCancel": "取消",
     "createConfirm": "建立",
     "nameRequired": "請輸入頻道名稱",
-    "minMembers": "至少選擇 2 位成員",
+    "minMembers": "至少選擇 2 位 Agent 成員",
     "created": "頻道 #{name} 已建立 ✿",
     "createFailed": "建立失敗",
     "alreadyExists": "頻道已存在",
@@ -776,6 +776,7 @@
         "description": "這些工具開關會在重啟對話或建立新對話後生效。目前進行中的會話會繼續使用建立時的工具集。",
         "items": {
           "automation": { "label": "自動化", "summary": "讓 Agent 建立通知和外掛定時動作" },
+          "beautify": { "label": "小花美术", "summary": "讓 Agent 為文件生成封面和審美增強內容" },
           "browser": { "label": "瀏覽器", "summary": "控制無頭瀏覽器瀏覽網頁" },
           "computer": { "label": "電腦控制", "summary": "控制已批准的桌面應用，並顯示即時動作游標" },
           "cron": { "label": "定時任務", "summary": "在指定時間自動執行任務" },
@@ -986,6 +987,51 @@
       "noKey": "未設定",
       "remove": "移除",
       "deleteConfirm": "確定刪除供應商 {name}？相關模型將一併清除。"
+    },
+    "usage": {
+      "title": "用量統計",
+      "note": "用量僅供參考，具體以供應商的統計為準。",
+      "refresh": "重新整理用量",
+      "total": "全部",
+      "requests": "請求數",
+      "totalTokens": "Tokens",
+      "cacheRead": "快取命中",
+      "cacheHitRate": "命中率",
+      "estimatedCost": "預估成本",
+      "uncached": "未快取消耗",
+      "modelMix": "模型分佈",
+      "dailyUsage": "每日用量",
+      "requestLedger": "請求明細",
+      "loading": "正在讀取用量…",
+      "empty": "暫無用量記錄",
+      "groupMeta": "{requests} 次 · {errors} 錯誤",
+      "cacheShort": "快取 {tokens}",
+      "tokensShort": "{tokens} tok",
+      "cacheSummary": "快取 {cache} · 未快取 {uncached}",
+      "view": {
+        "overall": "總覽",
+        "daily": "按日期",
+        "category": "按類別",
+        "model": "按模型"
+      },
+      "category": {
+        "session": "Session",
+        "phone": "Phone",
+        "memory": "記憶",
+        "automation": "自動化",
+        "subagent": "Subagent",
+        "compaction": "壓縮",
+        "plugin": "外掛",
+        "utility": "工具",
+        "vision": "視覺",
+        "unknown": "未知"
+      },
+      "status": {
+        "ok": "完成",
+        "error": "錯誤",
+        "aborted": "中止",
+        "usage_missing": "無用量"
+      }
     },
     "media": {
       "imageGeneration": "圖片生成",
@@ -2337,8 +2383,6 @@
   "preview.toggle": "預覽面板",
   "preview.markdownPreview": "預覽",
   "preview.exitMarkdownPreview": "回到編輯",
-  "preview.openInNewWindow": "在新視窗查看",
-  "preview.openInNewWindowUnsupported": "此類型不支援新視窗查看",
   "preview.markdownEditorStatus": "選中 {selected} 字 · 共 {total} 字",
   "preview.markdownAttachmentInsertFailed": "插入附件失敗"
 }

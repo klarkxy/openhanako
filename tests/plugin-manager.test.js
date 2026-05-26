@@ -446,6 +446,27 @@ describe("tool loading", () => {
     expect(tools[0].description).toBe("Search the web");
   });
 
+  it("copies static plugin tool runtime availability checks", async () => {
+    const dir = path.join(pluginsDir, "gated-plugin");
+    fs.mkdirSync(path.join(dir, "tools"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "tools", "paint.js"), `
+      export const name = "paint";
+      export const description = "Paint";
+      export const parameters = {};
+      export function isEnabledForAgentConfig(config) {
+        return config?.tools?.disabled?.includes("beautify") !== true;
+      }
+      export async function execute() { return "ok"; }
+    `);
+    const pm = new PluginManager({ pluginsDir, dataDir, bus: await makeBus() });
+    pm.scan();
+    await pm.loadAll();
+    const tool = pm.getAllTools()[0];
+    expect(tool.name).toBe("gated-plugin_paint");
+    expect(tool.isEnabledForAgentConfig({ tools: { disabled: [] } })).toBe(true);
+    expect(tool.isEnabledForAgentConfig({ tools: { disabled: ["beautify"] } })).toBe(false);
+  });
+
   it("invokes static plugin tools through the unified tool adapter", async () => {
     const dir = path.join(pluginsDir, "static-invoke");
     fs.mkdirSync(path.join(dir, "tools"), { recursive: true });

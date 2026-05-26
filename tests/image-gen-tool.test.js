@@ -352,6 +352,7 @@ describe("generate-image tool — single submit returns media placeholder metada
     expect(deferredCall[1].meta.mediaKind).toBe("image");
     expect(deferredCall[1].meta.deliveryIntent).toBe("ui_only");
     expect(deferredCall[1].meta.triggerParentTurn).toBe(false);
+    expect(deferredCall[1].meta.notifyAgentOnFailure).toBe(true);
   });
 
   it("marks bridge-originated tasks for bridge delivery instead of desktop parent delivery", async () => {

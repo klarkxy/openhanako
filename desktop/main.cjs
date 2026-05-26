@@ -77,6 +77,7 @@ const {
 const {
   decorateScreenshotMarkdownIt,
   escapeAttr,
+  renderScreenshotMarkdownArticle,
   renderScreenshotCodeArticle,
 } = require("./src/shared/screenshot-markdown.cjs");
 
@@ -2583,6 +2584,14 @@ function buildScreenshotHTML(payload) {
     const flowerUrl = pathToFileURL(getScreenshotResourcePath("sakura", flowerFile)).href;
     extraCSS += `\n:root { --sakura-branch-url: url('${branchUrl}'); --sakura-flower-url: url('${flowerUrl}'); }`;
   }
+  const isDesktopScreenshotTheme = themeName.endsWith("-desktop");
+  const coverBleedX = themeName.startsWith("sakura-")
+    ? (isDesktopScreenshotTheme ? "2.5rem" : "0.85rem")
+    : (isDesktopScreenshotTheme ? "3rem" : "0.85rem");
+  const coverBleedTop = themeName.startsWith("sakura-")
+    ? "5rem"
+    : (isDesktopScreenshotTheme ? "2rem" : "5rem");
+  extraCSS += `\n:root { --screenshot-cover-bleed-x: ${coverBleedX}; --screenshot-cover-bleed-top: ${coverBleedTop}; }`;
 
   // Logo 内联为 base64 data URL（asar 内文件无法被离屏窗口的 file:// 加载）
   let logoUrl = "";
@@ -2605,7 +2614,7 @@ function buildScreenshotHTML(payload) {
   if (payload.mode === "article" && payload.markdown) {
     const articleHTML = payload.articleType === "code"
       ? renderScreenshotCodeArticle(payload.markdown, payload.language)
-      : md.render(payload.markdown, { sourceFilePath: payload.filePath || null });
+      : renderScreenshotMarkdownArticle(md, payload.markdown, { sourceFilePath: payload.filePath || null });
     bodyHTML = `<article>${articleHTML}</article>`;
   } else if (payload.messages) {
     const parts = [];
@@ -2641,6 +2650,21 @@ function buildScreenshotHTML(payload) {
     .chat-body { padding-left: 0; }
     .chat-body p:last-child { margin-bottom: 0; }
     .chat-image { width: ${themeName.endsWith("-desktop") ? "66.666%" : "100%"}; max-width: 100%; height: auto; border-radius: 6px; margin: 0.8em 0; display: block; }
+    .screenshot-cover {
+      width: calc(100% + var(--screenshot-cover-bleed-x) + var(--screenshot-cover-bleed-x));
+      overflow: visible;
+      margin: calc(0px - var(--screenshot-cover-bleed-top)) calc(0px - var(--screenshot-cover-bleed-x)) 1.35em;
+      border-radius: 0;
+      background: transparent;
+    }
+    .screenshot-cover-frame {
+      width: var(--screenshot-cover-display-width, 100%);
+      height: var(--screenshot-cover-height, 320px);
+      overflow: hidden;
+      margin: 0 auto;
+      background: transparent;
+    }
+    .screenshot-cover-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .watermark {
       display: flex; align-items: center; justify-content: center;
       gap: 0.5em; padding: 1.5em 0 1em; opacity: 0.5;

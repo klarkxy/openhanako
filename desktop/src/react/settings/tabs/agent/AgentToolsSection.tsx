@@ -11,6 +11,7 @@ import { SettingsRow } from "../../components/SettingsRow";
 // (Task 10b) which imports both and asserts equality.
 const OPTIONAL_TOOL_NAMES = [
   "automation",
+  "beautify",
   "browser",
   "cron",
   "dm",

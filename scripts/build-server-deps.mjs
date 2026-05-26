@@ -77,6 +77,25 @@ export function buildJiebaRuntimeSmokeScript() {
   ].join("\n");
 }
 
+export function buildBetterSqliteRuntimeSmokeScript() {
+  return [
+    "import { createRequire } from 'node:module';",
+    "const require = createRequire(new URL('./package.json', import.meta.url));",
+    "const Database = require('better-sqlite3');",
+    "const db = new Database(':memory:');",
+    "try {",
+    "  const row = db.prepare('select 1 as ok').get();",
+    "  if (row?.ok !== 1) {",
+    "    throw new Error(`better-sqlite3 runtime smoke failed: ${JSON.stringify(row)}`);",
+    "  }",
+    "} finally {",
+    "  db.close();",
+    "}",
+    "console.log('[build-server] better-sqlite3 runtime smoke passed');",
+    "",
+  ].join("\n");
+}
+
 function collectRuntimeExportTargets(exportValue, targets = []) {
   if (typeof exportValue === "string") {
     targets.push(exportValue);

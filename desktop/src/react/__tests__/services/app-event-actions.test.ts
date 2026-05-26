@@ -13,6 +13,7 @@ const mockLoadModels = vi.fn(async () => {});
 const mockActivateWorkspaceDesk = vi.fn(async () => {});
 const mockLoadChannels = vi.fn(async () => {});
 const mockApplyEditorTypography = vi.fn();
+const mockRefreshPreviewItemsFromFile = vi.fn(async () => {});
 
 vi.mock('../../stores', () => ({
   useStore: {
@@ -54,6 +55,10 @@ vi.mock('../../editor/typography', () => ({
   applyEditorTypography: mockApplyEditorTypography,
 }));
 
+vi.mock('../../utils/preview-file-refresh', () => ({
+  refreshPreviewItemsFromFile: mockRefreshPreviewItemsFromFile,
+}));
+
 function jsonResponse(body: unknown): Response {
   return { json: async () => body } as unknown as Response;
 }
@@ -75,6 +80,7 @@ describe('handleAppEvent', () => {
     mockActivateWorkspaceDesk.mockReset();
     mockLoadChannels.mockReset();
     mockApplyEditorTypography.mockReset();
+    mockRefreshPreviewItemsFromFile.mockReset();
     vi.resetModules();
 
     (globalThis as Record<string, unknown>).window = {
@@ -331,5 +337,13 @@ describe('handleAppEvent', () => {
     expect(mockState.selectedFolder).toBe('/new-home');
     expect(mockState.cwdHistory).toEqual(['/old-home']);
     expect(mockActivateWorkspaceDesk).not.toHaveBeenCalled();
+  });
+
+  it('refreshes open preview items when a markdown cover is updated by a tool', async () => {
+    const { handleAppEvent } = await import('../../services/app-event-actions');
+
+    handleAppEvent('markdown-cover-updated', { filePath: '/notes/demo.md' });
+
+    expect(mockRefreshPreviewItemsFromFile).toHaveBeenCalledWith('/notes/demo.md');
   });
 });

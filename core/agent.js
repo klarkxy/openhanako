@@ -34,10 +34,10 @@ import { createSubagentTool } from "../lib/tools/subagent-tool.js";
 import { writeSubagentSessionMeta } from "../lib/subagent-executor-metadata.js";
 import { createCheckDeferredTool } from "../lib/tools/check-deferred-tool.js";
 import { createWaitTool } from "../lib/tools/wait-tool.js";
-import { createLlmUsageTool } from "../lib/tools/llm-usage-tool.js";
 import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
+import { createLlmUsageTool } from "../lib/tools/llm-usage-tool.js";
 import { createTextFileTool } from "../lib/tools/text-file-tool.js";
 import { createCountCharsTool } from "../lib/tools/count-chars.js";
 import { createDiffTool } from "../lib/tools/diff.js";
@@ -127,7 +127,6 @@ export class Agent {
     this._textFileTool = null;
     this._countCharsTool = null;
     this._diffTool = null;
-
 
     /**
      * 外部回调注入（由 AgentManager._createAgentInstance 填充）。
@@ -223,7 +222,7 @@ export class Agent {
       } catch (err) {
         moduleLog.error(`v1→v2 迁移失败（不影响启动）: ${err.message}`);
         // 迁移失败也写标记，避免每次启动重试
-        try { fs.writeFileSync(migrationDone, `failed: ${err.message}`); } catch { /* ignore */ }
+        try { fs.writeFileSync(migrationDone, `failed: ${err.message}`); } catch {}
       }
     }
 
@@ -269,7 +268,11 @@ export class Agent {
         configPath: this.configPath,
         factStore: this._factStore,
         // 现场 resolve：每次 tick 拿到 yaml 最新凭证
-        getResolvedMemoryModel: () => this._resolveModel(this._memoryModel, this._config),
+        getResolvedMemoryModel: () => ({
+          ...this._resolveModel(this._memoryModel, this._config),
+          usageLedger: this._cb?.getEngine?.()?.usageLedger,
+          usageAgentId: this.id,
+        }),
         getMemoryMasterEnabled: () => this._memoryMasterEnabled,
         isSessionMemoryEnabled: (sessionPath) => this.isSessionMemoryEnabledFor(sessionPath),
         getTimezone: () => this._cb?.getTimezone?.() || Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -342,13 +345,6 @@ export class Agent {
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
     });
-    this._textFileTool = createTextFileTool({
-      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
-      getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
-      registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
-    });
-    this._countCharsTool = createCountCharsTool();
-    this._diffTool = createDiffTool();
     this._artifactTool = createArtifactTool({
       getHanakoHome: () => this._cb?.getEngine?.()?.hanakoHome,
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
@@ -390,6 +386,13 @@ export class Agent {
       getAgentId: () => this.id,
       getCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
+    this._textFileTool = createTextFileTool({
+      getAgentId: () => this.id,
+      getAgentDir: () => this.agentDir,
+      getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+    });
+    this._countCharsTool = createCountCharsTool();
+    this._diffTool = createDiffTool();
     this._friendsContactTools = createFriendsContactsTools({ agent: this });
 
     // 10. 设置修改工具
@@ -430,7 +433,7 @@ export class Agent {
                   summary = descRaw.split("\n")
                     .filter(l => !l.trim().startsWith("<!--"))
                     .join("\n").trim();
-                } catch { /* ignore */ }
+                } catch {}
 
                 return {
                   id: e.name,
@@ -652,9 +655,6 @@ export class Agent {
       this._cronTool,
       this._automationTool,
       this._stageFilesTool,
-      this._textFileTool,
-      this._countCharsTool,
-      this._diffTool,
       ...legacyArtifactTools,
       this._channelTool,
       this._dmTool,
@@ -667,10 +667,13 @@ export class Agent {
       this._subagentTool,
       this._checkDeferredTool,
       this._currentStatusTool,
-      ...(this._friendsContactTools || []),
       this._terminalTool,
-      createWaitTool(),
+      this._textFileTool,
+      this._countCharsTool,
+      this._diffTool,
+      ...(this._friendsContactTools || []),
       createLlmUsageTool(),
+      createWaitTool(),
     ].filter(Boolean);
   }
   get tools() {
@@ -804,14 +807,15 @@ export class Agent {
   //  System Prompt 组装
   // ════════════════════════════
 
-  /** 按语言构建人格 prompt（identity + yuan + ishiki） */
-  _buildPersonality(useZh) {
+  /** 返回纯人格 prompt（identity + yuan + ishiki），不含记忆、用户档案等 */
+  get personality() {
+    const isZh = String(this._config.locale || "").startsWith("zh");
     const fill = (text) => text
       .replace(/\{\{userName\}\}/g, this.userName)
       .replace(/\{\{agentName\}\}/g, this.agentName)
       .replace(/\{\{agentId\}\}/g, this.id);
     const readFile = (p) => safeReadFile(p, "");
-    const langDir = useZh ? "" : "en/";
+    const langDir = isZh ? "" : "en/";
     const yuanType = this._config?.agent?.yuan || "hanako";
     const identityMd = readFile(path.join(this.agentDir, "identity.md"))
       || readFile(path.join(this.productDir, "identity-templates", `${langDir}${yuanType}.md`))
@@ -823,12 +827,6 @@ export class Agent {
       || readFile(path.join(this.productDir, "ishiki-templates", `${yuanType}.md`))
       || readFile(path.join(this.productDir, "ishiki.example.md"));
     return fill(identityMd) + "\n\n" + fill(yuanMd || "") + "\n\n" + fill(ishikiMd);
-  }
-
-  /** 返回纯人格 prompt（identity + yuan + ishiki），语言由 locale 决定 */
-  get personality() {
-    const isZh = String(this._config.locale || "").startsWith("zh");
-    return this._buildPersonality(isZh);
   }
 
   /** 返回花名册描述生成用的人格来源，不包含 yuan 输出协议。 */
@@ -957,21 +955,14 @@ export class Agent {
     const experienceEnabled = typeof forceExperienceEnabled === "boolean"
       ? forceExperienceEnabled
       : this.experienceEnabled;
-    // 思考语言：agent config → 全局偏好 → locale 推断 → 默认中文
-    const _localeIsZh = String(this._config.locale || "").startsWith("zh");
-    const _rawThinkingLang = this._config.thinking_lang
-      || this._cb?.getThinkingLang?.()
-      || "";
-    const isZh = _rawThinkingLang === "zh" ? true
-      : _rawThinkingLang === "en" ? false
-      : _localeIsZh;
+    const isZh = String(this._config.locale || "").startsWith("zh");
 
     const readFile = (filePath) => safeReadFile(filePath, "");
 
-    // identity + yuan + ishiki（按思考语言选择模板语言）
+    // identity + yuan + ishiki（复用 personality getter）
     const yuanType = this._config?.agent?.yuan || "hanako";
     if (!this._readYuan()) throw new Error(`Cannot find yuan "${yuanType}". Check lib/yuan/`);
-    const ishiki = this._buildPersonality(isZh);
+    const ishiki = this.personality;
 
     // 可选文件
     const userMd = readFile(path.join(this.userDir, "user.md"));
@@ -1103,11 +1094,12 @@ export class Agent {
     parts.push(isZh
       ? "\n## 工具使用纪律\n\n" +
         "当多个工具能完成同一件事时，优先使用成本最低、干扰最小的那个。" +
-        "不要在简单工具能解决问题的场景下启动重型工具。"
+        "不要在简单工具能解决问题的场景下启动重型工具。\n\n" +
+        "用 edit 修改文件后，默认向用户展示 diff（oldText → newText），不输出文件的完整内容。"
       : "\n## Tool Usage Discipline\n\n" +
         "When multiple tools can accomplish the same task, prefer the one with the lowest cost and least disruption. " +
-        "Do not reach for heavy tools when simpler ones can do the job."
-    );
+        "Do not reach for heavy tools when simpler ones can do the job.\n\n" +
+        "After editing a file with edit, present the diff (oldText → newText) to the user by default. Do not output the full file content. ");
 
     parts.push(isZh
       ? "\n## 当前视野\n\n" +
@@ -1203,25 +1195,6 @@ export class Agent {
           "When the user asks to change preferences (including but not limited to: appearance/theme, language/region, model selection, security/permissions, memory, personal info, working directory, MCP connectors), use the update_settings tool. Do not search the web or edit config files. When intent is clear, apply directly and report the result in one sentence; when unsure, search first."
       );
     }
-
-    // 语言指引
-    parts.push(isZh
-      ? `\n## 语言\n\n` +
-        `你的思考与回复语言通过以下规则确定：\n` +
-        `- 全局语言设置为「中文」，以下指令均使用中文，你的思考也应用中文\n` +
-        `- 如果当前启用的技能在 SKILL.md 中声明了 \`lang\` 字段（如 \`lang: zh\` 或 \`lang: en\`），` +
-        `该技能的内容应以对应语言来理解和运用\n` +
-        `- 没有声明 \`lang\` 的技能则是语言无关的，按全局语言处理\n` +
-        `- 用户的消息用什么语言，你优先用同一种语言回复；全局设置与用户语言冲突时以用户为准`
-      : `\n## Language\n\n` +
-        `Your thinking and response language follows these rules:\n` +
-        `- The global language is set to "English". Instructions below are in English and your thinking should be in English.\n` +
-        `- If an enabled skill declares a \`lang\` field in its SKILL.md frontmatter (e.g. \`lang: zh\` or \`lang: en\`), ` +
-        `that skill's content should be understood and applied in the specified language.\n` +
-        `- Skills without a \`lang\` declaration are language-agnostic — use the global language.\n` +
-        `- When the user sends a message in a particular language, prefer responding in that same language. ` +
-        `The global setting yields to the user's actual language choice.`
-    );
 
     // 主动技能获取引导（仅在 allow_github_fetch 开启时注入）
     // learn_skills 从全局 preferences 读取
@@ -1319,15 +1292,6 @@ export class Agent {
         "Use edit for source-code changes to existing files and write for new complete files.\n" +
         "Use shell for builds, tests, package scripts, generators, and command-line tools.\n" +
         "Avoid shell redirection to modify source files when structured file tools are available."
-    );
-
-    parts.push(isZh
-      ? "\n## 文件修改展示\n\n" +
-        "用 edit 修改文件后，默认向用户展示 diff（oldText → newText），不输出文件的完整内容。" +
-        "只有用户明确说「给我看完整文件」「把这个文件发给我」「输出全部内容」时，才输出完整内容或用 stage_files 交付。"
-      : "\n## File Change Presentation\n\n" +
-        "After editing a file with edit, present the diff (oldText → newText) to the user by default. Do not output the full file content. " +
-        "Only output full content or use stage_files when the user explicitly asks with phrases like 'show me the full file', 'send me the file', or 'output the complete content'."
     );
 
     parts.push(isZh

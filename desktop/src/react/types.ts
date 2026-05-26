@@ -146,6 +146,7 @@ export interface PreviewItem {
   status?: 'available' | 'expired' | string;
   missingAt?: number | null;
   fileVersion?: FileVersion | null;
+  remoteContentRef?: RemoteContentRef | null;
 }
 
 export interface DeskFile {
@@ -200,6 +201,17 @@ export interface VersionedWriteResult {
   conflict?: boolean;
   version?: FileVersion | null;
 }
+
+export interface RemoteWorkbenchContentRef {
+  kind: 'mobile-workbench';
+  rootId: string;
+  subdir: string;
+  name: string;
+  contentPath: string;
+  version?: FileVersion | null;
+}
+
+export type RemoteContentRef = RemoteWorkbenchContentRef;
 
 // ── Plugin Card Protocol ──
 

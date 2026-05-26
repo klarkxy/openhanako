@@ -77,6 +77,35 @@ describe("DeferredResultCoordinator", () => {
     expect(store.query("task-img")).toMatchObject({ delivered: true });
   });
 
+  it("wakes the parent agent when a UI-only image generation task fails with failure notification enabled", async () => {
+    store.defer("task-img-fail", "/sessions/a.jsonl", {
+      type: "image-generation",
+      mediaKind: "image",
+      deliveryIntent: "ui_only",
+      triggerParentTurn: false,
+      notifyAgentOnFailure: true,
+      prompt: "moon",
+    });
+    store.fail("task-img-fail", "quota exhausted");
+
+    await vi.waitFor(() => {
+      expect(sessionCoordinator.deliverCustomMessage).toHaveBeenCalledOnce();
+    });
+
+    expect(sessionCoordinator.recordCustomEntry).not.toHaveBeenCalled();
+    expect(sessionCoordinator.deliverCustomMessage).toHaveBeenCalledWith(
+      "/sessions/a.jsonl",
+      expect.objectContaining({
+        customType: "hana-background-result",
+        display: false,
+        content: expect.stringContaining("status=\"failed\""),
+      }),
+      { triggerTurn: true },
+    );
+    expect(sessionCoordinator.deliverCustomMessage.mock.calls[0][1].content).toContain("quota exhausted");
+    expect(store.query("task-img-fail")).toMatchObject({ delivered: true });
+  });
+
   it("keeps undelivered tasks when custom message delivery fails", async () => {
     sessionCoordinator.deliverCustomMessage.mockRejectedValueOnce(new Error("session unavailable"));
     store.defer("task-2", "/sessions/a.jsonl", { type: "subagent" });

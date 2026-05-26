@@ -463,6 +463,7 @@ export class PluginManager {
       configSchema: entry.configSchema,
       logSink: this._logSink,
       runtimeContext: this._runtimeContext,
+      permissions: entry.manifest?.permissions,
     });
 
     // All plugins: declarative contributions
@@ -591,6 +592,7 @@ export class PluginManager {
           parameters: mod.parameters ?? {},
           ...(mod.promptSnippet ? { promptSnippet: mod.promptSnippet } : {}),
           ...(mod.promptGuidelines ? { promptGuidelines: mod.promptGuidelines } : {}),
+          ...(typeof mod.isEnabledForAgentConfig === "function" ? { isEnabledForAgentConfig: mod.isEnabledForAgentConfig } : {}),
           execute: async (_toolCallId, params, signalOrRuntimeCtx, _onUpdate, piCtx) => {
             await this.activatePlugin(entry.id, { event: `onToolCall:${mod.name}`, toolName: mod.name }, { pluginKey: entry.pluginKey });
             const { ctx: runtimeCtx, hasExplicitCtx } = normalizeToolRuntimeContext(signalOrRuntimeCtx, piCtx);

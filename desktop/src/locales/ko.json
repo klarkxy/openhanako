@@ -19,13 +19,13 @@
     "createTitle": "새 채널",
     "createName": "채널 이름",
     "createNamePlaceholder": "예: design-team",
-    "createMembers": "멤버",
+    "createMembers": "Agent 멤버",
     "createIntro": "설명",
     "createIntroPlaceholder": "이 채널의 용도를 설명해 주세요...",
     "createCancel": "취소",
     "createConfirm": "만들기",
     "nameRequired": "채널 이름을 입력해 주세요",
-    "minMembers": "최소 2명 이상 선택해 주세요",
+    "minMembers": "Agent 멤버를 최소 2명 이상 선택해 주세요",
     "created": "채널 #{name} 생성 완료 ✿",
     "createFailed": "생성 실패",
     "alreadyExists": "이미 존재하는 채널이에요",
@@ -776,6 +776,7 @@
         "description": "도구 스위치는 대화를 다시 시작하거나 새 대화를 시작한 뒤 적용돼요. 진행 중인 대화는 시작할 때의 도구 집합을 계속 사용해요.",
         "items": {
           "automation": { "label": "자동화", "summary": "Agent가 알림과 플러그인 예약 동작을 만들 수 있게 합니다" },
+          "beautify": { "label": "小花美术", "summary": "Agent가 문서 커버와 미적 보강을 생성할 수 있게 합니다" },
           "browser": { "label": "브라우저", "summary": "헤드리스 브라우저로 웹 페이지를 탐색" },
           "computer": { "label": "Computer Use", "summary": "승인된 데스크톱 앱을 제어하고 실시간 동작 커서를 표시합니다" },
           "cron": { "label": "예약 작업", "summary": "지정한 시간에 작업을 자동 실행" },
@@ -986,6 +987,51 @@
       "noKey": "미설정",
       "remove": "제거",
       "deleteConfirm": "Provider {name}을(를) 삭제할까요? 연결된 모델도 함께 제거돼요."
+    },
+    "usage": {
+      "title": "사용량",
+      "note": "사용량은 참고용이며, 정확한 집계는 제공자의 통계를 기준으로 합니다.",
+      "refresh": "사용량 새로고침",
+      "total": "전체",
+      "requests": "요청",
+      "totalTokens": "총 Tokens",
+      "cacheRead": "캐시 읽기",
+      "cacheHitRate": "히트율",
+      "estimatedCost": "예상 비용",
+      "uncached": "비캐시 사용",
+      "modelMix": "모델 분포",
+      "dailyUsage": "일별 사용량",
+      "requestLedger": "요청 내역",
+      "loading": "사용량을 불러오는 중…",
+      "empty": "아직 사용량 기록이 없습니다",
+      "groupMeta": "{requests}회 · 오류 {errors}개",
+      "cacheShort": "cache {tokens}",
+      "tokensShort": "{tokens} tok",
+      "cacheSummary": "캐시 {cache} · 비캐시 {uncached}",
+      "view": {
+        "overall": "전체",
+        "daily": "날짜별",
+        "category": "카테고리",
+        "model": "모델"
+      },
+      "category": {
+        "session": "Session",
+        "phone": "Phone",
+        "memory": "Memory",
+        "automation": "Automation",
+        "subagent": "Subagent",
+        "compaction": "Compaction",
+        "plugin": "Plugin",
+        "utility": "Utility",
+        "vision": "Vision",
+        "unknown": "Unknown"
+      },
+      "status": {
+        "ok": "완료",
+        "error": "오류",
+        "aborted": "중단",
+        "usage_missing": "사용량 없음"
+      }
     },
     "media": {
       "imageGeneration": "이미지 생성",
@@ -2337,8 +2383,6 @@
   "preview.toggle": "미리보기 패널",
   "preview.markdownPreview": "미리보기",
   "preview.exitMarkdownPreview": "편집으로 돌아가기",
-  "preview.openInNewWindow": "새 창에서 보기",
-  "preview.openInNewWindowUnsupported": "이 파일 형식은 지원되지 않습니다",
   "preview.markdownEditorStatus": "선택 {selected}자 · 총 {total}자",
   "preview.markdownAttachmentInsertFailed": "첨부 파일 삽입에 실패했습니다"
 }

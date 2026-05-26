@@ -129,6 +129,44 @@ describe('PreviewEditor file sync', () => {
     expect(platform.writeFile).not.toHaveBeenCalled();
   });
 
+  it('saves remote editable documents through the injected save handler', async () => {
+    const ref = createRef<PreviewEditorHandle>();
+    const loadedVersion = { mtimeMs: 10, size: 8, sha256: 'loaded' };
+    const nextVersion = { mtimeMs: 20, size: 11, sha256: 'next' };
+    const saveDocument = vi.fn(async () => ({
+      ok: true,
+      conflict: false,
+      version: nextVersion,
+    }));
+    const onContentChange = vi.fn();
+
+    render(
+      <PreviewEditor
+        ref={ref}
+        content="original"
+        fileVersion={loadedVersion}
+        mode="markdown"
+        saveDocument={saveDocument}
+        onContentChange={onContentChange}
+      />,
+    );
+
+    await act(async () => {
+      ref.current?.getView()?.dispatch({
+        changes: { from: 0, to: 'original'.length, insert: 'remote edit' },
+        annotations: Transaction.userEvent.of('input.type'),
+      });
+      vi.advanceTimersByTime(700);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(saveDocument).toHaveBeenCalledWith('remote edit', loadedVersion);
+    expect(platform.writeFileIfUnchanged).not.toHaveBeenCalled();
+    expect(platform.writeFile).not.toHaveBeenCalled();
+    expect(onContentChange).toHaveBeenLastCalledWith('remote edit', nextVersion);
+  });
+
   it('preserves the cursor when parent content is refreshed', async () => {
     const ref = createRef<PreviewEditorHandle>();
 
@@ -199,6 +237,76 @@ describe('PreviewEditor file sync', () => {
 
     expect(view.scrollDOM.scrollTop).toBe(240);
     expect(view.scrollDOM.scrollLeft).toBe(16);
+  });
+
+  it('merges cover-only refresh into unsaved markdown edits instead of replacing them', async () => {
+    const ref = createRef<PreviewEditorHandle>();
+    const loadedVersion = { mtimeMs: 1, size: 20, sha256: 'loaded' };
+    const coverVersion = { mtimeMs: 2, size: 80, sha256: 'cover' };
+    const saved = '# Demo\n\nBody';
+    const coverUpdated = [
+      '---',
+      'cover:',
+      '  image: 文本附件/cover.png',
+      '  displayHeight: 320',
+      '---',
+      '# Demo',
+      '',
+      'Body',
+    ].join('\n');
+    const onContentChange = vi.fn();
+
+    const { rerender } = render(
+      <PreviewEditor
+        ref={ref}
+        content={saved}
+        filePath="/tmp/hana-note.md"
+        fileVersion={loadedVersion}
+        mode="markdown"
+        onContentChange={onContentChange}
+      />,
+    );
+
+    await act(async () => {
+      ref.current?.getView()?.dispatch({
+        changes: { from: 0, to: saved.length, insert: '# Demo\n\nBody with local draft' },
+        annotations: Transaction.userEvent.of('input.type'),
+      });
+    });
+
+    await act(async () => {
+      rerender(
+        <PreviewEditor
+          ref={ref}
+          content={coverUpdated}
+          filePath="/tmp/hana-note.md"
+          fileVersion={coverVersion}
+          mode="markdown"
+          onContentChange={onContentChange}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const merged = [
+      '---',
+      'cover:',
+      '  image: 文本附件/cover.png',
+      '  displayHeight: 320',
+      '---',
+      '# Demo',
+      '',
+      'Body with local draft',
+    ].join('\n');
+
+    expect(ref.current?.getView()?.state.doc.toString()).toBe(merged);
+    expect(onContentChange).toHaveBeenCalledWith(merged);
+    expect(platform.writeFileIfUnchanged).toHaveBeenCalledWith(
+      '/tmp/hana-note.md',
+      merged,
+      coverVersion,
+    );
   });
 
   it('reports total and selected character counts', async () => {

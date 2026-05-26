@@ -100,6 +100,7 @@ describe("image generation retry", () => {
         mediaKind: "image",
         deliveryIntent: "ui_only",
         triggerParentTurn: false,
+        notifyAgentOnFailure: true,
         prompt: "same prompt",
       }),
     });

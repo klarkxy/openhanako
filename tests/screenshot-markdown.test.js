@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 
@@ -26,5 +26,28 @@ describe('screenshot markdown renderer helpers', () => {
     expect(resolveScreenshotMarkdownImageSrc('javascript:alert(1)', {
       sourceFilePath: '/vault/notes/day.md',
     })).toBe('');
+  });
+
+  it('renders markdown cover before article body for screenshots', () => {
+    const { renderScreenshotMarkdownArticle } = require('../desktop/src/shared/screenshot-markdown.cjs');
+    const md = { render: vi.fn(() => '<h1>Demo</h1>') };
+    const html = renderScreenshotMarkdownArticle(md, [
+      '---',
+      'cover:',
+      '  image: 文本附件/cover.png',
+      '  displayWidth: 72',
+      '  displayHeight: 280',
+      '  positionY: 64',
+      '---',
+      '# Demo',
+    ].join('\n'), { sourceFilePath: '/vault/notes/day.md' });
+
+    expect(md.render).toHaveBeenCalledWith('# Demo', { sourceFilePath: '/vault/notes/day.md' });
+    expect(html).toContain('class="screenshot-cover"');
+    expect(html).toContain('--screenshot-cover-display-width:72%');
+    expect(html).toContain('--screenshot-cover-height:280px');
+    expect(html).toContain('class="screenshot-cover-frame"');
+    expect(html).toContain('object-position:50% 64%');
+    expect(html).toContain('file:///vault/notes/%E6%96%87%E6%9C%AC%E9%99%84%E4%BB%B6/cover.png');
   });
 });

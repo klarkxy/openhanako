@@ -30,7 +30,8 @@ vi.mock("../lib/pi-sdk/index.js", async (importOriginal) => {
 });
 
 import { runAgentSession, runAgentPhoneSession } from "../hub/agent-executor.js";
-import { getAgentPhoneProjectionPath, readAgentPhoneProjection, updateAgentPhoneProjectionMeta } from "../lib/conversations/agent-phone-projection.js";
+import { updateAgentPhoneProjectionMeta } from "../lib/conversations/agent-phone-projection.js";
+import { readAgentPhoneRuntime, updateAgentPhoneRuntime } from "../lib/conversations/agent-phone-runtime.js";
 import { getAgentPhoneSessionDir } from "../lib/conversations/agent-phone-session.js";
 
 let rootDir;
@@ -339,7 +340,7 @@ describe("runAgentSession teardown", () => {
     ]);
   });
 
-  it("phone sessions reuse stored active tools while preserving invocation custom tools", async () => {
+  it("phone sessions recompute active tools instead of reusing stored projection toolNames", async () => {
     const cwd = path.join(rootDir, "cwd");
     fs.mkdirSync(cwd, { recursive: true });
     const agent = makeAgent(rootDir);
@@ -373,6 +374,16 @@ describe("runAgentSession teardown", () => {
         phoneSessionFile: path.relative(agent.agentDir, sessionFile).split(path.sep).join("/"),
         lastPhoneSessionUsedAt: "2026-05-25T11:55:00.000Z",
         toolNames: ["read", "write", "search_memory"],
+      },
+    });
+    await updateAgentPhoneRuntime({
+      agentDir: agent.agentDir,
+      agentId: "agent-a",
+      conversationId: "ch_crew",
+      conversationType: "channel",
+      patch: {
+        phoneSessionFile: path.relative(agent.agentDir, sessionFile).split(path.sep).join("/"),
+        lastPhoneSessionUsedAt: "2026-05-25T11:55:00.000Z",
       },
     });
     vi.useFakeTimers();
@@ -416,6 +427,8 @@ describe("runAgentSession teardown", () => {
       "read",
       "write",
       "search_memory",
+      "record_experience",
+      "web_fetch",
       "channel_reply",
       "channel_pass",
     ]);
@@ -540,9 +553,8 @@ describe("runAgentSession teardown", () => {
       conversationId: "ch_crew",
       conversationType: "channel",
     });
-    const projectionPath = getAgentPhoneProjectionPath(agent.agentDir, "ch_crew");
-    let projection = readAgentPhoneProjection(projectionPath);
-    const snapshot = projection.meta.promptSnapshot;
+    let runtime = readAgentPhoneRuntime(agent.agentDir, "ch_crew");
+    const snapshot = runtime.promptSnapshot;
     expect(snapshot?.systemPrompt).toBe("system prompt");
 
     agent.systemPrompt = "system prompt v2";
@@ -553,8 +565,57 @@ describe("runAgentSession teardown", () => {
     });
     const secondCreateArgs = createAgentSessionMock.mock.calls.at(-1)[0];
     expect(secondCreateArgs.resourceLoader.getSystemPrompt()).toBe("system prompt");
-    projection = readAgentPhoneProjection(projectionPath);
-    expect(projection.meta.promptSnapshot.systemPrompt).toBe("system prompt");
+    runtime = readAgentPhoneRuntime(agent.agentDir, "ch_crew");
+    expect(runtime.promptSnapshot.systemPrompt).toBe("system prompt");
+  });
+
+  it("starts a new phone session with the current prompt after the active window expires", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-12T10:00:00.000Z"));
+    const cwd = path.join(rootDir, "cwd");
+    fs.mkdirSync(cwd, { recursive: true });
+    const agent = makeAgent(rootDir);
+    agent.systemPrompt = "current system prompt";
+    const engine = makeEngine(agent, cwd);
+
+    const phoneSessionDir = getAgentPhoneSessionDir(agent.agentDir, "ch_crew");
+    const oldSessionFile = path.join(phoneSessionDir, "old.jsonl");
+    const newSessionFile = path.join(phoneSessionDir, "new.jsonl");
+    fs.mkdirSync(path.dirname(oldSessionFile), { recursive: true });
+    fs.writeFileSync(oldSessionFile, "old", "utf-8");
+    await updateAgentPhoneRuntime({
+      agentDir: agent.agentDir,
+      agentId: "agent-a",
+      conversationId: "ch_crew",
+      conversationType: "channel",
+      patch: {
+        phoneSessionFile: path.relative(agent.agentDir, oldSessionFile).split(path.sep).join("/"),
+        lastPhoneSessionUsedAt: "2026-05-12T09:00:00.000Z",
+        promptSnapshot: { version: 1, systemPrompt: "stale system prompt" },
+      },
+    });
+
+    sessionManagerCreateMock.mockReturnValue({ getSessionFile: () => newSessionFile });
+    createAgentSessionMock.mockResolvedValue({
+      session: {
+        prompt: vi.fn(async () => {}),
+        subscribe: vi.fn(() => () => {}),
+        dispose: vi.fn(),
+        sessionManager: { getSessionFile: () => newSessionFile },
+        getContextUsage: vi.fn(() => ({ tokens: 10, contextWindow: 200000 })),
+        extensionRunner: { hasHandlers: vi.fn(() => false) },
+      },
+    });
+
+    await runAgentPhoneSession("agent-a", [{ text: "hello", capture: true }], {
+      engine,
+      conversationId: "ch_crew",
+      conversationType: "channel",
+    });
+
+    expect(sessionManagerOpenMock).not.toHaveBeenCalled();
+    expect(sessionManagerCreateMock).toHaveBeenCalledWith(cwd, phoneSessionDir);
+    expect(createAgentSessionMock.mock.calls[0][0].resourceLoader.getSystemPrompt()).toBe("current system prompt");
   });
 
   it("phone replies leave regular compaction to the SDK auto-compaction path", async () => {
@@ -601,7 +662,7 @@ describe("runAgentSession teardown", () => {
     const newSessionFile = path.join(phoneSessionDir, "new.jsonl");
     fs.mkdirSync(path.dirname(oldSessionFile), { recursive: true });
     fs.writeFileSync(oldSessionFile, "old", "utf-8");
-    await updateAgentPhoneProjectionMeta({
+    await updateAgentPhoneRuntime({
       agentDir: agent.agentDir,
       agentId: "agent-a",
       conversationId: "ch_crew",
@@ -635,11 +696,10 @@ describe("runAgentSession teardown", () => {
     expect(sessionManagerOpenMock).not.toHaveBeenCalled();
     expect(sessionManagerCreateMock).toHaveBeenCalledWith(cwd, phoneSessionDir);
     expect(compact).not.toHaveBeenCalled();
-    const projectionPath = getAgentPhoneProjectionPath(agent.agentDir, "ch_crew");
-    let projection = readAgentPhoneProjection(projectionPath);
-    expect(projection.meta.phoneSessionFile).toBe(path.relative(agent.agentDir, newSessionFile).split(path.sep).join("/"));
-    expect(projection.meta.lastPhoneSessionUsedAt).toBe("2026-05-12T10:00:00.000Z");
-    expect(projection.meta.lastFreshCompactDate).toBeUndefined();
+    let runtime = readAgentPhoneRuntime(agent.agentDir, "ch_crew");
+    expect(runtime.phoneSessionFile).toBe(path.relative(agent.agentDir, newSessionFile).split(path.sep).join("/"));
+    expect(runtime.lastPhoneSessionUsedAt).toBe("2026-05-12T10:00:00.000Z");
+    expect(runtime.lastFreshCompactDate).toBeUndefined();
     expect(fs.existsSync(oldSessionFile)).toBe(true);
 
     fs.writeFileSync(newSessionFile, "new", "utf-8");
@@ -656,9 +716,9 @@ describe("runAgentSession teardown", () => {
 
     expect(sessionManagerOpenMock).toHaveBeenCalledWith(newSessionFile, phoneSessionDir);
     expect(sessionManagerCreateMock).not.toHaveBeenCalled();
-    projection = readAgentPhoneProjection(projectionPath);
-    expect(projection.meta.phoneSessionFile).toBe(path.relative(agent.agentDir, newSessionFile).split(path.sep).join("/"));
-    expect(projection.meta.lastPhoneSessionUsedAt).toBe("2026-05-12T10:10:00.000Z");
+    runtime = readAgentPhoneRuntime(agent.agentDir, "ch_crew");
+    expect(runtime.phoneSessionFile).toBe(path.relative(agent.agentDir, newSessionFile).split(path.sep).join("/"));
+    expect(runtime.lastPhoneSessionUsedAt).toBe("2026-05-12T10:10:00.000Z");
     expect(compact).not.toHaveBeenCalled();
   });
 });

@@ -595,11 +595,27 @@ describe("Poller", () => {
   // ── recover pending from store on start ───────────────────────────────────
 
   it("recovers pending tasks from the store on start", () => {
-    const { poller, mockStore } = makePoller({
+    const { poller, mockStore, mockBus } = makePoller({
       store: {
         listPending: vi.fn(() => [
-          { taskId: "recovered1", adapterId: "test-adapter", status: "pending", createdAt: new Date().toISOString() },
-          { taskId: "recovered2", adapterId: "test-adapter", status: "pending", createdAt: new Date().toISOString() },
+          {
+            taskId: "recovered1",
+            adapterId: "test-adapter",
+            status: "pending",
+            type: "image",
+            prompt: "moon",
+            sessionPath: "/sessions/main.jsonl",
+            createdAt: new Date().toISOString(),
+          },
+          {
+            taskId: "recovered2",
+            adapterId: "test-adapter",
+            status: "pending",
+            type: "image",
+            prompt: "sun",
+            sessionPath: "/sessions/main.jsonl",
+            createdAt: new Date().toISOString(),
+          },
         ]),
         get: vi.fn(() => null),
         update: vi.fn(),
@@ -610,6 +626,16 @@ describe("Poller", () => {
 
     expect(poller.hasPending("recovered1")).toBe(true);
     expect(poller.hasPending("recovered2")).toBe(true);
+    expect(mockBus.request).toHaveBeenCalledWith("deferred:register", expect.objectContaining({
+      taskId: "recovered1",
+      sessionPath: "/sessions/main.jsonl",
+      meta: expect.objectContaining({
+        type: "image-generation",
+        deliveryIntent: "ui_only",
+        triggerParentTurn: false,
+        notifyAgentOnFailure: true,
+      }),
+    }));
 
     poller.stop();
   });

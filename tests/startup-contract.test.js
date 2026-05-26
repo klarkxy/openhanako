@@ -90,4 +90,11 @@ describe("local startup contract", () => {
     expect(buildServer).toContain('path.join(outDir, "hana")');
     expect(buildServer).toContain('path.join(outDir, "hana.cmd")');
   });
+
+  it("server dependency install explicitly enables native package scripts", () => {
+    const buildServer = fs.readFileSync(path.join(ROOT, "scripts", "build-server.mjs"), "utf-8");
+
+    expect(buildServer).toContain("--ignore-scripts=false");
+    expect(buildServer).toContain("runBetterSqliteRuntimeSmokeIfNeeded()");
+  });
 });

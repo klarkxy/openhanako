@@ -14,6 +14,7 @@ const emitSessionShutdownMock = vi.fn(async (session) => {
   }
   return false;
 });
+const PNG_BASE64 = "iVBORw0KGgo=";
 
 vi.mock("../lib/pi-sdk/index.js", async (importOriginal) => {
   const actual = await importOriginal();
@@ -1173,7 +1174,7 @@ describe("BridgeSessionManager teardown", () => {
       extensionRunner: { hasHandlers: vi.fn(() => false) },
     };
     createAgentSessionMock.mockResolvedValue({ session });
-    const images = [{ type: "image", data: "BASE64", mimeType: "image/png" }];
+    const images = [{ type: "image", data: PNG_BASE64, mimeType: "image/png" }];
 
     await manager.executeExternalMessage("hello", "bridge-k-vision", null, {
       agentId: "agent-a",
@@ -1214,7 +1215,7 @@ describe("BridgeSessionManager teardown", () => {
       sessionPath: sessionFile,
       targetModel: textOnlyModel,
       text: `[attached_image: ${imagePath}]\nwhat is this?`,
-      images: [{ type: "image", data: "BASE64", mimeType: "image/png" }],
+      images: [{ type: "image", data: PNG_BASE64, mimeType: "image/png" }],
       imageAttachmentPaths: [imagePath],
     });
     const deps = {

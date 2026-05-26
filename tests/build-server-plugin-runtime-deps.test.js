@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  collectBundledPluginPackageDependencies,
   collectBundledPluginRuntimeDependencies,
   copyBundledPluginRuntimeDependencies,
 } from "../scripts/build-server-plugin-runtime-deps.mjs";
@@ -77,6 +78,34 @@ describe("bundled plugin runtime dependencies", () => {
     expect(fs.readFileSync(path.join(outDir, "core", "media-runtime-contract.js"), "utf-8"))
       .toContain("buildCliArgs");
     expect(fs.existsSync(path.join(outDir, "plugins", "mcp", "index.js"))).toBe(false);
+  });
+
+  it("collects npm packages imported by bundled plugin source for packaged server installs", async () => {
+    fs.mkdirSync(path.join(rootDir, "plugins", "beautify", "lib"), { recursive: true });
+    fs.writeFileSync(
+      path.join(rootDir, "plugins", "beautify", "index.js"),
+      'import "./lib/markdown-cover-service.js";\nexport default class Beautify {}\n',
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(rootDir, "plugins", "beautify", "lib", "markdown-cover-service.js"),
+      'import YAML from "js-yaml";\nexport function parse(value) { return YAML.load(value); }\n',
+      "utf-8",
+    );
+    fs.mkdirSync(path.join(rootDir, "node_modules", "js-yaml"), { recursive: true });
+    fs.writeFileSync(
+      path.join(rootDir, "node_modules", "js-yaml", "package.json"),
+      JSON.stringify({ name: "js-yaml", version: "4.1.0", main: "index.js" }),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(rootDir, "node_modules", "js-yaml", "index.js"),
+      "export default { load() { return {}; } };\n",
+      "utf-8",
+    );
+
+    await expect(collectBundledPluginPackageDependencies({ rootDir }))
+      .resolves.toContain("js-yaml");
   });
 
   it("rejects plugin imports into host paths that are not explicit runtime surfaces", async () => {

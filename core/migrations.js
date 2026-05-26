@@ -33,6 +33,8 @@ import { migrateLegacyApiKeyAuthToProviders } from "./provider-auth-migration.js
 import { createModuleLogger } from "../lib/debug-log.js";
 import { patchAutomationJobForMigration } from "../lib/desk/automation-normalizer.js";
 import { parseSkillMetadata } from "../lib/skills/skill-metadata.js";
+import { safeConversationStem } from "../lib/conversations/agent-phone-projection.js";
+import { DEFAULT_DISABLED_TOOL_NAMES } from "../shared/tool-categories.js";
 
 const moduleLog = createModuleLogger("migrations");
 
@@ -104,6 +106,10 @@ const migrations = {
   30: migrateCronJobsToAutomationReadModel,
   // learned-skills 收敛进全局 skill pool，并只为来源 agent 默认启用
   31: migrateLearnedSkillsToGlobalSkillPool,
+  // Agent Phone runtime 状态从 projection 迁入独立 sidecar
+  32: migrateAgentPhoneRuntimeOutOfProjection,
+  // 小花美术默认显式关闭；旧 Agent 配置只有用户手动开启后才可用
+  33: migrateBeautifyDefaultExplicitOff,
 };
 
 // ── Runner ──────────────────────────────────────────────────────────────────
@@ -906,6 +912,37 @@ function migrateHeartbeatDefaultExplicitOff(ctx) {
 }
 
 /**
+ * #33 — 小花美术默认显式关闭
+ *
+ * Beautify 是新加入的低频审美生成工具，默认先 opt-in。老配置若已经
+ * 写过 tools.disabled: []，运行时无法判断它是否代表用户想开启这个
+ * 未来工具，所以迁移显式把 beautify 补进 disabled。用户之后手动开关
+ * 会正常覆盖这个值。
+ */
+function migrateBeautifyDefaultExplicitOff(ctx) {
+  const { agentsDir, log } = ctx;
+  let dirs;
+  try {
+    dirs = fs.readdirSync(agentsDir, { withFileTypes: true }).filter(d => d.isDirectory());
+  } catch {
+    return;
+  }
+
+  for (const dir of dirs) {
+    const cfgPath = path.join(agentsDir, dir.name, "config.yaml");
+    if (!fs.existsSync(cfgPath)) continue;
+    const config = safeReadYAMLSync(cfgPath, null, YAML);
+    if (!config) continue;
+    const existing = Array.isArray(config.tools?.disabled)
+      ? config.tools.disabled
+      : DEFAULT_DISABLED_TOOL_NAMES.filter((name) => name !== "beautify");
+    if (existing.includes("beautify")) continue;
+    saveConfig(cfgPath, { tools: { disabled: [...existing, "beautify"] } });
+    log(`[migrations] #33: beautify defaulted to disabled for "${dir.name}"`);
+  }
+}
+
+/**
  * #7 — 模型能力字段 vision → image 全量重命名
  *
  * 历史包袱：项目早期在 Pi SDK Model 对象上挂了一份自定义的 vision:boolean 字段，
@@ -1351,6 +1388,106 @@ function migrateLearnedSkillsToGlobalSkillPool(ctx) {
   }
 
   log?.(`[migrations] #31: learned skills migrated to global pool (copied=${migrated}, reused=${reused}, renamed=${renamed}, agents=${agentsPatched})`);
+}
+
+const AGENT_PHONE_RUNTIME_KEYS = new Set([
+  "phoneSessionFile",
+  "lastPhoneSessionUsedAt",
+  "phoneSessionStartedAt",
+  "promptSnapshot",
+]);
+
+const AGENT_PHONE_PROJECTION_RUNTIME_KEYS = new Set([
+  ...AGENT_PHONE_RUNTIME_KEYS,
+  "toolNames",
+  "lastRefreshedDate",
+]);
+
+/**
+ * #32 — Agent Phone runtime 状态从 projection 迁入 sidecar
+ *
+ * projection 是每个 Agent 的手机视图记录，不应该决定下一次 session 如何恢复。
+ * 老版本把 session file、prompt snapshot、toolNames 等运行时字段写进 projection，
+ * 会让旧工具面和旧 prompt 反过来污染新一轮执行。迁移把可复用 session 所需字段
+ * 搬到 `phone/session-runtime/*.json`，并从 projection 删除 runtime 残留。
+ */
+function migrateAgentPhoneRuntimeOutOfProjection(ctx) {
+  const { agentsDir, log } = ctx;
+  let moved = 0;
+  let cleaned = 0;
+
+  let agentEntries;
+  try {
+    agentEntries = fs.readdirSync(agentsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+  } catch {
+    log?.("[migrations] #32: no agents dir");
+    return;
+  }
+
+  for (const agentEntry of agentEntries) {
+    const agentDir = path.join(agentsDir, agentEntry.name);
+    const conversationsDir = path.join(agentDir, "phone", "conversations");
+    let projectionEntries;
+    try {
+      projectionEntries = fs.readdirSync(conversationsDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".md"));
+    } catch {
+      continue;
+    }
+
+    for (const projectionEntry of projectionEntries) {
+      const projectionPath = path.join(conversationsDir, projectionEntry.name);
+      let raw;
+      try {
+        raw = fs.readFileSync(projectionPath, "utf-8");
+      } catch {
+        continue;
+      }
+      const frontmatter = parseAgentPhoneProjectionFrontmatter(raw);
+      if (!frontmatter) continue;
+
+      const runtimePatch = agentPhoneRuntimePatchFromMeta(frontmatter.meta);
+      const nextProjection = removeFrontmatterKeys(raw, AGENT_PHONE_PROJECTION_RUNTIME_KEYS);
+      if (nextProjection !== raw) {
+        atomicWriteSync(projectionPath, nextProjection);
+        cleaned += 1;
+      }
+
+      if (!Object.keys(runtimePatch).length) continue;
+      const conversationId = frontmatter.meta.get("conversationId");
+      if (!conversationId || typeof conversationId !== "string") continue;
+
+      const runtimeDir = path.join(agentDir, "phone", "session-runtime");
+      const runtimePath = path.join(runtimeDir, `${safeConversationStem(conversationId)}.json`);
+      fs.mkdirSync(runtimeDir, { recursive: true });
+
+      let existing = {};
+      try {
+        const parsed = fs.existsSync(runtimePath)
+          ? JSON.parse(fs.readFileSync(runtimePath, "utf-8"))
+          : {};
+        existing = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        existing = {};
+      }
+
+      const nextRuntime = {
+        ...existing,
+        agentId: frontmatter.meta.get("agentId") || existing.agentId || agentEntry.name,
+        conversationId,
+        conversationType: frontmatter.meta.get("conversationType")
+          || existing.conversationType
+          || (conversationId.startsWith("dm:") ? "dm" : "channel"),
+        ...runtimePatch,
+        updatedAt: existing.updatedAt || new Date().toISOString(),
+      };
+      delete nextRuntime.toolNames;
+      atomicWriteSync(runtimePath, JSON.stringify(nextRuntime, null, 2) + "\n");
+      moved += 1;
+    }
+  }
+
+  log?.(`[migrations] #32: agent phone runtime moved (runtime=${moved}, projections=${cleaned})`);
 }
 
 /**
@@ -2615,6 +2752,57 @@ function removeFrontmatterKeys(raw, keys) {
   }
   if (!changed) return raw;
   return ["---", ...nextFm, "---", ...lines.slice(end + 1)].join("\n");
+}
+
+function parseAgentPhoneProjectionFrontmatter(raw) {
+  const lines = raw.split("\n");
+  if (lines[0]?.trim() !== "---") return null;
+  const meta = new Map();
+  for (let i = 1; i < lines.length; i += 1) {
+    if (lines[i].trim() === "---") return { meta };
+    const idx = lines[i].indexOf(":");
+    if (idx < 0) continue;
+    meta.set(lines[i].slice(0, idx).trim(), lines[i].slice(idx + 1).trim());
+  }
+  return null;
+}
+
+function agentPhoneRuntimePatchFromMeta(meta) {
+  const patch = {};
+  for (const key of AGENT_PHONE_RUNTIME_KEYS) {
+    if (!meta.has(key)) continue;
+    const value = meta.get(key);
+    if (key === "promptSnapshot") {
+      const parsed = parseEncodedFrontmatterJson(value);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        patch.promptSnapshot = parsed;
+      }
+      continue;
+    }
+    if (typeof value === "string" && value.trim()) {
+      patch[key] = value.trim();
+    }
+  }
+  return patch;
+}
+
+function parseEncodedFrontmatterJson(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const candidates = [value.trim()];
+  try {
+    const decoded = decodeURIComponent(value.trim());
+    if (decoded !== value.trim()) candidates.unshift(decoded);
+  } catch {
+    // Raw JSON remains a valid candidate.
+  }
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next representation.
+    }
+  }
+  return null;
 }
 
 function patchChannelGuardLimitFrontmatter(raw) {

@@ -41,6 +41,34 @@ function parseHealthModelRef(body) {
   return { id: parsed.id, provider };
 }
 
+function classifyModelSwitchError(err) {
+  const message = err?.message || String(err || "");
+  const lower = message.toLowerCase();
+  if (lower.includes("model not found") || (lower.includes("模型") && lower.includes("不存在"))) {
+    return { status: 404, code: "MODEL_NOT_FOUND", message };
+  }
+  if (
+    lower.includes("api key") ||
+    lower.includes("api_key") ||
+    lower.includes("credential") ||
+    lower.includes("credentials") ||
+    lower.includes("凭证") ||
+    lower.includes("密钥")
+  ) {
+    return { status: 422, code: "MODEL_CREDENTIALS_MISSING", message };
+  }
+  if (
+    lower.includes("streaming") ||
+    lower.includes("compaction") ||
+    lower.includes("compacting") ||
+    lower.includes("in progress") ||
+    lower.includes("busy")
+  ) {
+    return { status: 409, code: "MODEL_SWITCH_CONFLICT", message };
+  }
+  return { status: 500, code: "MODEL_SWITCH_FAILED", message };
+}
+
 function serializeModelInfo(model, { current = null, overrides = null } = {}) {
   if (!model) return null;
   const videoTransport = resolveModelVideoInputTransport(model);
@@ -194,6 +222,19 @@ export function createModelsRoute(engine) {
         messages: [{ role: "user", content: HEALTH_CHECK_PROMPT }],
         maxTokens: HEALTH_CHECK_MAX_TOKENS,
         timeoutMs: 15_000,
+        usageLedger: engine.usageLedger,
+        usageContext: {
+          source: {
+            subsystem: "utility",
+            operation: "model_health",
+            surface: "settings",
+            trigger: "user",
+          },
+          attribution: {
+            kind: "utility",
+            agentId: engine.currentAgentId ?? null,
+          },
+        },
       });
 
       return c.json({ ok: true, status: 200, provider: resolved.provider });
@@ -235,7 +276,7 @@ export function createModelsRoute(engine) {
       if (!provider) return c.json({ error: t("error.missingParam", { param: "provider" }) }, 400);
 
       if (engine.isSessionStreaming(sessionPath)) {
-        return c.json({ error: "cannot switch model while streaming" }, 409);
+        return c.json({ error: "cannot switch model while streaming", code: "MODEL_SWITCH_CONFLICT" }, 409);
       }
 
       const result = await engine.switchSessionModel(sessionPath, modelId, provider);
@@ -248,7 +289,8 @@ export function createModelsRoute(engine) {
 
       return c.json({ ok: true, model: modelInfo, adaptations: result.adaptations, thinkingLevel: result.thinkingLevel });
     } catch (err) {
-      return c.json({ error: err.message }, 500);
+      const classified = classifyModelSwitchError(err);
+      return c.json({ error: classified.message, code: classified.code }, classified.status);
     }
   });
 

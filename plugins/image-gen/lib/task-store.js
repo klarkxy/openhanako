@@ -65,9 +65,9 @@ export class TaskStore {
   /**
    * Add a new task. Throws if taskId already exists.
    *
-   * @param {{ taskId: string, adapterId: string, providerId?: string|null, modelId?: string|null, protocolId?: string|null, credentialLaneId?: string|null, batchId: string, type: string, prompt: string, params: object, sessionPath?: string, deliveryTarget?: object|null, adapterTaskId?: string|null, submitState?: string }} opts
+   * @param {{ taskId: string, adapterId: string, providerId?: string|null, modelId?: string|null, protocolId?: string|null, credentialLaneId?: string|null, batchId: string, type: string, prompt: string, params: object, sessionPath?: string, deliveryTarget?: object|null, metadata?: object|null, adapterTaskId?: string|null, submitState?: string }} opts
    */
-  add({ taskId, adapterId, providerId = null, modelId = null, protocolId = null, credentialLaneId = null, batchId, type, prompt, params, sessionPath, deliveryTarget = null, adapterTaskId = null, submitState = "submitted" }) {
+  add({ taskId, adapterId, providerId = null, modelId = null, protocolId = null, credentialLaneId = null, batchId, type, prompt, params, sessionPath, deliveryTarget = null, metadata = null, adapterTaskId = null, submitState = "submitted" }) {
     if (this._tasks.has(taskId)) {
       throw new Error(`TaskStore: duplicate taskId "${taskId}"`);
     }
@@ -84,6 +84,7 @@ export class TaskStore {
       params,
       sessionPath: sessionPath || null,
       deliveryTarget: deliveryTarget || null,
+      metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : null,
       adapterTaskId: adapterTaskId || null,
       submitState,
       status: "pending",

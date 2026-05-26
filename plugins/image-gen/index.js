@@ -10,6 +10,7 @@ import { openaiCodexImageAdapter } from "./adapters/openai-codex.js";
 import { minimaxImageAdapter } from "./adapters/minimax.js";
 import { dashscopeImageAdapter } from "./adapters/dashscope.js";
 import { geminiImageAdapter } from "./adapters/gemini.js";
+import { submitImageGeneration } from "./lib/submit-image.js";
 
 export default class ImageGenPlugin {
   async onload() {
@@ -65,6 +66,28 @@ export default class ImageGenPlugin {
 
     this.register(bus.handle("media-gen:list-adapters", () => {
       return { adapters: registry.list().map((a) => ({ id: a.id, name: a.name, types: a.types })) };
+    }));
+
+    this.register(bus.handle("media-gen:submit-image", async (payload = {}) => {
+      const input = payload.input && typeof payload.input === "object" ? payload.input : payload;
+      const sessionPath = typeof payload.sessionPath === "string" && payload.sessionPath.trim()
+        ? payload.sessionPath.trim()
+        : null;
+      if (!sessionPath) return { ok: false, error: "sessionPath is required" };
+      try {
+        return await submitImageGeneration({
+          input,
+          ctx: {
+            ...this.ctx,
+            sessionPath,
+            _mediaGen: this.ctx._mediaGen,
+          },
+          metadata: payload.metadata || null,
+          deliveryTarget: payload.deliveryTarget === undefined ? null : payload.deliveryTarget,
+        });
+      } catch (err) {
+        return { ok: false, error: err?.message || String(err) };
+      }
     }));
 
     // Bus handlers — task CRUD (for external panels like dreamina)

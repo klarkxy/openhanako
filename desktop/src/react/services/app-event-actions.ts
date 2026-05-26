@@ -6,6 +6,7 @@ import { loadModels } from '../utils/ui-helpers';
 import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadChannels } from '../stores/channel-actions';
 import { applyEditorTypography } from '../editor/typography';
+import { refreshPreviewItemsFromFile } from '../utils/preview-file-refresh';
 import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.js';
 
 declare const i18n: {
@@ -166,12 +167,9 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
     case 'agent-created':
     case 'agent-deleted':
       loadAgents();
-      window.platform?.settingsChanged?.(type, data);
       break;
     case 'agent-updated': {
       const currentAgentId = useStore.getState().currentAgentId;
-      // 始终转发到设置窗口，使其刷新 identity/ishiki 等 markdown 内容
-      window.platform?.settingsChanged?.('agent-updated', data);
       if (data.agentId && data.agentId !== currentAgentId) {
         loadAgents();
         break;
@@ -204,6 +202,11 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
     }
     case 'agent-workspace-changed':
       handleAgentWorkspaceChanged(data);
+      break;
+    case 'markdown-cover-updated':
+      if (typeof data.filePath === 'string' && data.filePath) {
+        void refreshPreviewItemsFromFile(data.filePath);
+      }
       break;
     case 'theme-changed':
       window.setTheme(data.theme);

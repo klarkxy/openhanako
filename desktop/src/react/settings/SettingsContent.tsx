@@ -22,7 +22,6 @@ import { WorkTab } from './tabs/WorkTab';
 import { ComputerUseTab } from './tabs/ComputerUseTab';
 import { SkillsTab } from './tabs/SkillsTab';
 import { BridgeTab } from './tabs/BridgeTab';
-import { ContactsTab } from './tabs/ContactsTab';
 import { ProvidersTab } from './tabs/ProvidersTab';
 import { MediaTab } from './tabs/MediaTab';
 import { AboutTab } from './tabs/AboutTab';
@@ -30,6 +29,8 @@ import { PluginsTab } from './tabs/PluginsTab';
 import { PluginMarketplaceTab } from './tabs/PluginMarketplaceTab';
 import { SecurityTab } from './tabs/SecurityTab';
 import { SharingTab } from './tabs/SharingTab';
+import { AccessTab } from './tabs/AccessTab';
+import { ContactsTab } from './tabs/ContactsTab';
 import { getNativeSettingsTabComponent } from './native-settings-tabs';
 import { CropOverlay } from './overlays/CropOverlay';
 import { AgentCreateOverlay } from './overlays/AgentCreateOverlay';
@@ -54,6 +55,7 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   providers: ProvidersTab,
   media: MediaTab,
   sharing: SharingTab,
+  access: AccessTab,
   plugins: PluginsTab,
   'plugin-marketplace': PluginMarketplaceTab,
   security: SecurityTab,
@@ -86,10 +88,10 @@ const TAB_TITLES: Record<string, string> = {
   computer: '使用电脑',
   skills: '技能',
   bridge: '社交平台',
-  contacts: '通讯录',
   providers: '供应商',
   media: '多媒体',
   sharing: '分享',
+  access: '访问与设备',
   plugins: '插件',
   'plugin-marketplace': '插件市场',
   security: '安全',
@@ -145,13 +147,8 @@ export function SettingsContent({
     const platform = window.platform;
     if (!platform?.onSettingsChanged) return;
     const unsubscribe = platform.onSettingsChanged((type: string, data: unknown) => {
-      if (type === 'skills-changed') {
-        window.dispatchEvent(new CustomEvent('hana-skills-changed', { detail: data || {} }));
-      }
-      if (type === 'agent-updated' || type === 'agent-created' || type === 'agent-deleted') {
-        loadAgents().catch(() => {});
-        loadSettingsConfig().catch(() => {});
-      }
+      if (type !== 'skills-changed') return;
+      window.dispatchEvent(new CustomEvent('hana-skills-changed', { detail: data || {} }));
     });
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
   }, []);
@@ -204,7 +201,7 @@ export function SettingsContent({
     || AgentTab;
   const isModal = variant === 'modal';
   const activeTabTitle = TAB_TITLES[effectiveActiveTab] || titleToLabel(dynamicTab?.title);
-  const isWideTab = effectiveActiveTab === 'plugin-marketplace';
+  const isWideTab = effectiveActiveTab === 'plugin-marketplace' || effectiveActiveTab === 'providers';
 
   const reportActiveTabChange = useCallback((tab: string) => {
     const nextTab = normalizeNativeTabForPlatform(tab, platformName);

@@ -19,6 +19,7 @@ import {
   readAgentPhoneProjection,
   resetAgentPhoneProjection,
 } from "../../lib/conversations/agent-phone-projection.js";
+import { resetAgentPhoneRuntime } from "../../lib/conversations/agent-phone-runtime.js";
 
 function requestedAgentId(c) {
   const value = c.req.query("agentId");
@@ -201,6 +202,10 @@ export function createDmRoute(engine, hub = null) {
         conversationType: "dm",
         visibleAfterTimestamp,
         resetBy: ownerAgentId,
+      });
+      await resetAgentPhoneRuntime({
+        agentDir: agent.agentDir,
+        conversationId: `dm:${peerId}`,
       });
       hub?.abortAgentPhoneSessions?.("dm-reset", {
         agentId: ownerAgentId,

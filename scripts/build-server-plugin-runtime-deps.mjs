@@ -15,6 +15,31 @@ function toNativeRelativePath(value) {
   return value.split("/").join(path.sep);
 }
 
+function isNodeModulesRelativePath(relativePath) {
+  return relativePath.split(/[\\/]/).includes("node_modules");
+}
+
+function packageNameFromNodeModulesPath(relativePath) {
+  const parts = relativePath.split(/[\\/]/);
+  const index = parts.indexOf("node_modules");
+  if (index < 0) return null;
+  const first = parts[index + 1];
+  if (!first) return null;
+  if (!first.startsWith("@")) return first;
+  const second = parts[index + 2];
+  return second ? `${first}/${second}` : null;
+}
+
+function hasRuntimeSourceParent(reason) {
+  if (!reason?.parents || typeof reason.parents[Symbol.iterator] !== "function") return false;
+  for (const parent of reason.parents) {
+    if (!parent) continue;
+    if (parent === "package.json") continue;
+    if (!isNodeModulesRelativePath(parent)) return true;
+  }
+  return false;
+}
+
 function isPluginRuntimeEntry(relativePath) {
   const parts = relativePath.split(/[\\/]/);
   if (parts.some((part) => IGNORED_RUNTIME_DIRS.has(part))) return false;
@@ -80,6 +105,29 @@ export async function collectBundledPluginRuntimeDependencies({
   }
 
   return [...dependencies].sort();
+}
+
+export async function collectBundledPluginPackageDependencies({ rootDir } = {}) {
+  if (!rootDir) throw new Error("[build-server] collectBundledPluginPackageDependencies requires rootDir");
+  const pluginEntries = listPluginRuntimeEntries(rootDir);
+  if (pluginEntries.length === 0) return [];
+
+  const { fileList, reasons } = await nodeFileTrace(pluginEntries, {
+    base: rootDir,
+    conditions: ["node", "import"],
+  });
+
+  const packages = new Set();
+  for (const tracedFile of fileList) {
+    const relative = toPosixPath(tracedFile);
+    const packageName = packageNameFromNodeModulesPath(relative);
+    if (!packageName) continue;
+    const reason = reasons?.get?.(tracedFile) || reasons?.get?.(relative);
+    if (!hasRuntimeSourceParent(reason)) continue;
+    packages.add(packageName);
+  }
+
+  return [...packages].sort();
 }
 
 export async function copyBundledPluginRuntimeDependencies({
