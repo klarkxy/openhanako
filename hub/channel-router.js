@@ -788,7 +788,7 @@ export class ChannelRouter {
    * 频道记忆摘要
    * 从 engine._channelMemorySummarize 搬入
    */
-  async _memorySummarize(agentId, channelName, payload) {
+  async _memorySummarize(agentId, channelName, payload, { signal } = {}) {
     const engine = this._engine;
     let factStore = null;
     let needClose = false;
@@ -805,6 +805,12 @@ export class ChannelRouter {
       const { utility: model, api_key, base_url, api } = utilCfg;
       if (!api_key || !base_url || !api) {
         log.log(`${agentId} 无 API 配置，跳过记忆摘要`);
+        return;
+      }
+
+      // 被中断时跳过摘要，避免关闭时孤儿请求报错
+      if (signal?.aborted) {
+        log.log(`${agentId} 已中断，跳过记忆摘要`);
         return;
       }
 
@@ -835,6 +841,7 @@ export class ChannelRouter {
         }],
         temperature: 0.3,
         maxTokens: 200,
+        signal,
         usageLedger: engine.usageLedger,
         usageContext: {
           source: {
@@ -866,7 +873,12 @@ export class ChannelRouter {
 
       log.log(`${agentId} memory saved (#${channelName}, ${summaryText.length} chars)`);
     } catch (err) {
-      log.error(`记忆摘要失败 (${agentId}/#${channelName}): ${err.message}`);
+      // abort / timeout 属于正常中断，不报错
+      if (err?.name === "AbortError" || err?.code === "LLM_TIMEOUT" || err?.code === "LLM_EMPTY_RESPONSE") {
+        log.log(`记忆摘要跳过 (${agentId}/#${channelName}): ${err.message || err.code}`);
+      } else {
+        log.error(`记忆摘要失败 (${agentId}/#${channelName}): ${err.message}`);
+      }
     } finally {
       if (needClose) factStore?.close?.();
     }
