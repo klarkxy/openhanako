@@ -143,8 +143,7 @@ function App() {
       {/* Input context menu (cut/copy/paste) */}
       <InputContextMenu />
 
-      {/* Selection quote action */}
-      <SelectionQuoteActionSurface />
+      {/* Selection quote action — disabled: auto-quote now handles this automatically */}
 
       {/* Toast notifications */}
       <ToastContainer />

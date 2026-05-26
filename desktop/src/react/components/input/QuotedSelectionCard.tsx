@@ -3,12 +3,22 @@ import { AttachmentChip } from '../shared/AttachmentChip';
 
 export function QuotedSelectionCard() {
   const quotedSelections = useStore(s => s.quotedSelections);
+  const autoQuotedSelection = useStore(s => s.autoQuotedSelection);
   const removeQuotedSelection = useStore(s => s.removeQuotedSelection);
+  const clearAutoQuotedSelection = useStore(s => s.clearAutoQuotedSelection);
 
-  if (quotedSelections.length === 0) return null;
+  if (quotedSelections.length === 0 && !autoQuotedSelection) return null;
 
   return (
     <>
+      {autoQuotedSelection && (
+        <AttachmentChip
+          key={`auto:${autoQuotedSelection.sourceKind}:${autoQuotedSelection.sourceFilePath || autoQuotedSelection.sourceSessionPath || ''}:${autoQuotedSelection.updatedAt || ''}`}
+          icon={<TextCursorIcon />}
+          name={autoQuotedSelection.text}
+          onRemove={() => clearAutoQuotedSelection()}
+        />
+      )}
       {quotedSelections.map((selection, index) => (
         <AttachmentChip
           key={`${selection.sourceKind}:${selection.sourceFilePath || selection.sourceSessionPath || ''}:${selection.sourceMessageId || ''}:${selection.updatedAt || index}`}

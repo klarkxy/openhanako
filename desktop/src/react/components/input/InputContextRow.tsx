@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { useStore } from '../../stores';
 import { AttachedFilesBar } from './AttachedFilesBar';
 import { QuotedSelectionCard } from './QuotedSelectionCard';
 import { TodoDisplay } from './TodoDisplay';
@@ -19,7 +20,10 @@ interface Props {
 export const InputContextRow = memo(function InputContextRow({
   attachedFiles, removeAttachedFile, hasQuotedSelection, sessionTodos, onCompleteTodos, completingTodos,
 }: Props) {
-  if (attachedFiles.length === 0 && !hasQuotedSelection && sessionTodos.length === 0) return null;
+  const autoQuotedSelection = useStore(s => s.autoQuotedSelection);
+  const hasAnyQuote = hasQuotedSelection || !!autoQuotedSelection;
+
+  if (attachedFiles.length === 0 && !hasAnyQuote && sessionTodos.length === 0) return null;
 
   return (
     <div className={styles['input-context-row']}>

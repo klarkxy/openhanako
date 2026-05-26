@@ -47,6 +47,8 @@ export interface InputSlice {
   docContextAttached: boolean;
   inputFocusTrigger: number;
   quoteCandidate: QuotedSelection | null;
+  /** 选区变化时自动同步的引用，随选区变化实时更新；选区消失后保留，直到发送或手动移除 */
+  autoQuotedSelection: QuotedSelection | null;
   quotedSelections: QuotedSelection[];
   /** @deprecated Use quotedSelections for committed quotes and quoteCandidate for transient selection UI. */
   quotedSelection: QuotedSelection | null;
@@ -63,6 +65,8 @@ export interface InputSlice {
   requestInputFocus: () => void;
   setQuoteCandidate: (sel: QuotedSelection) => void;
   clearQuoteCandidate: () => void;
+  setAutoQuotedSelection: (sel: QuotedSelection) => void;
+  clearAutoQuotedSelection: () => void;
   addQuotedSelection: (sel: QuotedSelection) => void;
   removeQuotedSelection: (index: number) => void;
   clearQuotedSelections: () => void;
@@ -97,6 +101,7 @@ export const createInputSlice = (
   docContextAttached: false,
   inputFocusTrigger: 0,
   quoteCandidate: null,
+  autoQuotedSelection: null,
   quotedSelections: [],
   quotedSelection: null,
   addAttachedFile: (file) =>
@@ -126,8 +131,10 @@ export const createInputSlice = (
     set((s) => ({ docContextAttached: !s.docContextAttached })),
   requestInputFocus: () =>
     set((s) => ({ inputFocusTrigger: s.inputFocusTrigger + 1 })),
-  setQuoteCandidate: (sel) => set({ quoteCandidate: sel }),
+  setQuoteCandidate: (sel) => set({ quoteCandidate: sel, autoQuotedSelection: sel }),
   clearQuoteCandidate: () => set({ quoteCandidate: null }),
+  setAutoQuotedSelection: (sel) => set({ autoQuotedSelection: sel }),
+  clearAutoQuotedSelection: () => set({ autoQuotedSelection: null }),
   addQuotedSelection: (sel) =>
     set((s) => {
       const quotedSelections = [...s.quotedSelections, sel];
@@ -138,8 +145,8 @@ export const createInputSlice = (
       const quotedSelections = s.quotedSelections.filter((_, i) => i !== index);
       return { quotedSelections, quotedSelection: quotedSelections[0] ?? null };
     }),
-  clearQuotedSelections: () => set({ quotedSelections: [], quotedSelection: null }),
+  clearQuotedSelections: () => set({ quotedSelections: [], quotedSelection: null, autoQuotedSelection: null }),
   setQuotedSelections: (sels) => set({ quotedSelections: sels, quotedSelection: sels[0] ?? null }),
   setQuotedSelection: (sel) => set({ quotedSelections: [sel], quotedSelection: sel }),
-  clearQuotedSelection: () => set({ quoteCandidate: null, quotedSelections: [], quotedSelection: null }),
+  clearQuotedSelection: () => set({ quoteCandidate: null, quotedSelections: [], quotedSelection: null, autoQuotedSelection: null }),
 });

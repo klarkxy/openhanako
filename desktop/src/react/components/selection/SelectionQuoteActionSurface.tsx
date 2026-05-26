@@ -19,6 +19,7 @@ export function SelectionQuoteActionSurface() {
   const quoteCandidate = useStore(s => s.quoteCandidate);
   const addQuotedSelection = useStore(s => s.addQuotedSelection);
   const clearQuoteCandidate = useStore(s => s.clearQuoteCandidate);
+  const clearAutoQuotedSelection = useStore(s => s.clearAutoQuotedSelection);
   const requestInputFocus = useStore(s => s.requestInputFocus);
   const [viewport, setViewport] = useState(() => getViewportSize());
   const [scrollTick, setScrollTick] = useState(0);
@@ -90,8 +91,9 @@ export function SelectionQuoteActionSurface() {
     if (!quoteCandidate) return;
     addQuotedSelection(quoteCandidate);
     clearQuoteCandidate();
+    clearAutoQuotedSelection();
     requestInputFocus();
-  }, [addQuotedSelection, clearQuoteCandidate, quoteCandidate, requestInputFocus]);
+  }, [addQuotedSelection, clearQuoteCandidate, clearAutoQuotedSelection, quoteCandidate, requestInputFocus]);
 
   if (!quoteCandidate || !position) return null;
 
