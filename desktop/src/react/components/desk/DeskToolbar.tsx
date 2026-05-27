@@ -25,10 +25,7 @@ export function DeskOpenButton() {
   const handleClick = useCallback(() => {
     const s = useStore.getState();
     if (!s.deskBasePath) return;
-    const target = s.deskCurrentPath
-      ? s.deskBasePath + '/' + s.deskCurrentPath
-      : s.deskBasePath;
-    window.platform?.openFolder?.(target);
+    window.platform?.openFolder?.(s.deskBasePath);
   }, []);
 
   return (
@@ -45,10 +42,7 @@ export function DeskOpenIconButton() {
   const handleClick = useCallback(() => {
     const s = useStore.getState();
     if (!s.deskBasePath) return;
-    const target = s.deskCurrentPath
-      ? s.deskBasePath + '/' + s.deskCurrentPath
-      : s.deskBasePath;
-    window.platform?.openFolder?.(target);
+    window.platform?.openFolder?.(s.deskBasePath);
   }, []);
 
   return (
@@ -88,28 +82,7 @@ export function DeskPreviewIconButton() {
 // ── 面包屑导航 ──
 
 export function DeskBreadcrumb() {
-  const deskCurrentPath = useStore(s => s.deskCurrentPath);
-
-  const handleBack = useCallback(() => {
-    const s = useStore.getState();
-    const cur = s.deskCurrentPath;
-    if (!cur) return;
-    const parent = cur.includes('/')
-      ? cur.substring(0, cur.lastIndexOf('/'))
-      : '';
-    loadDeskFiles(parent);
-  }, []);
-
-  if (!deskCurrentPath) return null;
-
-  return (
-    <div className={s.nav}>
-      <button className={s.backBtn} onClick={handleBack}>
-        <span dangerouslySetInnerHTML={{ __html: ICONS.back }} />
-        <span>{deskCurrentPath}</span>
-      </button>
-    </div>
-  );
+  return null;
 }
 
 // ── 手动刷新按钮 ──
