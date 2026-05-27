@@ -152,8 +152,10 @@ export function createSkillsRoute(engine) {
     return null;
   }
 
-  async function persistEnabledSkills(agentId, enabled) {
+  async function persistEnabledSkills(agentId, enabled, added) {
     const partial = { skills: { enabled } };
+    // 只有明确传入 added 时才写入（新增/移除操作），否则保留磁盘原值
+    if (Array.isArray(added)) partial.skills.added = added;
 
     // 走 engine.updateConfig (ConfigCoordinator)，它会在 partial.skills 存在时
     // 调用 syncAgentSkills 把新 enabled 列表同步到 agent 的内存态和 system prompt。
@@ -165,7 +167,17 @@ export function createSkillsRoute(engine) {
       const configPath = path.join(engine.agentsDir, agentId, "config.yaml");
       saveConfig(configPath, partial);
     }
-    return enabled;
+    return { enabled, added };
+  }
+
+  /** 读取 agent 当前的 added 列表；若缺失则从 enabled 推导 */
+  function resolveCurrentAdded(agentId) {
+    const agent = engine.getAgent?.(agentId);
+    const skills = agent?.config?.skills;
+    if (Array.isArray(skills?.added)) return [...skills.added];
+    // 向后兼容：无 added 字段时以 enabled 代替
+    if (Array.isArray(skills?.enabled)) return [...skills.enabled];
+    return [];
   }
 
   function visibleSkillsForAgent(agentId) {
@@ -182,17 +194,22 @@ export function createSkillsRoute(engine) {
       const { skills, visibleSet } = visibleSkillsForAgent(agentId);
       const changed = requested.filter(name => visibleSet.has(name));
       const currentEnabled = new Set(skills.filter(skill => skill.enabled).map(skill => skill.name));
+      const currentAdded = new Set(resolveCurrentAdded(agentId));
       if (enable) {
-        for (const name of changed) currentEnabled.add(name);
+        for (const name of changed) {
+          currentEnabled.add(name);
+          currentAdded.add(name);
+        }
       } else {
         for (const name of changed) currentEnabled.delete(name);
       }
       const enabled = skills
         .map(skill => skill.name)
         .filter(name => currentEnabled.has(name));
-      await persistEnabledSkills(agentId, enabled);
+      const added = [...currentAdded];
+      await persistEnabledSkills(agentId, enabled, added);
       emitAppEvent(engine, "skills-changed", { agentId });
-      return { enabled, changed };
+      return { enabled, added, changed };
     });
   }
 
@@ -303,7 +320,7 @@ export function createSkillsRoute(engine) {
     if (invalidAgent) return invalidAgent;
     try {
       const body = await safeJson(c);
-      const { enabled } = body;
+      const { enabled, added } = body;
       if (!Array.isArray(enabled)) {
         return c.json({ error: "enabled must be an array of skill names" }, 400);
       }
@@ -312,14 +329,17 @@ export function createSkillsRoute(engine) {
       // 防止前端因 store 错位（例如 agent 切换 race）把别的 agent 的列表写进来 (#397)
       const visible = engine.getAllSkills(id).map(s => s.name);
       const visibleSet = new Set(visible);
-      const filtered = enabled.filter(name => visibleSet.has(name));
+      const filteredEnabled = enabled.filter(name => visibleSet.has(name));
+      const filteredAdded = Array.isArray(added)
+        ? added.filter(name => visibleSet.has(name))
+        : undefined;
 
       const persisted = await withAgentSkillWriteLock(id, async () => {
-        await persistEnabledSkills(id, filtered);
+        await persistEnabledSkills(id, filteredEnabled, filteredAdded);
         emitAppEvent(engine, "skills-changed", { agentId: id });
-        return filtered;
+        return { enabled: filteredEnabled, added: filteredAdded };
       });
-      return c.json({ ok: true, enabled: persisted });
+      return c.json({ ok: true, ...persisted });
     } catch (err) {
       return c.json({ error: err.message }, 500);
     }
@@ -364,6 +384,62 @@ export function createSkillsRoute(engine) {
       return c.json({ ok: true, ...result });
     } catch (err) {
       return c.json({ error: err.message }, err.status || 500);
+    }
+  });
+
+  // ── 向助手添加技能（加入 added + enabled） ──
+  route.post("/agents/:id/skills/:name", async (c) => {
+    const id = c.req.param("id");
+    const invalidAgent = validateAgentIdOrResponse(c, id);
+    if (invalidAgent) return invalidAgent;
+    try {
+      const name = c.req.param("name");
+      // 检查技能是否存在于全局技能列表
+      const allSkills = engine.getAllSkills?.(id) || [];
+      const found = allSkills.find(s => s.name === name);
+      if (!found) {
+        return c.json({ error: "skill not found" }, 404);
+      }
+      const currentAdded = new Set(resolveCurrentAdded(id));
+      const currentEnabled = new Set(
+        allSkills.filter(s => s.enabled).map(s => s.name)
+      );
+      currentAdded.add(name);
+      currentEnabled.add(name);
+      const enabled = [...currentEnabled];
+      const added = [...currentAdded];
+      await persistEnabledSkills(id, enabled, added);
+      emitAppEvent(engine, "skills-changed", { agentId: id });
+      return c.json({ ok: true, enabled, added });
+    } catch (err) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  // ── 从助手移除技能（从 added + enabled 中删除） ──
+  route.delete("/agents/:id/skills/:name", async (c) => {
+    const id = c.req.param("id");
+    const invalidAgent = validateAgentIdOrResponse(c, id);
+    if (invalidAgent) return invalidAgent;
+    try {
+      const name = c.req.param("name");
+      const currentAdded = new Set(resolveCurrentAdded(id));
+      if (!currentAdded.has(name)) {
+        return c.json({ error: "skill not added to agent" }, 404);
+      }
+      const allSkills = engine.getAllSkills?.(id) || [];
+      const currentEnabled = new Set(
+        allSkills.filter(s => s.enabled).map(s => s.name)
+      );
+      currentAdded.delete(name);
+      currentEnabled.delete(name);
+      const enabled = [...currentEnabled];
+      const added = [...currentAdded];
+      await persistEnabledSkills(id, enabled, added);
+      emitAppEvent(engine, "skills-changed", { agentId: id });
+      return c.json({ ok: true, enabled, added });
+    } catch (err) {
+      return c.json({ error: err.message }, 500);
     }
   });
 
@@ -417,10 +493,12 @@ export function createSkillsRoute(engine) {
           const { loadConfig } = await import("../../lib/memory/config-loader.js");
           const cfg = loadConfig(configPath);
           const enabled = new Set(cfg?.skills?.enabled || []);
+          const added = new Set(Array.isArray(cfg?.skills?.added) ? cfg.skills.added : [...enabled]);
           enabled.add(safeName);
+          added.add(safeName);
           // 走 ConfigCoordinator 路径：写盘 + syncAgentSkills 同步内存态
           // 必须传 agentId，否则 fallback 到焦点 agent 会同步错对象 (#397)
-          await engine.updateConfig({ skills: { enabled: [...enabled] } }, { agentId });
+          await engine.updateConfig({ skills: { enabled: [...enabled], added: [...added] } }, { agentId });
         }
       }
 
@@ -572,6 +650,25 @@ export function createSkillsRoute(engine) {
     }
     const skills = engine.getAllSkills(agentId);
     return c.json(await engine.translateSkillNames(names, lang, { agentId, skills }));
+  });
+
+  // POST /skills/auto-categorize — 用 AI 自动为技能生成分类
+  route.post("/skills/auto-categorize", async (c) => {
+    const body = await safeJson(c);
+    const { agentId, lang } = body;
+    if (!agentId) {
+      return c.json({ error: "agentId is required" }, 400);
+    }
+    if (!validateId(agentId) || !agentExists(engine, agentId)) {
+      return c.json({ error: "agent not found" }, 404);
+    }
+    try {
+      const categoryMap = await engine.autoCategorizeSkills(agentId);
+      return c.json({ categories: categoryMap });
+    } catch (err) {
+      log.error(`auto-categorize failed: ${err.message}`);
+      return c.json({ error: err.message }, 500);
+    }
   });
 
   return route;

@@ -104,6 +104,7 @@ import { ChannelManager } from "./channel-manager.js";
 import {
   summarizeTitle as _summarizeTitle,
   translateSkillNames as _translateSkillNames,
+  autoCategorizeSkills as _autoCategorizeSkills,
   summarizeActivity as _summarizeActivity,
   summarizeActivityQuick as _summarizeActivityQuick,
 } from "./llm-utils.js";
@@ -1788,6 +1789,17 @@ export class HanaEngine {
         lang,
       ),
     });
+  }
+
+  /** 根据技能描述自动生成分类，持久化到 skillsDir/skill-categories.json */
+  async autoCategorizeSkills(agentId) {
+    const skills = this.getAllSkills(agentId);
+    const utilConfig = this.resolveUtilityConfig(agentId ? { agentId } : undefined);
+    const categoryMap = await _autoCategorizeSkills(utilConfig, skills);
+    if (Object.keys(categoryMap).length > 0) {
+      this._skills?.updateAiCategories(categoryMap);
+    }
+    return categoryMap;
   }
 
   async summarizeActivity(sp, preloaded, opts = {}) {

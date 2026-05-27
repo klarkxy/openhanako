@@ -22,6 +22,10 @@ interface SkillRowProps {
   onDelete?: (name: string) => void;
   /** 传了就渲染 toggle 按钮。Section 3 "Agent 配置" 传；Section 1 "技能管理" 不传。 */
   onToggle?: (name: string, enabled: boolean) => void;
+  /** 传了就渲染"添加到助手"按钮。用于"可添加的技能"列表。 */
+  onAdd?: (name: string) => void;
+  /** 传了就渲染"从助手移除"按钮。用于"已添加的技能"列表。 */
+  onRemove?: (name: string) => void;
   onDragStart?: (event: React.DragEvent<HTMLDivElement>, name: string) => void;
   onDragOver?: (event: React.DragEvent<HTMLDivElement>) => void;
   onDrop?: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -36,6 +40,8 @@ export function SkillRow({
   extraActions,
   onDelete,
   onToggle,
+  onAdd,
+  onRemove,
   onDragStart,
   onDragOver,
   onDrop,
@@ -82,6 +88,19 @@ export function SkillRow({
             </svg>
           </button>
         )}
+        {onRemove && (
+          <button
+            className={styles['skill-card-delete']}
+            type="button"
+            title="从助手移除"
+            aria-label={`移除 ${skill.name}`}
+            onClick={(e) => { e.stopPropagation(); onRemove(skill.name); }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        )}
         {onToggle && (
           <button
             className={`hana-toggle${skill.enabled ? ' on' : ''}`}
@@ -90,6 +109,19 @@ export function SkillRow({
             aria-label={skill.enabled ? `关闭 ${skill.name}` : `启用 ${skill.name}`}
             onClick={(e) => { e.stopPropagation(); onToggle(skill.name, !skill.enabled); }}
           />
+        )}
+        {onAdd && (
+          <button
+            className={styles['skill-add-btn']}
+            type="button"
+            title="添加到助手"
+            aria-label={`添加 ${skill.name}`}
+            onClick={(e) => { e.stopPropagation(); onAdd(skill.name); }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
         )}
       </div>
     </div>

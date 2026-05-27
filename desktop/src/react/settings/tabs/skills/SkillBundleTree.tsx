@@ -36,6 +36,16 @@ interface SkillBundleTreeProps {
   onReorderBundles?: (bundleIds: string[]) => void;
   onMoveSkillToBundle?: (skillName: string, bundle: SkillBundleInfo, index?: number) => void;
   onRemoveSkillFromBundles?: (skillName: string) => void;
+  /** 添加技能到助手（agent 模式下"可添加的技能"列表） */
+  onAddSkill?: (name: string) => void;
+  /** 从助手移除技能（agent 模式下"已添加的技能"列表） */
+  onRemoveSkillFromAgent?: (name: string) => void;
+  /** 是否只显示已添加到助手的技能（agent 模式过滤） */
+  addedOnly?: boolean;
+  /** 是否只显示尚未添加到助手的技能（agent 模式过滤） */
+  availableOnly?: boolean;
+  /** 是否按分类分组显示（agent 模式下有效） */
+  groupByCategory?: boolean;
 }
 
 function skillDragType() {
@@ -91,12 +101,59 @@ export function SkillBundleTree({
   onReorderBundles,
   onMoveSkillToBundle,
   onRemoveSkillFromBundles,
+  onAddSkill,
+  onRemoveSkillFromAgent,
+  addedOnly,
+  availableOnly,
+  groupByCategory,
 }: SkillBundleTreeProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const skillByName = useMemo(() => new Map(skills.map(skill => [skill.name, skill])), [skills]);
-  const bundledNames = useMemo(() => new Set(bundles.flatMap(bundle => bundle.skillNames)), [bundles]);
-  const looseSkills = skills.filter(skill => !bundledNames.has(skill.name));
-  const hasItems = bundles.length > 0 || looseSkills.length > 0;
+
+  // 根据 addedOnly / availableOnly 过滤技能
+  const filteredSkills = useMemo(() => {
+    if (addedOnly) return skills.filter(s => s.added);
+    if (availableOnly) return skills.filter(s => !s.added);
+    return skills;
+  }, [skills, addedOnly, availableOnly]);
+
+  const skillByName = useMemo(() => new Map(filteredSkills.map(skill => [skill.name, skill])), [filteredSkills]);
+
+  // 过滤 bundle：只保留含可见技能的 bundle
+  const filteredBundles = useMemo(() => {
+    if (!addedOnly && !availableOnly) return bundles;
+    const visibleNames = new Set(filteredSkills.map(s => s.name));
+    return bundles
+      .map(b => ({
+        ...b,
+        skillNames: b.skillNames.filter(n => visibleNames.has(n)),
+        skills: b.skills?.filter(s => visibleNames.has(s.name)),
+      }))
+      .filter(b => b.skillNames.length > 0);
+  }, [bundles, filteredSkills, addedOnly, availableOnly]);
+
+  const bundledNames = useMemo(() => new Set(filteredBundles.flatMap(bundle => bundle.skillNames)), [filteredBundles]);
+  const looseSkills = filteredSkills.filter(skill => !bundledNames.has(skill.name));
+  const hasItems = filteredBundles.length > 0 || looseSkills.length > 0;
+
+  // 按分类分组散装技能
+  const groupedLooseSkills = useMemo(() => {
+    if (!groupByCategory || mode !== 'agent') {
+      return [{ category: '', skills: looseSkills }];
+    }
+    const groups = new Map<string, SkillInfo[]>();
+    for (const skill of looseSkills) {
+      const cat = skill.category || '未分类';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat)!.push(skill);
+    }
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => {
+        if (a === '未分类') return 1;
+        if (b === '未分类') return -1;
+        return a.localeCompare(b, 'zh');
+      })
+      .map(([category, skills]) => ({ category, skills }));
+  }, [looseSkills, groupByCategory, mode]);
 
   const canManage = mode === 'manage';
 
@@ -287,7 +344,9 @@ export function SkillBundleTree({
                         draggable={canManage}
                         onDragStart={startSkillDrag}
                         onDelete={canManage ? onDeleteSkill : undefined}
-                        onToggle={mode === 'agent' ? onToggleSkill : undefined}
+                        onToggle={mode === 'agent' && !availableOnly ? onToggleSkill : undefined}
+                        onAdd={mode === 'agent' && availableOnly ? onAddSkill : undefined}
+                        onRemove={mode === 'agent' && addedOnly ? onRemoveSkillFromAgent : undefined}
                         onDragOver={(event) => { if (canManage) event.preventDefault(); }}
                         onDrop={(event) => dropOnBundle(event, bundle, index)}
                         className={styles['skill-bundle-child-row']}
@@ -319,17 +378,26 @@ export function SkillBundleTree({
           onDragOver={(event) => { if (canManage) event.preventDefault(); }}
           onDrop={dropOnLoose}
         >
-          {looseSkills.map(skill => (
-            <SkillRow
-              key={skill.name}
-              skill={skill}
-              nameHint={nameHints[skill.name]}
-              deletable={canManage}
-              draggable={canManage}
-              onDragStart={startSkillDrag}
-              onDelete={canManage ? onDeleteSkill : undefined}
-              onToggle={mode === 'agent' ? onToggleSkill : undefined}
-            />
+          {groupedLooseSkills.map(({ category, skills: catSkills }) => (
+            <React.Fragment key={category || '__no-category__'}>
+              {groupByCategory && mode === 'agent' && category ? (
+                <div className={styles['skill-category-header']}>{category}</div>
+              ) : null}
+              {catSkills.map(skill => (
+                <SkillRow
+                  key={skill.name}
+                  skill={skill}
+                  nameHint={nameHints[skill.name]}
+                  deletable={canManage}
+                  draggable={canManage}
+                  onDragStart={startSkillDrag}
+                  onDelete={canManage ? onDeleteSkill : undefined}
+                  onToggle={mode === 'agent' && !availableOnly ? onToggleSkill : undefined}
+                  onAdd={mode === 'agent' && availableOnly ? onAddSkill : undefined}
+                  onRemove={mode === 'agent' && addedOnly ? onRemoveSkillFromAgent : undefined}
+                />
+              ))}
+            </React.Fragment>
           ))}
           {looseSkills.length === 0 ? (
             <div className={styles['skill-bundle-empty']}>没有散装 Skill</div>

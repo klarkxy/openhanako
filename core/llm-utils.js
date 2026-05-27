@@ -205,6 +205,65 @@ export async function translateSkillNames(utilConfig, names, lang) {
 }
 
 /**
+ * 根据技能描述自动生成分类
+ * @param {object} utilConfig - resolveUtilityConfig() 结果
+ * @param {Array<{name: string, description: string, category?: string}>} skills
+ * @param {string} [lang] - 目标语言（默认 zh）
+ * @returns {Promise<{[skillName: string]: string}>}
+ */
+export async function autoCategorizeSkills(utilConfig, skills, lang = "zh") {
+  if (!skills.length) return {};
+  const LANG_LABEL = { zh: "中文", ja: "日本語", ko: "한국어", en: "English" };
+  const label = LANG_LABEL[lang] || lang;
+  try {
+    const { utility: model, api_key, base_url, api } = utilConfig;
+    if (!api_key || !base_url || !api) return {};
+
+    // 构建技能列表，包含已有分类信息
+    const skillList = skills.map(s => {
+      const item = { name: s.name, description: s.description || "(无描述)" };
+      if (s.category) item.currentCategory = s.category;
+      return item;
+    });
+
+    const text = await callLlm({
+      model, api, api_key, base_url,
+      messages: [
+        {
+          role: "system",
+          content: `You are a skill categorization assistant. Given a list of skills with names and descriptions, assign each skill to exactly one category from the following list:
+- 信息搜索 (Information Search)
+- 文本处理 (Text Processing)
+- 代码开发 (Code Development)
+- 创意写作 (Creative Writing)
+- 数据分析 (Data Analysis)
+- 系统工具 (System Tools)
+- 通信协作 (Communication)
+- 学习教育 (Learning & Education)
+- 多媒体 (Multimedia)
+- 生活助手 (Life Assistant)
+- 角色扮演 (Roleplay)
+- 其他 (Other)
+
+Output a JSON object directly where key = skill name, value = category name (in ${label}). No explanation.`,
+        },
+        { role: "user", content: JSON.stringify(skillList, null, 2) },
+      ],
+      temperature: 0.1,
+      max_tokens: 2000,
+      usageLedger: utilConfig.usageLedger,
+      usageContext: utilityUsageContext(utilConfig, "auto_categorize_skills", "tool"),
+    });
+    if (!text) return {};
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    return jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+  } catch (err) {
+    log.error(`autoCategorizeSkills 失败: ${err.message}`);
+    return {};
+  }
+}
+
+/**
  * 为活动 session 生成摘要（用 utility_large 模型）
  * @param {object} utilConfig - resolveUtilityConfig() 结果
  * @param {string} sessionPath

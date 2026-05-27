@@ -62,12 +62,17 @@ function readSkillFileMetadata(skill) {
   }
 }
 
-function decorateLoadedSkill(skill, hiddenSkills) {
+function decorateLoadedSkill(skill, hiddenSkills, aiCategories) {
   const meta = readSkillFileMetadata(skill);
   skill.defaultEnabled = meta?.defaultEnabled ?? (skill.defaultEnabled !== false);
   if (meta) {
     skill.disableModelInvocation = meta.disableModelInvocation;
     skill.lang = meta.lang || "";
+    skill.category = meta.category || "";
+  }
+  // AI 生成的分类优先于 SKILL.md 自带的 category
+  if (aiCategories && aiCategories[skill.name]) {
+    skill.category = aiCategories[skill.name];
   }
   skill._hidden = hiddenSkills.has(skill.name);
   skill.sourceIdentity = sourceIdentityForSkill(skill);
@@ -89,6 +94,7 @@ export class SkillManager {
     this._reloadDeps = null; // { resourceLoader, agents, onReloaded }
     this._externalPaths = externalPaths;
     this._externalWatchers = new Map();
+    this._aiCategories = this._loadAiCategoriesFile();
   }
 
   /** 全量 skill 列表 */
@@ -104,7 +110,7 @@ export class SkillManager {
     this._hiddenSkills = hiddenSkills;
     this._allSkills = resourceLoader.getSkills().skills;
     for (const s of this._allSkills) {
-      decorateLoadedSkill(s, hiddenSkills);
+      decorateLoadedSkill(s, hiddenSkills, this._aiCategories);
     }
     this._appendExternalSkills();
   }
@@ -124,23 +130,27 @@ export class SkillManager {
   syncAgentSkills(agent) {
     if (!agent || agent.runtimeInitialized === false || agent.needsRepair === true) return;
     const enabled = new Set(agent?.config?.skills?.enabled || []);
+    const added = this._resolveAddedSet(agent);
     const skills = this._skillsVisibleToAgent(agent, { includePlugin: true, includeWorkspace: true })
-      .filter(s => this._isRuntimeEnabledForAgent(s, enabled));
+      .filter(s => this._isRuntimeEnabledForAgent(s, enabled, added));
     agent.setEnabledSkills(skills);
   }
 
-  /** 返回全量 skill 列表（供 API 使用），附带指定 agent 的 enabled 状态。Plugin skill 不返回（UI 不显示） */
+  /** 返回全量 skill 列表（供 API 使用），附带指定 agent 的 enabled / added 状态。Plugin skill 不返回（UI 不显示） */
   getAllSkills(agent) {
     const enabled = new Set(agent?.config?.skills?.enabled || []);
+    const added = this._resolveAddedSet(agent);
     return this._skillsVisibleToAgent(agent).map(s => ({
       name: s.name,
       description: s.description,
       lang: s.lang || "",
+      category: s.category || "",
       filePath: s.filePath,
       baseDir: s.baseDir,
       source: s.source,
       hidden: !!s._hidden,
       enabled: enabled.has(s.name),
+      added: added.has(s.name),
       externalLabel: s._externalLabel || null,
       externalPath: s._externalPath || null,
       readonly: !!s._readonly,
@@ -151,15 +161,18 @@ export class SkillManager {
   /** 返回运行时 skill 列表（含 workspace skill），供 desk / slash 等 session 视图使用 */
   getRuntimeSkillInfos(agent) {
     const enabled = new Set(agent?.config?.skills?.enabled || []);
+    const added = this._resolveAddedSet(agent);
     return this._skillsVisibleToAgent(agent, { includeWorkspace: true }).map(s => ({
       name: s.name,
       description: s.description,
       lang: s.lang || "",
+      category: s.category || "",
       filePath: s.filePath,
       baseDir: s.baseDir,
       source: s._workspaceSkill ? "workspace" : s.source,
       hidden: !!s._hidden,
-      enabled: this._isRuntimeEnabledForAgent(s, enabled),
+      enabled: this._isRuntimeEnabledForAgent(s, enabled, added),
+      added: added.has(s.name),
       externalLabel: s._externalLabel || null,
       externalPath: s._externalPath || null,
       readonly: !!s._readonly,
@@ -171,23 +184,22 @@ export class SkillManager {
   /** 按 agent 过滤可用 skills，供 Pi SDK resourceLoader.getSkills() 使用 */
   getSkillsForAgent(targetAgent) {
     const enabled = new Set(targetAgent?.config?.skills?.enabled || []);
+    const added = this._resolveAddedSet(targetAgent);
     return {
       skills: this._skillsVisibleToAgent(targetAgent, { includePlugin: true, includeWorkspace: true })
-        .filter(s => this._isRuntimeEnabledForAgent(s, enabled)),
+        .filter(s => this._isRuntimeEnabledForAgent(s, enabled, added)),
       diagnostics: [],
     };
   }
 
   /**
    * 计算新建 agent 的默认 enabled skill 集合:
-   * 所有 source 不是 external 且没有 opt-out 的全局 skill name。
+   * 默认为空，需要用户手动添加技能到助手。
    * plugin/workspace 通过 _isRuntimeEnabledForAgent 的 bypass 自动启用,
    * 不需要写入 enabled 数组。
    */
   computeDefaultEnabledForNewAgent() {
-    return this._allSkills
-      .filter(s => s.source !== "external" && s.defaultEnabled !== false)
-      .map(s => s.name);
+    return [];
   }
 
   /**
@@ -202,7 +214,7 @@ export class SkillManager {
 
     this._allSkills = resourceLoader.getSkills().skills;
     for (const s of this._allSkills) {
-      decorateLoadedSkill(s, this._hiddenSkills);
+      decorateLoadedSkill(s, this._hiddenSkills, this._aiCategories);
     }
     this._appendExternalSkills();
   }
@@ -331,6 +343,10 @@ export class SkillManager {
     const existingNames = new Set(this._allSkills.map(s => s.name));
     for (const ext of this.scanExternalSkills()) {
       if (!existingNames.has(ext.name)) {
+        // AI 生成的分类优先
+        if (this._aiCategories[ext.name]) {
+          ext.category = this._aiCategories[ext.name];
+        }
         this._allSkills.push(ext);
         existingNames.add(ext.name);
       }
@@ -371,11 +387,58 @@ export class SkillManager {
     this._externalWatchers.clear();
   }
 
-  _isRuntimeEnabledForAgent(skill, enabledSet) {
-    return !!(
-      skill?._pluginSkill
-      || skill?._workspaceSkill
-      || enabledSet?.has(skill.name)
-    );
+  /** 解析 agent 的 added 集合；若 config 中无 skills.added 则从 skills.enabled 推导（向后兼容） */
+  _resolveAddedSet(agent) {
+    const raw = agent?.config?.skills?.added;
+    if (Array.isArray(raw)) return new Set(raw);
+    // 向后兼容：没有 added 字段时，以 enabled 代替
+    return new Set(agent?.config?.skills?.enabled || []);
+  }
+
+  _isRuntimeEnabledForAgent(skill, enabledSet, addedSet) {
+    // plugin/workspace skill 无条件可用
+    if (skill?._pluginSkill || skill?._workspaceSkill) return true;
+    // 如果 agent 有 added 列表，skill 必须在 added 中且在 enabled 中才可用
+    if (addedSet) {
+      return !!(addedSet.has(skill.name) && enabledSet?.has(skill.name));
+    }
+    // 没有 added 时退回旧行为：只要在 enabled 中即可
+    return !!enabledSet?.has(skill.name);
+  }
+
+  // ── AI 分类持久化 ──
+
+  /** AI 分类文件路径 */
+  get aiCategoriesPath() {
+    return path.join(this.skillsDir, "skill-categories.json");
+  }
+
+  /** 从文件加载 AI 分类映射 */
+  _loadAiCategoriesFile() {
+    try {
+      const p = this.aiCategoriesPath;
+      if (fs.existsSync(p)) {
+        return JSON.parse(fs.readFileSync(p, "utf-8"));
+      }
+    } catch (err) {
+      log.warn(`failed to load AI categories: ${err.message}`);
+    }
+    return {};
+  }
+
+  /** 更新 AI 分类并持久化，然后重新应用 */
+  updateAiCategories(map) {
+    this._aiCategories = { ...this._aiCategories, ...map };
+    try {
+      fs.writeFileSync(this.aiCategoriesPath, JSON.stringify(this._aiCategories, null, 2), "utf-8");
+    } catch (err) {
+      log.error(`failed to persist AI categories: ${err.message}`);
+    }
+    // 重新应用到所有已加载的 skill
+    for (const s of this._allSkills) {
+      if (this._aiCategories[s.name]) {
+        s.category = this._aiCategories[s.name];
+      }
+    }
   }
 }

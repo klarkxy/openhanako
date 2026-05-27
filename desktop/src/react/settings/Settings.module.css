@@ -2378,6 +2378,68 @@
     background: var(--overlay-light);
 }
 
+.skill-add-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: default;
+    border-radius: var(--radius-input, 4px);
+    opacity: 0;
+    transition: all var(--duration-fast);
+}
+
+.skills-list-item:hover .skill-add-btn {
+    opacity: 1;
+}
+
+.skill-add-btn:hover {
+    color: var(--accent);
+    background: var(--overlay-light);
+}
+
+/* 自动分组按钮 */
+.skill-auto-categorize-btn {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-input, 4px);
+    background: var(--bg-default);
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--duration-fast);
+}
+
+.skill-auto-categorize-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.skill-auto-categorize-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 分类标题 */
+.skill-category-header {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: var(--space-sm) var(--space-md) var(--space-xs);
+    border-bottom: 1px solid var(--border-subtle);
+    margin-top: var(--space-sm);
+}
+
+.skill-category-header:first-child {
+    margin-top: 0;
+}
+
 /* 来源标记 */
 .skills-source-badge {
     font-size: 0.65rem;

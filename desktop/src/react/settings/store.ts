@@ -19,6 +19,8 @@ export interface SkillInfo {
   description?: string;
   enabled: boolean;
   hidden?: boolean;
+  added?: boolean;
+  category?: string;
   baseDir?: string;
   filePath?: string;
   source?: string;

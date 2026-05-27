@@ -561,14 +561,13 @@ export class AgentManager {
     const nextEnabled = hasEnabledOverride
       ? enabledSkills
       : this._d.getSkills().computeDefaultEnabledForNewAgent();
-    if (hasEnabledOverride || nextEnabled.length > 0) {
-      try {
-        ag.updateConfig({ skills: { enabled: nextEnabled } });
-        this._d.getSkills().syncAgentSkills(ag);
-      } catch (err) {
-        await this._rollbackAgentCreation(agentDir, agentId);
-        throw err;
-      }
+    try {
+      // 始终写入 skills 配置，包含 enabled + added，确保新助手使用 opt-in 模式
+      ag.updateConfig({ skills: { enabled: nextEnabled, added: [] } });
+      this._d.getSkills().syncAgentSkills(ag);
+    } catch (err) {
+      await this._rollbackAgentCreation(agentDir, agentId);
+      throw err;
     }
     this._registerAgent(agentId, ag);
 

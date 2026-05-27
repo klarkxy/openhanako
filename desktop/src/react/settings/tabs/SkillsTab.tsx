@@ -367,6 +367,89 @@ export function SkillsTab() {
     }
   };
 
+  const addSkillToAgent = async (name: string) => {
+    const agentId = skillsViewAgentIdRef.current;
+    if (!agentId) return;
+    const snapshotAgentId = agentId;
+
+    // 乐观更新
+    const updated = skillsList.map(s => s.name === name ? { ...s, added: true, enabled: true } : s);
+    setSkillsList(updated);
+
+    try {
+      const res = await hanaFetch(`/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(name)}`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (skillsViewAgentIdRef.current === snapshotAgentId) {
+        showToast(t('settings.autoSaved'), 'success');
+        await loadSkills();
+      }
+    } catch (err: unknown) {
+      if (skillsViewAgentIdRef.current === snapshotAgentId) {
+        const reverted = skillsList.map(s => s.name === name ? { ...s, added: false, enabled: false } : s);
+        setSkillsList(reverted);
+        showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      }
+    }
+  };
+
+  const removeSkillFromAgent = async (name: string) => {
+    const agentId = skillsViewAgentIdRef.current;
+    if (!agentId) return;
+    const snapshotAgentId = agentId;
+
+    // 乐观更新
+    const updated = skillsList.map(s => s.name === name ? { ...s, added: false, enabled: false } : s);
+    setSkillsList(updated);
+
+    try {
+      const res = await hanaFetch(`/api/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (skillsViewAgentIdRef.current === snapshotAgentId) {
+        showToast(t('settings.autoSaved'), 'success');
+        await loadSkills();
+      }
+    } catch (err: unknown) {
+      if (skillsViewAgentIdRef.current === snapshotAgentId) {
+        const reverted = skillsList.map(s => s.name === name ? { ...s, added: true, enabled: true } : s);
+        setSkillsList(reverted);
+        showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      }
+    }
+  };
+
+  // AI 自动分组
+  const [categorizing, setCategorizing] = useState(false);
+  const autoCategorize = async () => {
+    const agentId = skillsViewAgentIdRef.current;
+    if (!agentId) {
+      showToast('请先选择助手', 'error');
+      return;
+    }
+    setCategorizing(true);
+    try {
+      const res = await hanaFetch('/api/skills/auto-categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const count = Object.keys(data.categories || {}).length;
+      showToast(`已为 ${count} 个技能生成分类`, 'success');
+      await loadSkills();
+    } catch (err: unknown) {
+      showToast('自动分组失败: ' + (err instanceof Error ? err.message : String(err)), 'error');
+    } finally {
+      setCategorizing(false);
+    }
+  };
+
   const toggleBundle = async (bundle: SkillBundleInfo, enable: boolean) => {
     const agentId = skillsViewAgentIdRef.current;
     if (!agentId) return;
@@ -497,21 +580,29 @@ export function SkillsTab() {
       {/* Section 2: 全局能力（子组件，保持原样） */}
       <SkillCapabilities installCfg={skillInstallCfg} />
 
-      {/* Section 3A: Agent Skills 开关（per-Agent 开关）
-       * AgentSelect 作为 section context；skill list 直接作为 section body children，
-       * 由 SettingsSection 白卡承担卡片视觉，避免卡中卡 */}
+      {/* Section 3A: Agent Skills — 已添加的技能（开关 + 移除） */}
       <SettingsSection
         title={t('settings.skills.userSkillsTitle')}
         context={
-          <AgentSelect
-            value={skillsViewAgentId}
-            onChange={setSkillsViewAgentId}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+            <AgentSelect
+              value={skillsViewAgentId}
+              onChange={setSkillsViewAgentId}
+            />
+            <button
+              className={styles['skill-auto-categorize-btn']}
+              onClick={autoCategorize}
+              disabled={categorizing || !skillsViewAgentId}
+              title="用 AI 根据技能功能自动分组"
+            >
+              {categorizing ? '分组中…' : '自动分组'}
+            </button>
+          </div>
         }
       >
-        {userSkills.length === 0 && skillBundles.length === 0 ? (
+        {userSkills.filter(s => s.added).length === 0 ? (
           <p className={styles['agent-skill-empty']} style={{ padding: 'var(--space-md)', margin: 0 }}>
-            {t('settings.skills.noUser')}
+            暂无已添加的技能，从下方"可添加的技能"中添加
           </p>
         ) : (
           <SkillBundleTree
@@ -519,9 +610,32 @@ export function SkillsTab() {
             bundles={skillBundles}
             skills={userSkills}
             nameHints={nameHints}
-            emptyText={t('settings.skills.noUser')}
+            emptyText="暂无已添加的技能"
             onToggleSkill={toggleSkill}
             onToggleBundle={toggleBundle}
+            onRemoveSkillFromAgent={removeSkillFromAgent}
+            addedOnly
+            groupByCategory
+          />
+        )}
+      </SettingsSection>
+
+      {/* Section 3B: 可添加的技能（添加按钮） */}
+      <SettingsSection title="可添加的技能">
+        {userSkills.filter(s => !s.added).length === 0 ? (
+          <p className={styles['agent-skill-empty']} style={{ padding: 'var(--space-md)', margin: 0 }}>
+            所有技能已添加
+          </p>
+        ) : (
+          <SkillBundleTree
+            mode="agent"
+            bundles={skillBundles}
+            skills={userSkills}
+            nameHints={nameHints}
+            emptyText="所有技能已添加"
+            onAddSkill={addSkillToAgent}
+            availableOnly
+            groupByCategory
           />
         )}
       </SettingsSection>
