@@ -2138,7 +2138,7 @@
       "keyDesc": "キー名（key の場合必須）、例：Enter、Escape、Tab、Control+a",
       "expressionDesc": "JavaScript 式（evaluate の場合必須）",
       "timeoutDesc": "タイムアウトのミリ秒数（wait の場合オプション、デフォルト 5000）",
-      "stateDesc": "待機状態（wait の場合オプション）：domcontentloaded / idle",
+      "stateDesc": "待機状態（wait の場合オプション）：stable（デフォルト、DOMレンダリング安定待ち、SPA対応）/ domcontentloaded / load",
       "pressEnterDesc": "入力後に Enter を押す（type の場合オプション）"
     },
     "channel": {

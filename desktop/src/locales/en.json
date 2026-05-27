@@ -2169,7 +2169,7 @@
       "keyDesc": "Key name (required for key), e.g. Enter, Escape, Tab, Control+a",
       "expressionDesc": "JavaScript expression (required for evaluate)",
       "timeoutDesc": "Timeout in milliseconds (optional for wait, default 5000)",
-      "stateDesc": "Wait state (optional for wait): domcontentloaded / idle",
+      "stateDesc": "Wait state (optional for wait): stable (default, waits for DOM to stabilize, ideal for SPAs) / domcontentloaded / load",
       "pressEnterDesc": "Press Enter after typing (optional for type)"
     },
     "channel": {

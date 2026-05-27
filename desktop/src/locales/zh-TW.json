@@ -2138,7 +2138,7 @@
       "keyDesc": "按鍵名（key 時必填），如 Enter、Escape、Tab、Control+a",
       "expressionDesc": "JavaScript 表達式（evaluate 時必填）",
       "timeoutDesc": "逾時毫秒數（wait 時可選，預設 5000）",
-      "stateDesc": "等待狀態（wait 時可選）：domcontentloaded / idle",
+      "stateDesc": "等待狀態（wait 時可選）：stable（預設，等 DOM 渲染穩定，適用於 SPA）/ domcontentloaded / load",
       "pressEnterDesc": "輸入後按 Enter（type 時可選）"
     },
     "channel": {

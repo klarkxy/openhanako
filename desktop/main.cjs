@@ -1863,6 +1863,80 @@ function _delay(ms) {
   return new Promise(function(r) { setTimeout(r, ms); });
 }
 
+/**
+ * 等待页面 DOM 渲染稳定（适用于 Vue/React 等 SPA）。
+ * 轮询 DOM 节点数，连续 stableThreshold 次不变则认为稳定。
+ * @param {Electron.WebContents} wc
+ * @param {{ timeout?: number, interval?: number, stableThreshold?: number }} opts
+ */
+function _waitForDomStable(wc, opts) {
+  const timeout = (opts && opts.timeout) || 8000;
+  const interval = (opts && opts.interval) || 200;
+  const stableThreshold = (opts && opts.stableThreshold) || 3;
+  const start = Date.now();
+  let lastCount = -1;
+  let stable = 0;
+  return new Promise(function(resolve) {
+    function poll() {
+      if (Date.now() - start >= timeout) { resolve(); return; }
+      wc.executeJavaScript("document.querySelectorAll('*').length").then(function(count) {
+        if (count === lastCount) {
+          stable++;
+          if (stable >= stableThreshold) { resolve(); return; }
+        } else {
+          stable = 0;
+          lastCount = count;
+        }
+        setTimeout(poll, interval);
+      }).catch(function() {
+        // executeJavaScript 失败时继续轮询（页面可能还在加载中）
+        setTimeout(poll, interval);
+      });
+    }
+    // 首次延迟，给页面一个初始渲染窗口
+    setTimeout(poll, Math.min(interval, 300));
+  });
+}
+
+/**
+ * 根据 state 参数执行不同的等待策略。
+ * @param {Electron.WebContents} wc
+ * @param {string} state - 等待状态: domcontentloaded | load | stable
+ * @param {number} timeout - 最大等待时间 (ms)
+ */
+async function _waitForState(wc, state, timeout) {
+  switch (state) {
+    case "load": {
+      // 等待 document.readyState === 'complete' 或超时
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const ready = await wc.executeJavaScript("document.readyState").catch(function() { return "loading"; });
+        if (ready === "complete" || ready === "interactive") break;
+        await _delay(150);
+      }
+      break;
+    }
+    case "domcontentloaded": {
+      // 等待 document.readyState !== 'loading'
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const ready = await wc.executeJavaScript("document.readyState").catch(function() { return "loading"; });
+        if (ready !== "loading") break;
+        await _delay(100);
+      }
+      break;
+    }
+    case "stable":
+    default: {
+      // DOM 稳定性轮询：适用于 Vue/React SPA
+      await _waitForDomStable(wc, { timeout: timeout });
+      // 微等一帧确保渲染管线完成
+      await _delay(150);
+      break;
+    }
+  }
+}
+
 function _updateBrowserViewBounds() {
   if (!_browserWebView || !browserViewerWindow || browserViewerWindow.isDestroyed()) return;
   const [width, height] = browserViewerWindow.getContentSize();
@@ -1969,7 +2043,8 @@ async function handleBrowserCommand(cmd, params) {
             reject(new Error(`Search navigation timed out after ${NAV_TIMEOUT / 1000}s: ${searchUrl}`));
           }, NAV_TIMEOUT)),
         ]);
-        await _delay(800);
+        await _waitForDomStable(view.webContents, { timeout: 6000 });
+        await _delay(200);
         const extracted = await view.webContents.executeJavaScript(
           buildBrowserSearchExtractionScript(provider, maxResults),
         );
@@ -2151,7 +2226,9 @@ async function handleBrowserCommand(cmd, params) {
             reject(new Error(`Navigation timed out after ${NAV_TIMEOUT / 1000}s: ${params.url}`));
           }, NAV_TIMEOUT)),
         ]);
-        await _delay(500);
+        // 等待 SPA 渲染稳定（Vue/React 等），替代原来的盲等 _delay(500)
+        await _waitForDomStable(wc, { timeout: 8000 });
+        await _delay(200);
         const snap = await wc.executeJavaScript(SNAPSHOT_SCRIPT);
         return { url: snap.currentUrl, title: snap.title, snapshot: snap.text };
       });
@@ -2271,7 +2348,8 @@ async function handleBrowserCommand(cmd, params) {
     case "wait": {
       return await _withLiveWebContents(params.sessionPath, async (wc) => {
         const timeout = Math.min(params.timeout || 5000, 10000);
-        await _delay(timeout);
+        const state = params.state || "stable";
+        await _waitForState(wc, state, timeout);
         const snap = await wc.executeJavaScript(SNAPSHOT_SCRIPT);
         return { currentUrl: snap.currentUrl, text: snap.text };
       });
