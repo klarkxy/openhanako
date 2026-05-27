@@ -36,6 +36,31 @@ describe("provider payload snapshots", () => {
     expect(payload.messages[2].content[0].cache_control).toEqual({ type: "ephemeral" });
   });
 
+  it("marks MiniMax Anthropic-compatible model messages with cache_control", () => {
+    const payload = normalizeProviderPayload({
+      model: "MiniMax-M2.7",
+      system: "stable system prompt",
+      messages: [
+        { role: "user", content: "first" },
+        { role: "assistant", content: [{ type: "text", text: "middle" }] },
+        { role: "user", content: "second" },
+      ],
+      max_tokens: 4096,
+    }, {
+      id: "MiniMax-M2.7",
+      provider: "minimax",
+      api: "anthropic-messages",
+      baseUrl: "https://api.minimaxi.com/anthropic",
+      compat: { supportsDeveloperRole: false, thinkingFormat: "anthropic" },
+    }, { mode: "utility" });
+
+    // system prompt gets cache_control
+    expect(payload.system[payload.system.length - 1].cache_control).toEqual({ type: "ephemeral" });
+    // last 2 user messages get cache_control
+    expect(payload.messages[0].content[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(payload.messages[2].content[0].cache_control).toEqual({ type: "ephemeral" });
+  });
+
   it("keeps final chat payload contracts stable across representative providers", () => {
     const payloads = Object.fromEntries([
       normalizeChatPayload(
