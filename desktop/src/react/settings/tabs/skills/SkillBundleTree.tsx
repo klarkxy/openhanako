@@ -133,15 +133,21 @@ export function SkillBundleTree({
 
   const bundledNames = useMemo(() => new Set(filteredBundles.flatMap(bundle => bundle.skillNames)), [filteredBundles]);
   const looseSkills = filteredSkills.filter(skill => !bundledNames.has(skill.name));
-  const hasItems = filteredBundles.length > 0 || looseSkills.length > 0;
 
-  // 按分类分组散装技能
-  const groupedLooseSkills = useMemo(() => {
+  // agent 模式下按分类分组时，拆开 bundle，所有技能统一按分类分组
+  const unwrapBundles = groupByCategory && mode === 'agent';
+  const categorySourceSkills = unwrapBundles ? filteredSkills : looseSkills;
+  const hasItems = unwrapBundles
+    ? filteredSkills.length > 0
+    : filteredBundles.length > 0 || looseSkills.length > 0;
+
+  // 按分类分组技能
+  const groupedSkills = useMemo(() => {
     if (!groupByCategory || mode !== 'agent') {
-      return [{ category: '', skills: looseSkills }];
+      return [{ category: '', skills: categorySourceSkills }];
     }
     const groups = new Map<string, SkillInfo[]>();
-    for (const skill of looseSkills) {
+    for (const skill of categorySourceSkills) {
       const cat = skill.category || '未分类';
       if (!groups.has(cat)) groups.set(cat, []);
       groups.get(cat)!.push(skill);
@@ -153,7 +159,7 @@ export function SkillBundleTree({
         return a.localeCompare(b, 'zh');
       })
       .map(([category, skills]) => ({ category, skills }));
-  }, [looseSkills, groupByCategory, mode]);
+  }, [categorySourceSkills, groupByCategory, mode]);
 
   const canManage = mode === 'manage';
 
@@ -243,7 +249,8 @@ export function SkillBundleTree({
       ) : null}
 
       <div className={styles['skills-list-block']}>
-        {bundles.map((bundle) => {
+        {/* agent 模式下按分类分组时，拆开 bundle，所有技能统一按分类分组 */}
+        {unwrapBundles ? null : filteredBundles.map((bundle) => {
           const isExpanded = expanded[bundle.id] === true;
           const state = bundleEnabledState(bundle, skillByName);
           return (
@@ -378,7 +385,7 @@ export function SkillBundleTree({
           onDragOver={(event) => { if (canManage) event.preventDefault(); }}
           onDrop={dropOnLoose}
         >
-          {groupedLooseSkills.map(({ category, skills: catSkills }) => (
+          {groupedSkills.map(({ category, skills: catSkills }) => (
             <React.Fragment key={category || '__no-category__'}>
               {groupByCategory && mode === 'agent' && category ? (
                 <div className={styles['skill-category-header']}>{category}</div>
@@ -399,8 +406,10 @@ export function SkillBundleTree({
               ))}
             </React.Fragment>
           ))}
-          {looseSkills.length === 0 ? (
-            <div className={styles['skill-bundle-empty']}>没有散装 Skill</div>
+          {categorySourceSkills.length === 0 ? (
+            <div className={styles['skill-bundle-empty']}>
+              {unwrapBundles ? emptyText : '没有散装 Skill'}
+            </div>
           ) : null}
         </div>
       </div>
