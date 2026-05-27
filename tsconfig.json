@@ -12,6 +12,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@hana/plugin-protocol": ["packages/plugin-protocol/src/index.ts"],
       "@hana/plugin-sdk": ["packages/plugin-sdk/src/index.ts"],
