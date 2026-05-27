@@ -929,6 +929,90 @@ export class Agent {
   }
 
   /**
+   * 动态构建 Web Tool Priority 区段。
+   * 检测已安装的插件 / MCP 搜索工具，按优先级排列：
+   *   插件搜索工具 → MCP 搜索工具 → 内置 web_search → web_fetch → browser（兜底）
+   * 当高层工具失败（配额用尽、API 错误、超时）时，自动降级到下一层。
+   */
+  _buildWebToolPrioritySection() {
+    const items = [];
+
+    // ── 1. 插件搜索工具（最高优先级） ──
+    const pluginManager = this._cb?.getEngine?.()?.pluginManager;
+    if (pluginManager) {
+      const allPluginTools = pluginManager.getAllTools();
+      // 已知搜索插件前缀 → 工具列表（保持插件自定顺序）
+      const SEARCH_PLUGIN_IDS = ["zhihu-search", "multi-search-engine"];
+      // 管理类工具前缀 → 不应出现在搜索优先级列表中
+      const NON_SEARCH_PREFIXES = /^(set_|configure_|query_.*quota|manage_|update_|delete_|create_)/i;
+      // 按插件分组，保持插件内部声明的工具顺序
+      const pluginToolMap = new Map();
+      for (const tool of allPluginTools) {
+        const pid = tool._pluginId;
+        if (!pid) continue;
+        // 排除管理类工具（如 set_zhihu_api_key、query_zhihu_quota）
+        if (NON_SEARCH_PREFIXES.test(tool.name)) continue;
+        // 检测搜索工具：已知搜索插件 或 名称含搜索相关关键词
+        const isSearchTool = SEARCH_PLUGIN_IDS.includes(pid)
+          || /search|zhida|hot_list/i.test(tool.name);
+        if (isSearchTool) {
+          if (!pluginToolMap.has(pid)) pluginToolMap.set(pid, []);
+          pluginToolMap.get(pid).push(tool);
+        }
+      }
+      // 截断长描述，避免撑爆 system prompt
+      const shortDesc = (d, fallback) => (d && d.length > 80 ? d.slice(0, 77) + "..." : d) || fallback;
+      // 按已知优先级排列插件，未知插件追加到末尾
+      for (const knownId of SEARCH_PLUGIN_IDS) {
+        const tools = pluginToolMap.get(knownId);
+        if (!tools) continue;
+        pluginToolMap.delete(knownId);
+        for (const t of tools) {
+          items.push({ name: t.name, desc: shortDesc(t.description, `Plugin search: ${t.name}`), tier: "plugin" });
+        }
+      }
+      for (const [, tools] of pluginToolMap) {
+        for (const t of tools) {
+          items.push({ name: t.name, desc: shortDesc(t.description, `Plugin search: ${t.name}`), tier: "plugin" });
+        }
+      }
+    }
+
+    // ── 2. MCP 搜索工具 ──
+    const mcpConnectors = this._config?.mcp?.connectors || {};
+    for (const [connectorId, connector] of Object.entries(mcpConnectors)) {
+      if (!connector.enabled) continue;
+      const toolMap = connector.tools || {};
+      for (const [toolKey, enabled] of Object.entries(toolMap)) {
+        if (!enabled) continue;
+        // 检测搜索相关工具
+        if (/search|web_search/i.test(toolKey)) {
+          const fullName = `${connectorId}_${toolKey}`;
+          items.push({ name: fullName, desc: `MCP ${connectorId} search`, tier: "mcp" });
+        }
+      }
+    }
+
+    // ── 3. 内置工具（兜底） ──
+    items.push({ name: "web_search", desc: "Built-in web search (Bing/Google/DuckDuckGo API)", tier: "builtin" });
+    items.push({ name: "web_fetch", desc: "Known URL → extract page text. Simple scraping must use this", tier: "builtin" });
+    items.push({ name: "browser", desc: "Last resort: login/auth, form interaction, JS-rendered pages, or visual layout needed", tier: "builtin" });
+
+    // ── 组装 prompt ──
+    const lines = ["\n## Web Tool Priority\n\n"];
+    lines.push("When fetching web information, choose tools in this priority order:\n");
+    items.forEach((item, i) => {
+      lines.push(`${i + 1}. **${item.name}** — ${item.desc}\n`);
+    });
+    lines.push("\n**Fallback**: If a tool fails (quota exhausted, API error, timeout, empty results), ");
+    lines.push("try the NEXT tool in the list. Do NOT skip to the browser unless all search/fetch tools above it have failed.\n\n");
+    lines.push("**Browser is expensive** — it opens a window and interrupts the user. ");
+    lines.push("Only use it as a last resort or when the user explicitly asks to open a webpage.\n");
+
+    return lines.join("");
+  }
+
+  /**
    * 组装 system prompt
    * @param {object} [options]
    * @param {boolean} [options.forSubagent] - 为 subagent 构造的轻量 prompt：
@@ -1097,14 +1181,8 @@ export class Agent {
       "The cost of pausing to confirm is low; the cost of an unwanted action can be very high."
     );
 
-    // 网页工具选择优先级（跨工具编排，工具 description 里放不下）
-    parts.push("\n## Web Tool Priority\n\n" +
-      "When fetching web information, choose tools in this order:\n" +
-      "1. **web_search** — Find information, get URLs. Most \"look up XX\" requests are handled by this alone\n" +
-      "2. **web_fetch** — Known URL, need to extract page text. Simple scraping must use this\n" +
-      "3. **browser** — Only use when: the page requires login/authentication, form filling or click interaction is needed, web_fetch returns empty or incomplete content (JS-rendered pages), or you need to see visual layout\n\n" +
-      "**Do not** launch the browser when web_search or web_fetch can do the job. Browser startup is expensive and opens a window that interrupts the user."
-    );
+    // 网页工具选择优先级（动态检测插件/MCP 搜索工具，跨工具编排）
+    parts.push(this._buildWebToolPrioritySection());
 
     // 设置工具路由只在工具可用时注入，用户关闭后 prompt 层也消失。
     const disabledTools = Array.isArray(this._config?.tools?.disabled) ? this._config.tools.disabled : [];
