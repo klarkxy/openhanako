@@ -47,7 +47,7 @@ export interface InputSlice {
   docContextAttached: boolean;
   inputFocusTrigger: number;
   quoteCandidate: QuotedSelection | null;
-  /** 选区变化时自动同步的引用，随选区变化实时更新；选区消失后保留，直到发送或手动移除 */
+  /** 选区变化时自动同步的引用，随选区变化实时更新；选区取消时自动清除 */
   autoQuotedSelection: QuotedSelection | null;
   quotedSelections: QuotedSelection[];
   /** @deprecated Use quotedSelections for committed quotes and quoteCandidate for transient selection UI. */
@@ -132,7 +132,7 @@ export const createInputSlice = (
   requestInputFocus: () =>
     set((s) => ({ inputFocusTrigger: s.inputFocusTrigger + 1 })),
   setQuoteCandidate: (sel) => set({ quoteCandidate: sel, autoQuotedSelection: sel }),
-  clearQuoteCandidate: () => set({ quoteCandidate: null }),
+  clearQuoteCandidate: () => set({ quoteCandidate: null, autoQuotedSelection: null }),
   setAutoQuotedSelection: (sel) => set({ autoQuotedSelection: sel }),
   clearAutoQuotedSelection: () => set({ autoQuotedSelection: null }),
   addQuotedSelection: (sel) =>
