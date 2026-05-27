@@ -4,6 +4,7 @@ import {
   filterAgentPhoneTools,
   getAgentPhoneSessionDir,
   isAgentPhoneSessionPath,
+  shouldCompactAgentPhoneSession,
   shouldReuseAgentPhoneSession,
 } from "../lib/conversations/agent-phone-session.js";
 
