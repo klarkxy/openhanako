@@ -142,6 +142,7 @@ export function matches(model) {
   if (!model || typeof model !== "object") return false;
   if (lower(model.api) !== "anthropic-messages") return false;
   if (lower(model.provider) === "anthropic") return true;
+  if (lower(model.provider) === "minimax") return true;
   if (lower(model.id).startsWith("claude-")) return true;
   return model.compat?.cacheControlFormat === "anthropic";
 }

@@ -7,6 +7,7 @@ import {
   getThinkingFormat,
   getReasoningProfile,
 } from "../core/provider-compat.js";
+import { matches as anthropicCacheMatches } from "../core/provider-compat/anthropic.js";
 import {
   resolveOutputBudgetPolicy,
   resolveOutputCapCapability,
@@ -24,6 +25,58 @@ describe("isAnthropicModel", () => {
   it("匹配 anthropic provider", () => {
     expect(isAnthropicModel({ provider: "anthropic" })).toBe(true);
     expect(isAnthropicModel({ provider: "openai" })).toBe(false);
+  });
+});
+
+describe("anthropic cache_control matches", () => {
+  it("匹配 anthropic provider", () => {
+    expect(anthropicCacheMatches({ provider: "anthropic", api: "anthropic-messages" })).toBe(true);
+  });
+
+  it("匹配 minimax provider", () => {
+    expect(anthropicCacheMatches({
+      id: "MiniMax-M2.7",
+      provider: "minimax",
+      api: "anthropic-messages",
+    })).toBe(true);
+  });
+
+  it("匹配 claude-* 模型 id", () => {
+    expect(anthropicCacheMatches({
+      id: "claude-opus-4-7",
+      provider: "custom-proxy",
+      api: "anthropic-messages",
+    })).toBe(true);
+  });
+
+  it("匹配 compat.cacheControlFormat = anthropic", () => {
+    expect(anthropicCacheMatches({
+      id: "custom-model",
+      provider: "custom-provider",
+      api: "anthropic-messages",
+      compat: { cacheControlFormat: "anthropic" },
+    })).toBe(true);
+  });
+
+  it("不匹配非 anthropic-messages API", () => {
+    expect(anthropicCacheMatches({
+      id: "MiniMax-M2.7",
+      provider: "minimax",
+      api: "openai-completions",
+    })).toBe(false);
+  });
+
+  it("不匹配无显式声明的第三方 provider", () => {
+    expect(anthropicCacheMatches({
+      id: "custom-model",
+      provider: "custom-provider",
+      api: "anthropic-messages",
+    })).toBe(false);
+  });
+
+  it("容忍 null/undefined model", () => {
+    expect(anthropicCacheMatches(null)).toBe(false);
+    expect(anthropicCacheMatches(undefined)).toBe(false);
   });
 });
 
