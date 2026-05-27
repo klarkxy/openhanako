@@ -15,7 +15,7 @@ import { isImageFile, isVideoFile } from '../utils/format';
 import { fetchConfig } from '../hooks/use-config';
 import { useI18n } from '../hooks/use-i18n';
 import { ensureSession, loadSessions } from '../stores/session-actions';
-import { loadDeskFiles, searchDeskFiles, toggleJianSidebar } from '../stores/desk-actions';
+import { revealDeskDirectory, searchDeskFiles, toggleJianSidebar } from '../stores/desk-actions';
 import { getWebSocket } from '../services/websocket';
 import { collectUiContext } from '../utils/ui-context';
 import { formatQuotedSelectionForPrompt } from '../utils/quoted-selection';
@@ -1131,7 +1131,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const handleSlashResultClick = useCallback(() => {
     if (!slashResult?.deskDir) return;
     toggleJianSidebar(true);
-    loadDeskFiles('', slashResult.deskDir);
+    void revealDeskDirectory(slashResult.deskDir);
   }, [slashResult?.deskDir]);
 
   const handleCompleteTodos = useCallback(async () => {

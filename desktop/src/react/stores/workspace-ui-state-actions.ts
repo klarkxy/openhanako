@@ -17,6 +17,7 @@ interface PersistedPreviewTab {
 
 export interface PersistedWorkspaceUiState {
   updatedAt?: number;
+  /** Legacy read-only field from the old folder-navigation desk. New writes omit it. */
   deskCurrentPath?: string;
   deskExpandedPaths?: string[];
   deskSelectedPath?: string;
@@ -103,7 +104,6 @@ export function buildPersistedWorkspaceUiState(root: string): PersistedWorkspace
     : (openTabs[0] || null);
 
   return {
-    deskCurrentPath: normalizeSubdir(state.deskCurrentPath),
     deskExpandedPaths: [...(state.deskExpandedPaths || [])].map(normalizeSubdir).filter(Boolean),
     deskSelectedPath: normalizeSubdir(state.deskSelectedPath),
     rightWorkspaceTab: state.rightWorkspaceTab,
