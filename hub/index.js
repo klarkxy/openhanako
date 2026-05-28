@@ -14,6 +14,7 @@
 
 import path from "path";
 import fs from "fs";
+import os from "os";
 import crypto from "crypto";
 import { EventBus } from "./event-bus.js";
 import { ChannelRouter } from "./channel-router.js";
@@ -174,6 +175,14 @@ export class Hub {
       displayMessage,
     } = opts;
     const o = { sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, from, to, onDelta, images, imageAttachmentPaths, videos, videoAttachmentPaths, inboundFiles, sessionPath, agentId, bridgeAudience, uiContext, displayMessage };
+
+    // ── DEBUG: 验证引用文本是否在 hub.send 入口处存在 ──
+    try {
+      if (text && text.includes("引用原文")) {
+        const logFile = path.join(this._engine.hanakoHome || os.homedir(), "logs", "quote-debug.log");
+        fs.appendFileSync(logFile, `[${new Date().toISOString()}] QUOTE FOUND in hub.send (text): ${text.slice(0, 800)}\n\n`);
+      }
+    } catch (_e) { /* best-effort debug log */ }
 
     // ── 图片预处理：持久化到磁盘 + 插入 [attached_image] 标记 ──
     // 在路由之前统一处理，所有消息路径（WS / Bridge DM / Bridge Group）共享

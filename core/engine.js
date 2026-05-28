@@ -1188,6 +1188,37 @@ export class HanaEngine {
         pi.on("before_provider_request", (event, ctx) => {
           const p = event.payload;
           if (!p) return p;
+
+          // ── DEBUG: 验证引用文本是否到达 LLM API 请求 ──
+          try {
+            const input = p.input;
+            if (Array.isArray(input)) {
+              for (const item of input) {
+                if (item.role === "user" && Array.isArray(item.content)) {
+                  for (const block of item.content) {
+                    if (block.type === "input_text" && block.text && block.text.includes("引用原文")) {
+                      const logFile = path.join(this._hanakoHome || os.homedir(), "logs", "quote-debug.log");
+                      fs.appendFileSync(logFile, `[${new Date().toISOString()}] QUOTE FOUND in before_provider_request: ${block.text.slice(0, 500)}\n\n`);
+                    }
+                  }
+                }
+              }
+            }
+            // Also check OpenAI Chat format (messages array)
+            const messages = p.messages;
+            if (Array.isArray(messages)) {
+              for (const item of messages) {
+                if (item.role === "user") {
+                  const text = typeof item.content === "string" ? item.content : JSON.stringify(item.content);
+                  if (text.includes("引用原文")) {
+                    const logFile = path.join(this._hanakoHome || os.homedir(), "logs", "quote-debug.log");
+                    fs.appendFileSync(logFile, `[${new Date().toISOString()}] QUOTE FOUND in before_provider_request (chat format): ${text.slice(0, 500)}\n\n`);
+                  }
+                }
+              }
+            }
+          } catch (_e) { /* best-effort debug log */ }
+
           const requestModel = ctx?.model
             || findUniqueModelById(this._models.availableModels, p.model)
             || null;

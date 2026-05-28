@@ -19,6 +19,8 @@
  * @returns {Promise<{ text: string | null, toolMedia: string[] }>}
  */
 import path from "path";
+import fs from "fs";
+import os from "os";
 import { extOfName, inferFileKind } from "../lib/file-metadata.js";
 import { collectMediaItems } from "../lib/tools/media-details.js";
 import { formatSettingsUpdateText } from "../lib/tools/settings-update-result.js";
@@ -120,6 +122,14 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
 
     promptText = addAttachedImageMarkers(promptText, promptImageAttachmentPaths);
     promptText = addAttachedVideoMarkers(promptText, promptVideoAttachmentPaths);
+
+    // ── DEBUG: 验证引用文本是否在提交时存在 ──
+    try {
+      if (promptText.includes("引用原文")) {
+        const logFile = path.join(engine.hanakoHome || os.homedir(), "logs", "quote-debug.log");
+        fs.appendFileSync(logFile, `[${new Date().toISOString()}] QUOTE FOUND in desktop-session-submit (promptText): ${promptText.slice(0, 800)}\n\n`);
+      }
+    } catch (_e) { /* best-effort debug log */ }
 
     let captured = "";
     const toolMedia = [];
