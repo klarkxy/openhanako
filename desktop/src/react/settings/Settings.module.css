@@ -2091,6 +2091,7 @@
     gap: var(--space-sm);
     padding: 0.62rem var(--space-md);
     background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
     transition: background var(--duration-fast);
 }
 
@@ -2151,7 +2152,6 @@
 }
 
 .skill-bundle-children {
-    border-top: 1px solid var(--border);
     background: color-mix(in srgb, var(--bg-card) 94%, var(--bg-hover));
 }
 

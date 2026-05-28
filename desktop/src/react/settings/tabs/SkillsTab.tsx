@@ -540,7 +540,20 @@ export function SkillsTab() {
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="skills">
 
       {/* Section 1: 管理技能 — Dropzone 虚线卡 + skill list 实线卡都自带视觉，flush 不再套白卡 */}
-      <SettingsSection title={t('settings.skills.manageTitle')} variant="flush">
+      <SettingsSection
+        title={t('settings.skills.manageTitle')}
+        variant="flush"
+        context={
+          <button
+            className={styles['skill-auto-categorize-btn']}
+            onClick={autoCategorize}
+            disabled={categorizing || !skillsViewAgentId}
+            title="用 AI 根据技能功能自动分组"
+          >
+            {categorizing ? '分组中…' : '自动分组'}
+          </button>
+        }
+      >
         <div
           className={styles['skills-dropzone']}
           onClick={installSkill}
@@ -584,20 +597,10 @@ export function SkillsTab() {
       <SettingsSection
         title={t('settings.skills.userSkillsTitle')}
         context={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
-            <AgentSelect
-              value={skillsViewAgentId}
-              onChange={setSkillsViewAgentId}
-            />
-            <button
-              className={styles['skill-auto-categorize-btn']}
-              onClick={autoCategorize}
-              disabled={categorizing || !skillsViewAgentId}
-              title="用 AI 根据技能功能自动分组"
-            >
-              {categorizing ? '分组中…' : '自动分组'}
-            </button>
-          </div>
+          <AgentSelect
+            value={skillsViewAgentId}
+            onChange={setSkillsViewAgentId}
+          />
         }
       >
         {userSkills.filter(s => s.added).length === 0 ? (
