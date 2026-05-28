@@ -77,7 +77,7 @@ describe("CompactionGuardExtension", () => {
         originalBytes: 200_000,
       });
       const res = await pi.trigger("tool_result", {
-        toolName: "read",
+        toolName: "web_fetch",
         isError: false,
         content: [{ type: "text", text: "x".repeat(200_000) }],
       });
@@ -112,7 +112,7 @@ describe("CompactionGuardExtension", () => {
         originalBytes: 100_000,
       });
       const res = await pi.trigger("tool_result", {
-        toolName: "read",
+        toolName: "web_fetch",
         isError: false,
         content: [
           { type: "text", text: "x".repeat(100_000) },
@@ -132,7 +132,7 @@ describe("CompactionGuardExtension", () => {
         throw new Error("boom");
       });
       const res = await pi.trigger("tool_result", {
-        toolName: "read",
+        toolName: "web_fetch",
         isError: false,
         content: [{ type: "text", text: "x".repeat(100_000) }],
       });

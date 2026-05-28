@@ -310,6 +310,16 @@ export async function switchSession(path: string): Promise<void> {
       }));
     }
 
+    // 保存当前 session 的 autoQuotedSelection 到 keyed store
+    if (currentPath && state.autoQuotedSelection) {
+      useStore.setState(prev => ({
+        autoQuotedSelectionBySession: {
+          ...prev.autoQuotedSelectionBySession,
+          [currentPath]: state.autoQuotedSelection,
+        },
+      }));
+    }
+
     // 批量更新 store（切 currentSessionPath 切换对话内容；可见 desk/preview 状态由 workspace 激活流程恢复）
     useStore.setState({
       currentSessionPath: path,
@@ -340,6 +350,12 @@ export async function switchSession(path: string): Promise<void> {
     }
 
     useStore.getState().clearQuotedSelection();
+
+    // 恢复目标 session 的 autoQuotedSelection（若有）
+    const savedAutoQuote = useStore.getState().autoQuotedSelectionBySession[path];
+    if (savedAutoQuote) {
+      useStore.getState().setAutoQuotedSelection(savedAutoQuote);
+    }
 
     // Sync plan mode for the switched-to session
     window.dispatchEvent(new CustomEvent('hana-plan-mode', {
@@ -423,6 +439,17 @@ export async function createNewSession(): Promise<void> {
 
   const s = useStore.getState();
   const defaultFolder = s.homeFolder || s.deskBasePath || null;
+
+  // 保存当前 session 的 autoQuotedSelection 到 keyed store（切走后可复原）
+  const leavingPath = s.currentSessionPath;
+  if (leavingPath && s.autoQuotedSelection) {
+    useStore.setState(prev => ({
+      autoQuotedSelectionBySession: {
+        ...prev.autoQuotedSelectionBySession,
+        [leavingPath]: s.autoQuotedSelection,
+      },
+    }));
+  }
 
   useStore.setState({
     welcomeVisible: true,

@@ -49,6 +49,8 @@ export interface InputSlice {
   quoteCandidate: QuotedSelection | null;
   /** 选区变化时自动同步的引用，随选区变化实时更新；选区取消时自动清除 */
   autoQuotedSelection: QuotedSelection | null;
+  /** 按 session path 存储的自动引用（跨会话保持/恢复） */
+  autoQuotedSelectionBySession: Record<string, QuotedSelection | null>;
   quotedSelections: QuotedSelection[];
   /** @deprecated Use quotedSelections for committed quotes and quoteCandidate for transient selection UI. */
   quotedSelection: QuotedSelection | null;
@@ -102,6 +104,7 @@ export const createInputSlice = (
   inputFocusTrigger: 0,
   quoteCandidate: null,
   autoQuotedSelection: null,
+  autoQuotedSelectionBySession: {},
   quotedSelections: [],
   quotedSelection: null,
   addAttachedFile: (file) =>
@@ -131,10 +134,30 @@ export const createInputSlice = (
     set((s) => ({ docContextAttached: !s.docContextAttached })),
   requestInputFocus: () =>
     set((s) => ({ inputFocusTrigger: s.inputFocusTrigger + 1 })),
-  setQuoteCandidate: (sel) => set({ quoteCandidate: sel, autoQuotedSelection: sel }),
+  setQuoteCandidate: (sel) => set((s) => {
+    const patch: Partial<InputSlice> = { quoteCandidate: sel, autoQuotedSelection: sel };
+    const currentSessionPath = (s as unknown as { currentSessionPath?: string | null }).currentSessionPath;
+    if (currentSessionPath) {
+      patch.autoQuotedSelectionBySession = {
+        ...s.autoQuotedSelectionBySession,
+        [currentSessionPath]: sel,
+      };
+    }
+    return patch;
+  }),
   clearQuoteCandidate: () => set({ quoteCandidate: null }),
   setAutoQuotedSelection: (sel) => set({ autoQuotedSelection: sel }),
-  clearAutoQuotedSelection: () => set({ autoQuotedSelection: null }),
+  clearAutoQuotedSelection: () => set((s) => {
+    const patch: Partial<InputSlice> = { autoQuotedSelection: null };
+    const currentSessionPath = (s as unknown as { currentSessionPath?: string | null }).currentSessionPath;
+    if (currentSessionPath) {
+      patch.autoQuotedSelectionBySession = {
+        ...s.autoQuotedSelectionBySession,
+        [currentSessionPath]: null,
+      };
+    }
+    return patch;
+  }),
   addQuotedSelection: (sel) =>
     set((s) => {
       const quotedSelections = [...s.quotedSelections, sel];
@@ -145,8 +168,28 @@ export const createInputSlice = (
       const quotedSelections = s.quotedSelections.filter((_, i) => i !== index);
       return { quotedSelections, quotedSelection: quotedSelections[0] ?? null };
     }),
-  clearQuotedSelections: () => set({ quotedSelections: [], quotedSelection: null, autoQuotedSelection: null }),
+  clearQuotedSelections: () => set((s) => {
+    const patch: Partial<InputSlice> = { quotedSelections: [], quotedSelection: null, autoQuotedSelection: null };
+    const currentSessionPath = (s as unknown as { currentSessionPath?: string | null }).currentSessionPath;
+    if (currentSessionPath) {
+      patch.autoQuotedSelectionBySession = {
+        ...s.autoQuotedSelectionBySession,
+        [currentSessionPath]: null,
+      };
+    }
+    return patch;
+  }),
   setQuotedSelections: (sels) => set({ quotedSelections: sels, quotedSelection: sels[0] ?? null }),
   setQuotedSelection: (sel) => set({ quotedSelections: [sel], quotedSelection: sel }),
-  clearQuotedSelection: () => set({ quoteCandidate: null, quotedSelections: [], quotedSelection: null, autoQuotedSelection: null }),
+  clearQuotedSelection: () => set((s) => {
+    const patch: Partial<InputSlice> = { quoteCandidate: null, quotedSelections: [], quotedSelection: null, autoQuotedSelection: null };
+    const currentSessionPath = (s as unknown as { currentSessionPath?: string | null }).currentSessionPath;
+    if (currentSessionPath) {
+      patch.autoQuotedSelectionBySession = {
+        ...s.autoQuotedSelectionBySession,
+        [currentSessionPath]: null,
+      };
+    }
+    return patch;
+  }),
 });

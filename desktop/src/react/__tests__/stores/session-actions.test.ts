@@ -52,6 +52,8 @@ const initialStateFactory = (): MockState => ({
   welcomeVisible: false,
   deskContextAttached: false,
   docContextAttached: false,
+  autoQuotedSelection: null,
+  autoQuotedSelectionBySession: {} as Record<string, unknown>,
   deskBasePath: '',
   deskCurrentPath: '',
   deskFiles: [] as unknown[],
