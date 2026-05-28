@@ -106,4 +106,40 @@ describe("text_file tool", () => {
     expect(fs.readFileSync(filePath, "utf8")).toBe("alpha\nbravo\n");
     expect(registerSessionFile).not.toHaveBeenCalled();
   });
+
+  it("allows read inside a batch (read+replace on the same file)", async () => {
+    const filePath = path.join(tempRoot, "batch-read.txt");
+    fs.writeFileSync(filePath, "alpha\nold beta\n", "utf8");
+
+    const result = await tool.execute("call-6", {
+      action: "batch",
+      operations: [
+        { action: "read", path: "batch-read.txt" },
+        { action: "replace", path: "batch-read.txt", find: "old", replace: "new" },
+        { action: "read", path: "batch-read.txt", start_line: 1, end_line: 2 },
+      ],
+    });
+
+    expect(result.details.results).toHaveLength(3);
+    expect(result.details.results[0].action).toBe("read");
+    expect(result.details.results[1].action).toBe("replace");
+    expect(result.details.results[2].action).toBe("read");
+    expect(result.details.results[1].matches).toBe(1);
+    expect(fs.readFileSync(filePath, "utf8")).toBe("alpha\nnew beta\n");
+  });
+
+  it("accepts oldText/newText as aliases for find/replace", async () => {
+    const filePath = path.join(tempRoot, "alias.txt");
+    fs.writeFileSync(filePath, "hello world\n", "utf8");
+
+    const result = await tool.execute("call-7", {
+      action: "replace",
+      path: "alias.txt",
+      oldText: "hello",
+      newText: "hi",
+    });
+
+    expect(result.details.matches).toBe(1);
+    expect(fs.readFileSync(filePath, "utf8")).toBe("hi world\n");
+  });
 });
