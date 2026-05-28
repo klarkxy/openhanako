@@ -134,7 +134,9 @@ export function useBridgeState() {
   const testPlatform = async (plat: BridgePlatform, credentials: Record<string, string>) => {
     setTestingPlatform(plat);
     try {
-      const res = await hanaFetch('/api/bridge/test', {
+      const agentId = selectedAgentId;
+      const agentQuery = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
+      const res = await hanaFetch(`/api/bridge/test${agentQuery}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform: plat, credentials }),
