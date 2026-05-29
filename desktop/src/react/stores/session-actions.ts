@@ -8,6 +8,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- store partial patch + API 响应 JSON */
 
 import { useStore } from './index';
+import { useTranslationStore } from './translation-store';
 import { hanaFetch, hanaUrl } from '../hooks/use-hana-fetch';
 import { buildItemsFromHistory } from '../utils/history-builder';
 import { migrateLegacyTodos } from '../utils/todo-compat';
@@ -74,6 +75,8 @@ async function resetDeskForSessionCwd(cwd?: string | null): Promise<void> {
 
 function clearSessionRuntimeCaches(path: string): void {
   useStore.getState().clearSession?.(path);
+  // 清除翻译缓存
+  useTranslationStore.getState().clearSession(path);
   useStore.setState((s: Record<string, any>) => {
     const { [path]: _attached, ...attachedFilesBySession } = s.attachedFilesBySession || {};
     const { [path]: _registryFiles, ...sessionRegistryFilesByPath } = s.sessionRegistryFilesByPath || {};

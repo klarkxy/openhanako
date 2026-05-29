@@ -1521,3 +1521,194 @@ describe("model sync related routes", () => {
     expect(fetchCall[1].headers["Authorization"]).toBe("Bearer body-key");
   });
 });
+
+describe("translate endpoint", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+  });
+
+  it("POST /api/translate returns translation when model is configured and enabled", async () => {
+    const { createModelsRoute } = await import("../server/routes/models.js");
+    const app = new Hono();
+    const engine = {
+      getSharedModels: vi.fn(() => ({
+        translation: { id: "gpt-4o-mini", provider: "openai" },
+        translation_enabled: true,
+      })),
+      resolveModelWithCredentials: vi.fn(() => ({
+        model: { id: "gpt-4o-mini", provider: "openai" },
+        provider: "openai",
+        api: "openai-completions",
+        api_key: "sk-test",
+        base_url: "https://api.openai.com/v1",
+      })),
+      currentAgentId: "hana",
+      usageLedger: null,
+    };
+    callText.mockResolvedValue("你好世界");
+
+    app.route("/api", createModelsRoute(engine));
+
+    const res = await app.request("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Hello world" }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.translation).toBe("你好世界");
+    expect(callText).toHaveBeenCalledWith(expect.objectContaining({
+      systemPrompt: expect.stringContaining("translation engine"),
+      messages: [{ role: "user", content: "Hello world" }],
+      temperature: 0.1,
+    }));
+  });
+
+  it("POST /api/translate returns 400 when translation is not enabled", async () => {
+    const { createModelsRoute } = await import("../server/routes/models.js");
+    const app = new Hono();
+    const engine = {
+      getSharedModels: vi.fn(() => ({
+        translation: { id: "gpt-4o-mini", provider: "openai" },
+        translation_enabled: false,
+      })),
+    };
+
+    app.route("/api", createModelsRoute(engine));
+
+    const res = await app.request("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Hello" }),
+    });
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("not enabled");
+  });
+
+  it("POST /api/translate returns 400 when no translation model is configured", async () => {
+    const { createModelsRoute } = await import("../server/routes/models.js");
+    const app = new Hono();
+    const engine = {
+      getSharedModels: vi.fn(() => ({
+        translation: null,
+        translation_enabled: true,
+      })),
+    };
+
+    app.route("/api", createModelsRoute(engine));
+
+    const res = await app.request("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Hello" }),
+    });
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("not configured");
+  });
+
+  it("POST /api/translate returns 400 when text is missing", async () => {
+    const { createModelsRoute } = await import("../server/routes/models.js");
+    const app = new Hono();
+    const engine = {
+      getSharedModels: vi.fn(() => ({
+        translation: { id: "gpt-4o-mini", provider: "openai" },
+        translation_enabled: true,
+      })),
+    };
+
+    app.route("/api", createModelsRoute(engine));
+
+    const res = await app.request("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("text required");
+  });
+
+  it("PUT /api/preferences/models accepts translation model", async () => {
+    const { createPreferencesRoute } = await import("../server/routes/preferences.js");
+    const app = new Hono();
+    const engine = {
+      getSharedModels: vi.fn(() => ({})),
+      getSearchConfig: vi.fn(() => ({ provider: null, api_key: null })),
+      getUtilityApi: vi.fn(() => ({ provider: null, base_url: null, api_key: null })),
+      resolveModelWithCredentials: vi.fn(() => ({
+        model: { id: "gpt-4o-mini", provider: "openai" },
+        provider: "openai",
+      })),
+      setSharedModels: vi.fn(),
+      setSearchConfig: vi.fn(),
+      setUtilityApi: vi.fn(),
+      syncModelsAndRefresh: vi.fn().mockResolvedValue(true),
+      currentAgentId: "hana",
+      emitEvent: vi.fn(),
+    };
+
+    app.route("/api", createPreferencesRoute(engine));
+
+    const res = await app.request("/api/preferences/models", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        models: {
+          translation: { id: "gpt-4o-mini", provider: "openai" },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(engine.resolveModelWithCredentials).toHaveBeenCalledWith({
+      id: "gpt-4o-mini",
+      provider: "openai",
+    });
+    expect(engine.setSharedModels).toHaveBeenCalledWith({
+      translation: { id: "gpt-4o-mini", provider: "openai" },
+    });
+  });
+
+  it("PUT /api/preferences/models accepts translation_enabled toggle", async () => {
+    const { createPreferencesRoute } = await import("../server/routes/preferences.js");
+    const app = new Hono();
+    const engine = {
+      getSharedModels: vi.fn(() => ({})),
+      getSearchConfig: vi.fn(() => ({ provider: null, api_key: null })),
+      getUtilityApi: vi.fn(() => ({ provider: null, base_url: null, api_key: null })),
+      setSharedModels: vi.fn(),
+      setSearchConfig: vi.fn(),
+      setUtilityApi: vi.fn(),
+      syncModelsAndRefresh: vi.fn().mockResolvedValue(true),
+      currentAgentId: "hana",
+      emitEvent: vi.fn(),
+    };
+
+    app.route("/api", createPreferencesRoute(engine));
+
+    const res = await app.request("/api/preferences/models", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        models: {
+          translation_enabled: true,
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(engine.setSharedModels).toHaveBeenCalledWith({
+      translation_enabled: true,
+    });
+  });
+});

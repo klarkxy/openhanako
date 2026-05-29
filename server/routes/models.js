@@ -294,5 +294,55 @@ export function createModelsRoute(engine) {
     }
   });
 
+  // 思考翻译：调用配置的翻译模型，将英文思考内容翻译为中文
+  route.post("/translate", async (c) => {
+    try {
+      const body = await safeJson(c);
+      const text = body?.text;
+      if (!text || typeof text !== "string") {
+        return c.json({ error: "text required" }, 400);
+      }
+
+      const sharedModels = engine.getSharedModels();
+      if (!sharedModels.translation_enabled) {
+        return c.json({ error: "translation not enabled" }, 400);
+      }
+      if (!sharedModels.translation) {
+        return c.json({ error: "translation model not configured" }, 400);
+      }
+
+      const resolved = engine.resolveModelWithCredentials(sharedModels.translation);
+
+      const result = await callText({
+        api: resolved.api,
+        apiKey: resolved.api_key,
+        baseUrl: resolved.base_url,
+        model: resolved.model,
+        systemPrompt: "You are a translation engine. Translate the following English text to Chinese. Output ONLY the Chinese translation, no explanations, no quotes, no extra formatting.",
+        messages: [{ role: "user", content: text }],
+        maxTokens: 4096,
+        temperature: 0.1,
+        timeoutMs: 30_000,
+        usageLedger: engine.usageLedger,
+        usageContext: {
+          source: {
+            subsystem: "utility",
+            operation: "thinking_translation",
+            surface: "settings",
+            trigger: "auto",
+          },
+          attribution: {
+            kind: "utility",
+            agentId: engine.currentAgentId ?? null,
+          },
+        },
+      });
+
+      return c.json({ translation: result });
+    } catch (err) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
   return route;
 }

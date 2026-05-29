@@ -58,9 +58,11 @@ export const SHARED_MODEL_KEYS = [
   ["utility",        "utility_model"],
   ["utility_large",  "utility_large_model"],
   ["vision",         "vision_model"],
+  ["translation",    "translation_model"],
 ];
 
 export const VISION_AUXILIARY_ENABLED_PREF_KEY = "vision_auxiliary_enabled";
+export const TRANSLATION_ENABLED_PREF_KEY = "translation_enabled";
 
 function hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj, key);
@@ -98,6 +100,15 @@ export function normalizeSharedModelsPatch(partial) {
         throw new Error("shared model vision_enabled must be a boolean");
       }
       result.vision_enabled = raw;
+    }
+  }
+  if (hasOwn(partial, "translation_enabled")) {
+    const raw = partial.translation_enabled;
+    if (raw !== undefined) {
+      if (typeof raw !== "boolean") {
+        throw new Error("shared model translation_enabled must be a boolean");
+      }
+      result.translation_enabled = raw;
     }
   }
   return result;
@@ -193,6 +204,7 @@ export class ConfigCoordinator {
       }
     }
     result.vision_enabled = prefs[VISION_AUXILIARY_ENABLED_PREF_KEY] === true;
+    result.translation_enabled = prefs[TRANSLATION_ENABLED_PREF_KEY] === true;
     return result;
   }
 
@@ -219,6 +231,11 @@ export class ConfigCoordinator {
       if (normalized.vision_enabled) prefs[VISION_AUXILIARY_ENABLED_PREF_KEY] = true;
       else delete prefs[VISION_AUXILIARY_ENABLED_PREF_KEY];
       changed.push(`vision_enabled=${normalized.vision_enabled ? "on" : "off"}`);
+    }
+    if (hasOwn(normalized, "translation_enabled")) {
+      if (normalized.translation_enabled) prefs[TRANSLATION_ENABLED_PREF_KEY] = true;
+      else delete prefs[TRANSLATION_ENABLED_PREF_KEY];
+      changed.push(`translation_enabled=${normalized.translation_enabled ? "on" : "off"}`);
     }
     this._savePrefs(prefs);
     if (shouldSyncAgentRuntimeModels) {

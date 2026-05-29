@@ -156,6 +156,8 @@ export function OtherModelsSection({ providers }: { providers: Record<string, { 
   const utilityLargeVal = toModelRef(globalModelsConfig?.models?.utility_large);
   const visionVal = toModelRef(globalModelsConfig?.models?.vision);
   const visionAuxiliaryEnabled = globalModelsConfig?.models?.vision_enabled === true;
+  const translationVal = toModelRef(globalModelsConfig?.models?.translation);
+  const translationEnabled = globalModelsConfig?.models?.translation_enabled === true;
   const imageCapableOnly = (model: { input?: string[] }) => (
     Array.isArray(model.input) && model.input.includes('image')
   );
@@ -244,6 +246,33 @@ export function OtherModelsSection({ providers }: { providers: Record<string, { 
           </div>
           <span className={styles['settings-form-hint']}>{t('settings.api.visionModelHint')}</span>
           <span className={styles['settings-form-hint']}>{t('settings.api.visionModelMissingHint')}</span>
+        </div>
+      </div>
+      <div className={styles['settings-form-grid']}>
+        <div className={`${styles['settings-form-field']} ${styles['settings-form-field-half']}`}>
+          <label className={styles['settings-form-label']}>{t('settings.api.translationModel')}</label>
+          <div className={styles['settings-toggle-row']}>
+            <Toggle
+              on={translationEnabled}
+              onChange={(on) => {
+                autoSaveGlobalModels({ models: { translation_enabled: on } });
+              }}
+              label={t('settings.api.translationEnabled')}
+            />
+          </div>
+          <div className={styles['pv-tool-model-row']}>
+            <ModelWidget
+              providers={providers}
+              value={translationVal}
+              onSelect={(ref) => {
+                autoSaveGlobalModels({ models: { translation: ref } });
+              }}
+              lookupModelMeta={lookupModelMeta}
+              formatContext={formatContext}
+            />
+            <ToolModelTestBtn modelRef={globalModelsConfig?.models?.translation || ''} />
+          </div>
+          <span className={styles['settings-form-hint']}>{t('settings.api.translationModelHint')}</span>
         </div>
       </div>
       <div className={styles['settings-form-grid']}>

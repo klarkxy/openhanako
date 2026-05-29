@@ -157,6 +157,13 @@ export function createPreferencesRoute(engine, { platform = process.platform } =
             return c.json({ error: "vision model must support image input" }, 400);
           }
         }
+        if (modelsPatch.translation) {
+          try {
+            engine.resolveModelWithCredentials(modelsPatch.translation);
+          } catch (err) {
+            return c.json({ error: err.message }, 400);
+          }
+        }
         engine.setSharedModels(modelsPatch);
         sections.push("models");
         needsModelSync = sharedModelsPatchRequiresModelSync(modelsPatch);
