@@ -36,6 +36,8 @@ interface PlatformSectionProps {
   onOwnerChange?: (userId: string) => void;
   onCredentialBlur?: () => void;
   children?: React.ReactNode;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 }
 
 export function PlatformSection({
@@ -52,6 +54,8 @@ export function PlatformSection({
   onCredentialBlur,
   platform,
   children,
+  collapsible = false,
+  defaultCollapsed = false,
 }: PlatformSectionProps) {
   const lastFieldIndex = credentialFields.length - 1;
 
@@ -69,7 +73,7 @@ export function PlatformSection({
   );
 
   return (
-    <SettingsSection title={title} context={statusContext}>
+    <SettingsSection title={title} context={statusContext} collapsible={collapsible} defaultCollapsed={defaultCollapsed}>
       {credentialFields.map((field, idx) => {
         const isLast = idx === lastFieldIndex;
         const input = field.type === 'secret' ? (

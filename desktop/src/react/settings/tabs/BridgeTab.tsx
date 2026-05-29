@@ -69,6 +69,8 @@ export function BridgeTab() {
         platform="telegram"
         title={t('settings.bridge.telegram')}
         status={tgInfo}
+        collapsible
+        defaultCollapsed={!tgInfo?.enabled}
         credentialFields={[
           { key: 'token', label: t('settings.bridge.telegramToken'), type: 'secret', value: b.tgToken, onChange: b.setTgToken },
         ]}
@@ -95,6 +97,8 @@ export function BridgeTab() {
         platform="feishu"
         title={t('settings.bridge.feishu')}
         status={fsInfo}
+        collapsible
+        defaultCollapsed={!fsInfo?.enabled}
         credentialFields={[
           { key: 'appId', label: t('settings.bridge.feishuAppId'), type: 'text', value: b.fsAppId, onChange: b.setFsAppId },
           { key: 'appSecret', label: t('settings.bridge.feishuAppSecret'), type: 'secret', value: b.fsAppSecret, onChange: b.setFsAppSecret },
@@ -123,6 +127,8 @@ export function BridgeTab() {
         platform="qq"
         title="QQ"
         status={qqInfo}
+        collapsible
+        defaultCollapsed={!qqInfo?.enabled}
         credentialFields={[
           { key: 'appID', label: t('settings.bridge.qqAppId'), type: 'text', value: b.qqAppId, onChange: b.setQqAppId },
           { key: 'appSecret', label: t('settings.bridge.qqAppSecret'), type: 'secret', value: b.qqAppSecret, onChange: b.setQqAppSecret },
@@ -153,6 +159,8 @@ export function BridgeTab() {
         onSaveConfig={(creds, enabled) => b.saveBridgeConfig('wechat', creds, enabled)}
         onReload={b.loadStatus}
         agentId={b.selectedAgentId}
+        collapsible
+        defaultCollapsed={!wxInfo?.enabled}
       />
 
       {/* OneBot */}
@@ -160,6 +168,8 @@ export function BridgeTab() {
         platform="onebot"
         title={t('settings.bridge.onebot')}
         status={obInfo}
+        collapsible
+        defaultCollapsed={!obInfo?.enabled}
         credentialFields={[
           { key: 'apiBase', label: t('settings.bridge.onebotApiBase'), type: 'text', value: b.onebotApiBase, onChange: b.setOnebotApiBase },
           { key: 'accessToken', label: t('settings.bridge.onebotAccessToken'), type: 'secret', value: b.onebotAccessToken, onChange: b.setOnebotAccessToken },

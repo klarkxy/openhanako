@@ -16,9 +16,11 @@ interface WechatSectionProps {
   onSaveConfig: (credentials: Record<string, string> | null, enabled?: boolean) => Promise<void>;
   onReload: () => Promise<void>;
   agentId: string | null;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 }
 
-export function WechatSection({ status, showToast, onSaveConfig, onReload, agentId }: WechatSectionProps) {
+export function WechatSection({ status, showToast, onSaveConfig, onReload, agentId, collapsible = false, defaultCollapsed = false }: WechatSectionProps) {
   const unbind = async () => {
     try {
       const agentQuery = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
@@ -59,7 +61,7 @@ export function WechatSection({ status, showToast, onSaveConfig, onReload, agent
   );
 
   return (
-    <SettingsSection title={t('settings.bridge.wechat')} context={statusContext}>
+    <SettingsSection title={t('settings.bridge.wechat')} context={statusContext} collapsible={collapsible} defaultCollapsed={defaultCollapsed}>
       <div style={{ padding: 'var(--space-sm) var(--space-md)' }}>
         {status?.token ? (
           <div className={bridgeStyles['wechat-logged-in']}>
