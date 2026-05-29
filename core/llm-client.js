@@ -402,7 +402,14 @@ export async function callText({
   try {
     data = rawText ? JSON.parse(rawText) : null;
   } catch {
-    throw new Error(`LLM returned invalid JSON (status=${res.status})`);
+    // Fallback: attempt dirty-json repair for malformed LLM API response
+    const { dirtyParse } = await import("../lib/dirty-json.js");
+    const result = dirtyParse(rawText || "");
+    if (result) {
+      data = result.value;
+    } else {
+      throw new Error(`LLM returned invalid JSON (status=${res.status})`);
+    }
   }
   observedUsagePayload = data?.usage ?? null;
 
