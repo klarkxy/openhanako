@@ -50,8 +50,8 @@ export function useThinkingTranslation({
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    // 条件不满足：不翻译
-    if (!sealed || !translationEnabled || !translationModel || !content) return;
+    // 条件不满足：不翻译（翻译模型由后端自动回退到 utility 模型）
+    if (!sealed || !translationEnabled || !content) return;
     // 已有缓存或正在翻译
     if (cached || isPending(sessionPath, messageId)) return;
     // 不是英文
@@ -93,7 +93,7 @@ export function useThinkingTranslation({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sealed, content, translationEnabled, translationModel, sessionPath, messageId]);
 
-  const status: 'idle' | 'pending' | 'done' | 'error' = !sealed || !translationEnabled || !translationModel
+  const status: 'idle' | 'pending' | 'done' | 'error' = !sealed || !translationEnabled
     ? 'idle'
     : cached?.status === 'done'
       ? 'done'

@@ -307,11 +307,14 @@ export function createModelsRoute(engine) {
       if (!sharedModels.translation_enabled) {
         return c.json({ error: "translation not enabled" }, 400);
       }
-      if (!sharedModels.translation) {
-        return c.json({ error: "translation model not configured" }, 400);
+
+      // 翻译模型未指定时回退到 utility 小模型
+      const translationRef = sharedModels.translation || sharedModels.utility;
+      if (!translationRef) {
+        return c.json({ error: "translation model not configured and no utility model available" }, 400);
       }
 
-      const resolved = engine.resolveModelWithCredentials(sharedModels.translation);
+      const resolved = engine.resolveModelWithCredentials(translationRef);
 
       const result = await callText({
         api: resolved.api,

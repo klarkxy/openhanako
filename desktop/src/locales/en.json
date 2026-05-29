@@ -1144,7 +1144,7 @@
       "visionModelHint": "Used only when the current chat model cannot accept images",
       "visionModelMissingHint": "Can't find your model? Enable its vision capability in the Providers page.",
       "translationModel": "Translation model",
-      "translationModelHint": "Translates English thinking content to Chinese. Leave empty to disable.",
+      "translationModelHint": "Translates English thinking content to Chinese. Leave empty to use the utility model.",
       "translationEnabled": "Thinking translation",
       "searchProvider": "Search Service",
       "searchProviderField": "Search engine",
