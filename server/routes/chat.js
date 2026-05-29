@@ -509,7 +509,7 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
         else if (!BrowserManager.instance().hasAnyRunning) stopBrowserThumbPoll();
       }
 
-      if (["write", "edit", "bash"].includes(event.toolName)) {
+      if (["write", "edit", "bash", "text_file", "apply_patch"].includes(event.toolName)) {
         broadcast({ type: "desk_changed", sessionPath });
       }
     } else if (event.type === "jian_update") {

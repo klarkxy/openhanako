@@ -40,6 +40,7 @@ import { createTerminalTool } from "../lib/tools/terminal-tool.js";
 import { createLlmUsageTool } from "../lib/tools/llm-usage-tool.js";
 import { createTextFileTool } from "../lib/tools/text-file-tool.js";
 import { createCountCharsTool } from "../lib/tools/count-chars.js";
+import { createApplyPatchTool } from "../lib/tools/apply-patch.js";
 import { createDiffTool } from "../lib/tools/diff.js";
 import { createFriendsContactsTools } from "../lib/tools/friends-contacts-tools.js";
 import { runCompatChecks } from "../lib/compat/index.js";
@@ -126,6 +127,7 @@ export class Agent {
     this._terminalTool = null;
     this._textFileTool = null;
     this._countCharsTool = null;
+    this._applyPatchTool = null;
     this._diffTool = null;
 
     /**
@@ -392,6 +394,7 @@ export class Agent {
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
     });
     this._countCharsTool = createCountCharsTool();
+    this._applyPatchTool = createApplyPatchTool();
     this._diffTool = createDiffTool();
     this._friendsContactTools = createFriendsContactsTools({ agent: this });
 
@@ -670,6 +673,7 @@ export class Agent {
       this._terminalTool,
       this._textFileTool,
       this._countCharsTool,
+      this._applyPatchTool,
       this._diffTool,
       ...(this._friendsContactTools || []),
       createLlmUsageTool(),
