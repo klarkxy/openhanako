@@ -101,6 +101,16 @@ describe("HTTP route security policy", () => {
       .toMatchObject({ allowed: true });
     expect(authorizeHttpRoute({ method: "GET", path: "/api/sessions", principal }))
       .toMatchObject({ allowed: true });
+    expect(authorizeHttpRoute({ method: "GET", path: "/api/session-projects", principal }))
+      .toMatchObject({ allowed: true });
+    expect(authorizeHttpRoute({ method: "POST", path: "/api/session-projects/session-assignment", principal }))
+      .toMatchObject({ allowed: true });
+    expect(authorizeHttpRoute({ method: "DELETE", path: "/api/session-projects/projects/project-hana", principal }))
+      .toMatchObject({ allowed: true });
+    expect(authorizeHttpRoute({ method: "GET", path: "/api/preferences/sidebar-ui", principal }))
+      .toMatchObject({ allowed: true });
+    expect(authorizeHttpRoute({ method: "PUT", path: "/api/preferences/sidebar-ui", principal }))
+      .toMatchObject({ allowed: true });
     expect(authorizeHttpRoute({ method: "GET", path: "/api/resources/res_1", principal }))
       .toMatchObject({ allowed: true });
     expect(authorizeHttpRoute({ method: "HEAD", path: "/api/resources/res_1/content", principal }))
@@ -116,23 +126,41 @@ describe("HTTP route security policy", () => {
       });
   });
 
-  it("treats bridge onebot callback as public bootstrap route", async () => {
+  it("treats browser PWA assets and web-auth login as public bootstrap routes", async () => {
     const { authorizeHttpRoute, classifyHttpRoute } = await import("../server/http/route-security.js");
 
     for (const [method, path] of [
-      ["POST", "/api/bridge/onebot/event"],
+      ["GET", "/mobile/"],
+      ["GET", "/mobile/assets/mobile.js"],
+      ["GET", "/mobile/manifest.webmanifest"],
+      ["GET", "/mobile/sw.js"],
+      ["GET", "/mobile/icon.png"],
+      ["GET", "/mobile/lib/i18n.js"],
+      ["GET", "/mobile/themes/warm-paper.css"],
+      ["GET", "/mobile/locales/zh.json"],
+      ["GET", "/desktop/"],
+      ["GET", "/desktop/assets/mobile.js"],
+      ["GET", "/desktop/manifest.webmanifest"],
+      ["GET", "/desktop/sw.js"],
+      ["GET", "/desktop/icon.png"],
+      ["GET", "/desktop/lib/i18n.js"],
+      ["GET", "/desktop/themes/warm-paper.css"],
+      ["GET", "/desktop/locales/zh.json"],
+      ["POST", "/api/web-auth/login"],
+      ["GET", "/api/web-auth/session"],
     ]) {
       expect(classifyHttpRoute({ method, path })).toMatchObject({ kind: "public" });
       expect(authorizeHttpRoute({ method, path, principal: null })).toMatchObject({ allowed: true });
     }
   });
 
-  it("gates desk and workspace routes behind explicit file scopes", async () => {
+  it("gates mobile workbench routes behind explicit file scopes", async () => {
     const { authorizeHttpRoute } = await import("../server/http/route-security.js");
     const reader = devicePrincipal(["chat", "files.read"]);
     const writer = devicePrincipal(["chat", "files.read", "files.write"]);
 
     for (const [method, path] of [
+      ["GET", "/api/mobile/bootstrap"],
       ["GET", "/api/avatar/agent"],
       ["GET", "/api/agents/hana/avatar"],
       ["GET", "/api/models"],
@@ -144,6 +172,10 @@ describe("HTTP route security policy", () => {
       ["POST", "/api/session-thinking-level"],
       ["POST", "/api/confirm/confirm_1"],
       ["GET", "/api/browser/session-states"],
+      ["GET", "/api/mobile/workbench/files"],
+      ["GET", "/api/mobile/workbench/search"],
+      ["GET", "/api/mobile/workbench/content"],
+      ["HEAD", "/api/mobile/workbench/content"],
       ["GET", "/api/desk/path"],
       ["GET", "/api/desk/files"],
       ["GET", "/api/desk/search-files"],
@@ -223,6 +255,8 @@ describe("HTTP route security policy", () => {
     })).toMatchObject({ allowed: false, error: "insufficient_scope" });
 
     expect(classifyHttpRoute({ method: "GET", path: "/preview/html/pv_123" }))
+      .toMatchObject({ kind: "public" });
+    expect(classifyHttpRoute({ method: "GET", path: "/preview/html/pv_123/assets/preview_only/images/pic.png" }))
       .toMatchObject({ kind: "public" });
     expect(authorizeHttpRoute({
       method: "GET",

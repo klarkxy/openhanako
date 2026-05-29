@@ -71,10 +71,17 @@ function App() {
   const { floatCard, show: showFloat, scheduleHide: scheduleFloatHide, cancelHide: cancelFloatHide, hide: hideFloat } = useFloatCard();
 
   useEffect(() => {
-    initApp().catch((err: unknown) => {
-      console.error('[init] 初始化异常:', err);
-      window.platform?.appReady?.();
-    });
+    console.info('[hana-launch] init-start');
+    initApp()
+      .then(() => {
+        console.info('[hana-launch] init-finished');
+      })
+      .catch((err: unknown) => {
+        console.error('[init] 初始化异常:', err);
+        console.error('[hana-launch] init-failed', err);
+        console.info('[hana-launch] app-ready', JSON.stringify({ reason: 'init-failed' }));
+        window.platform?.appReady?.();
+      });
   }, []);
 
   return (
@@ -143,7 +150,8 @@ function App() {
       {/* Input context menu (cut/copy/paste) */}
       <InputContextMenu />
 
-      {/* Selection quote action — disabled: auto-quote now handles this automatically */}
+      {/* Selection quote action */}
+      <SelectionQuoteActionSurface />
 
       {/* Toast notifications */}
       <ToastContainer />

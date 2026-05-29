@@ -89,7 +89,33 @@
     "searchingTitles": "Searching titles…",
     "searchingContent": "Searching content…",
     "searchNoResults": "No matching chats",
-    "searchFailed": "Search failed"
+    "searchFailed": "Search failed",
+    "view": {
+      "time": "Sort by time",
+      "project": "Sort by project",
+      "sort": "Sort view"
+    },
+    "projects": {
+      "title": "Projects",
+      "more": "Project view",
+      "create": "New project",
+      "newProject": "New project",
+      "newFolder": "New folder",
+      "renameProject": "Rename project",
+      "renameFolder": "Rename folder",
+      "deleteProject": "Delete project",
+      "deleteFolder": "Delete folder",
+      "deleteProjectConfirm": "Delete project \"{name}\"? Its chats will move to Uncategorized.",
+      "deleteFolderConfirm": "Delete folder \"{name}\"? Its projects will move to the project root.",
+      "newChatInProject": "Start a new chat in {name}",
+      "newProjectPrompt": "Project name",
+      "newFolderPrompt": "Folder name",
+      "createAction": "Create",
+      "save": "Save",
+      "cancel": "Cancel",
+      "showMore": "Show more",
+      "empty": "No projects yet"
+    }
   },
   "titlebar": {
     "currentChatTitle": "Current chat title"
@@ -209,8 +235,13 @@
     "floatingInput": "Selection floating input",
     "selectFolder": "Select folder",
     "workspace": "Workspace: ",
+    "project": "Project: ",
     "selectWorkspace": "Select workspace",
     "currentWorkspace": "This workspace",
+    "cwdProject": "Workspace project: {name}",
+    "customProjects": "Custom projects",
+    "selectProject": "Select project",
+    "noCustomProjects": "No custom projects",
     "selectOtherFolder": "Choose another folder",
     "extraFolders": "Extra folders",
     "addExternalFolder": "Add folder outside workspace",
@@ -635,8 +666,7 @@
       "access": "Access & Devices",
       "plugins": "Plugins",
       "about": "About",
-      "security": "Security",
-      "contacts": "Contacts"
+      "security": "Security"
     },
     "appearance": {
       "title": "Appearance",
@@ -775,38 +805,14 @@
         "title": "Tools",
         "description": "Tool switches take effect after restarting or starting a conversation. Active conversations keep using the tool set they started with.",
         "items": {
-          "automation": {
-            "label": "Automation",
-            "summary": "Let the agent create scheduled notifications and plugin actions"
-          },
-          "beautify": {
-            "label": "小花美术",
-            "summary": "Let the agent generate document covers and aesthetic enhancements"
-          },
-          "browser": {
-            "label": "Browser",
-            "summary": "Control a headless browser to navigate web pages"
-          },
-          "computer": {
-            "label": "Computer Use",
-            "summary": "Control approved desktop apps with a visible action overlay"
-          },
-          "cron": {
-            "label": "Scheduled Tasks",
-            "summary": "Run tasks automatically at specified times"
-          },
-          "dm": {
-            "label": "Direct Message",
-            "summary": "Send a one-on-one message to another agent"
-          },
-          "install_skill": {
-            "label": "Install Skill",
-            "summary": "Install new skills from GitHub or the skill library"
-          },
-          "update_settings": {
-            "label": "Update Settings",
-            "summary": "Allow the agent to modify application configuration"
-          }
+          "automation": { "label": "Automation", "summary": "Let the agent create scheduled notifications and plugin actions" },
+          "beautify": { "label": "小花美术", "summary": "Let the agent generate document covers and aesthetic enhancements" },
+          "browser": { "label": "Browser", "summary": "Control a headless browser to navigate web pages" },
+          "computer": { "label": "Computer Use", "summary": "Control approved desktop apps with a visible action overlay" },
+          "cron": { "label": "Scheduled Tasks", "summary": "Run tasks automatically at specified times" },
+          "dm": { "label": "Direct Message", "summary": "Send a one-on-one message to another agent" },
+          "install_skill": { "label": "Install Skill", "summary": "Install new skills from GitHub or the skill library" },
+          "update_settings": { "label": "Update Settings", "summary": "Allow the agent to modify application configuration" }
         }
       },
       "computerUse": {
@@ -878,10 +884,10 @@
       "mobileKeyCreated": "Mobile access key created",
       "mobileKeyFailed": "Creation failed",
       "desktopUrl": "Computer URL",
-      "desktopUrlLanHint": "Enter this address in another Hana desktop frontend",
+      "desktopUrlLanHint": "Open this address in another computer's browser",
       "desktopUrlLocalHint": "Only this computer can connect until LAN access is enabled",
       "generateDesktopKey": "Generate Computer Access Key",
-      "desktopKeyHint": "Use this for manual connection from another Hana desktop frontend",
+      "desktopKeyHint": "Use this for the first browser login on another computer",
       "desktopKey": "Computer Access Key",
       "desktopKeyOnce": "The key is shown only once after creation",
       "desktopKeyCreated": "Computer access key created",
@@ -1032,6 +1038,14 @@
       "cacheShort": "cache {tokens}",
       "tokensShort": "{tokens} tok",
       "cacheSummary": "Cache {cache} · uncached {uncached}",
+      "window": {
+        "week": "Last 7 days",
+        "month": "Last 30 days"
+      },
+      "period": {
+        "week": "Week",
+        "month": "Month"
+      },
       "view": {
         "overall": "Overall",
         "daily": "By date",
@@ -1062,6 +1076,7 @@
       "defaultModel": "Default Image Model",
       "credentialOk": "API Key configured (reuses provider settings)",
       "credentialMissing": "Not configured, go to Provider settings",
+      "adapterMissing": "Image adapter missing",
       "addModel": "Add Image Model",
       "providerDefaults": "Default Parameters",
       "size": "Size",
@@ -1525,14 +1540,7 @@
         "Important: Go to \"Version Management\", create and publish a version first (long connection config requires a published app)",
         "Paste the App ID and App Secret into the input fields above and turn on the switch"
       ],
-      "whatsappHint": "Coming soon",
-      "onebot": "OneBot",
-      "onebotAccessToken": "Access Token",
-      "onebotSecret": "Signature Secret",
-      "onebotNoApiBase": "Please enter OneBot API Base URL first",
-      "onebotApiBase": "OneBot API Base URL",
-      "onebotHint": "For NapCat and other OneBot implementations. Callback URL: /api/bridge/onebot/event?agentId=<currentAgentId>",
-      "onebotSelfId": "Bot QQ/ID (optional)"
+      "whatsappHint": "Coming soon"
     }
   },
   "onboarding": {
@@ -2148,7 +2156,7 @@
       "label": "Web Search",
       "description": "Search the internet for real-time information. Use when you need the latest news, technical docs, current events, or any external knowledge not in memory.",
       "queryDesc": "Search keywords",
-      "maxResultsDesc": "Number of results to return, default 5"
+      "maxResultsDesc": "Number of results to return, default 10"
     },
     "webFetch": {
       "label": "Fetch Web Page",
@@ -2169,7 +2177,7 @@
       "keyDesc": "Key name (required for key), e.g. Enter, Escape, Tab, Control+a",
       "expressionDesc": "JavaScript expression (required for evaluate)",
       "timeoutDesc": "Timeout in milliseconds (optional for wait, default 5000)",
-      "stateDesc": "Wait state (optional for wait): stable (default, waits for DOM to stabilize, ideal for SPAs) / domcontentloaded / load",
+      "stateDesc": "Wait state (optional for wait): domcontentloaded / load / stable / networkidle (idle is accepted)",
       "pressEnterDesc": "Press Enter after typing (optional for type)"
     },
     "channel": {
@@ -2307,33 +2315,6 @@
       "label": "Stop background task",
       "description": "Stop a running background task. Pass the task_id to terminate it. Supported task types include sub-agent tasks, image/video generation tasks, etc.",
       "taskIdDesc": "The task ID to stop"
-    },
-    "diff": {
-      "label": "Compare files",
-      "description": "Compare two files and show differences in unified diff format. Use when you need to see what changed between two files, compare versions, or review modifications. Pure JS implementation, works cross-platform without relying on system diff command.",
-      "filePathADesc": "Absolute path to the first file (old version / original)",
-      "filePathBDesc": "Absolute path to the second file (new version / modified)",
-      "contextDesc": "Number of context lines, defaults to 3",
-      "errorNoPaths": "❌ Please provide paths for both files (filePathA and filePathB).",
-      "errorRead": "❌ Unable to read file",
-      "noDifference": "The two files are identical.",
-      "summary": "📊 Diff: {added} lines added, {deleted} lines deleted."
-    },
-    "countChars": {
-      "label": "Count characters",
-      "description": "Count Chinese characters, all characters, and UTF-8 bytes in a text or file. Use when you need to count characters, check text length, or verify writing requirements. Supports direct text input or file path.",
-      "filePathDesc": "Absolute path to the document to count. Use either filePath or text.",
-      "textDesc": "Text content to count. Used when filePath is empty.",
-      "resultTitle": "📊 Character count",
-      "inputText": "input text",
-      "colItem": "Item",
-      "colCount": "Count",
-      "rowHan": "Chinese chars",
-      "rowNonHan": "Non-Chinese chars",
-      "rowTotal": "Total chars",
-      "rowBytes": "UTF-8 bytes",
-      "errorRead": "❌ Unable to read file: ",
-      "errorNoInput": "❌ Please provide a file path (filePath) or text content (text)."
     }
   },
   "cli": {

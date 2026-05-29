@@ -21,12 +21,6 @@ export interface TelegramStatus extends PlatformStatusBase { token?: string }
 export interface FeishuStatus extends PlatformStatusBase { appId?: string; appSecret?: string }
 export interface QQStatus extends PlatformStatusBase { appID?: string; appSecret?: string }
 export interface WechatStatus extends PlatformStatusBase { token?: string }
-export interface OneBotStatus extends PlatformStatusBase {
-  apiBase?: string;
-  accessToken?: string;
-  secret?: string;
-  selfId?: string;
-}
 
 export interface BridgeStatus {
   telegram: TelegramStatus;
@@ -34,14 +28,13 @@ export interface BridgeStatus {
   whatsapp: PlatformStatusBase;
   qq: QQStatus;
   wechat: WechatStatus;
-  onebot: OneBotStatus;
   readOnly: boolean;
   receiptEnabled: boolean;
-  knownUsers: { telegram?: KnownUser[]; feishu?: KnownUser[]; whatsapp?: KnownUser[]; qq?: KnownUser[]; wechat?: KnownUser[]; onebot?: KnownUser[] };
-  owner: { telegram?: string; feishu?: string; whatsapp?: string; qq?: string; wechat?: string; onebot?: string };
+  knownUsers: { telegram?: KnownUser[]; feishu?: KnownUser[]; whatsapp?: KnownUser[]; qq?: KnownUser[]; wechat?: KnownUser[] };
+  owner: { telegram?: string; feishu?: string; whatsapp?: string; qq?: string; wechat?: string };
 }
 
-export type BridgePlatform = 'telegram' | 'feishu' | 'whatsapp' | 'qq' | 'wechat' | 'onebot';
+export type BridgePlatform = 'telegram' | 'feishu' | 'whatsapp' | 'qq' | 'wechat';
 
 export function useBridgeState() {
   // Atomic selectors: only re-render when these specific fields change
@@ -65,16 +58,43 @@ export function useBridgeState() {
     if (currentAgentId) setSelectedAgentId(currentAgentId);
   }, [currentAgentId]);
 
+  // Public Ishiki — keyed to selectedAgentId
+  const [publicIshiki, setPublicIshiki] = useState('');
+  const [publicIshikiOriginal, setPublicIshikiOriginal] = useState('');
+
   // Credential fields
   const [tgToken, setTgToken] = useState('');
   const [fsAppId, setFsAppId] = useState('');
   const [fsAppSecret, setFsAppSecret] = useState('');
   const [qqAppId, setQqAppId] = useState('');
   const [qqAppSecret, setQqAppSecret] = useState('');
-  const [onebotApiBase, setOnebotApiBase] = useState('');
-  const [onebotAccessToken, setOnebotAccessToken] = useState('');
-  const [onebotSecret, setOnebotSecret] = useState('');
-  const [onebotSelfId, setOnebotSelfId] = useState('');
+
+  // Fetch public ishiki for selected agent (abort stale requests on agent switch)
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    const ac = new AbortController();
+    hanaFetch(`/api/agents/${selectedAgentId}/public-ishiki`, { signal: ac.signal })
+      .then(r => r.json())
+      .then(data => { setPublicIshiki(data.content || ''); setPublicIshikiOriginal(data.content || ''); })
+      .catch(err => { if (err?.name !== 'AbortError') console.warn('[bridge] fetch public-ishiki failed:', err); });
+    return () => ac.abort();
+  }, [selectedAgentId]);
+
+  const savePublicIshiki = async () => {
+    const agentId = selectedAgentId;
+    if (!agentId || publicIshiki === publicIshikiOriginal) return;
+    try {
+      await hanaFetch(`/api/agents/${agentId}/public-ishiki`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: publicIshiki }),
+      });
+      setPublicIshikiOriginal(publicIshiki);
+      showToast(t('settings.saved'), 'success');
+    } catch (err: unknown) {
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+    }
+  };
 
   const loadStatus = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -89,10 +109,6 @@ export function useBridgeState() {
       setFsAppSecret(data.feishu?.appSecret || '');
       setQqAppId(data.qq?.appID || '');
       setQqAppSecret(data.qq?.appSecret || '');
-      setOnebotApiBase(data.onebot?.apiBase || '');
-      setOnebotAccessToken(data.onebot?.accessToken || '');
-      setOnebotSecret(data.onebot?.secret || '');
-      setOnebotSelfId(data.onebot?.selfId || '');
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return;
       console.error('[bridge] load status failed:', err);
@@ -133,8 +149,8 @@ export function useBridgeState() {
 
   const testPlatform = async (plat: BridgePlatform, credentials: Record<string, string>) => {
     setTestingPlatform(plat);
+    const agentId = selectedAgentId;
     try {
-      const agentId = selectedAgentId;
       const agentQuery = agentId ? `?agentId=${encodeURIComponent(agentId)}` : '';
       const res = await hanaFetch(`/api/bridge/test${agentQuery}`, {
         method: 'POST',
@@ -202,13 +218,10 @@ export function useBridgeState() {
   return {
     status, testingPlatform, globalSettingsSaving, showToast, loadStatus,
     selectedAgentId, setSelectedAgentId,
+    publicIshiki, setPublicIshiki, savePublicIshiki,
     tgToken, setTgToken,
     fsAppId, setFsAppId, fsAppSecret, setFsAppSecret,
     qqAppId, setQqAppId, qqAppSecret, setQqAppSecret,
-    onebotApiBase, setOnebotApiBase,
-    onebotAccessToken, setOnebotAccessToken,
-    onebotSecret, setOnebotSecret,
-    onebotSelfId, setOnebotSelfId,
     saveBridgeConfig, testPlatform, setOwner, saveGlobalSettings,
   };
 }

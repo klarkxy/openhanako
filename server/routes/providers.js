@@ -7,8 +7,9 @@ import os from "os";
 import { Hono } from "hono";
 import { emitAppEvent } from "../app-events.js";
 import { safeJson } from "../hono-helpers.js";
-import { buildProviderAuthHeaders, probeProvider } from "../../lib/llm/provider-client.js";
+import { buildProviderAuthHeaders, normalizeProviderBaseUrlForApi, probeProvider } from "../../lib/llm/provider-client.js";
 import { filterDiscoveredProviderModels } from "../../shared/provider-model-validation.js";
+import { listKnownProviderModels, lookupKnown } from "../../shared/known-models.js";
 import { clearConfigCache } from "../../lib/memory/config-loader.js";
 import { collectSecretPatchPaths, isMaskedSecretValue, maskSecretValue } from "../../shared/secret-custody.js";
 import { denySecretMutationWithoutScope, denyWithoutScope } from "../http/capability-guard.js";
@@ -244,6 +245,33 @@ export function createProvidersRoute(engine) {
     return payload;
   }
 
+  function knownCatalogModel(provider, id) {
+    const known = lookupKnown(provider, id);
+    return {
+      id,
+      name: known?.name || id,
+      context: known?.context ?? null,
+      maxOutput: known?.maxOutput ?? null,
+    };
+  }
+
+  function supplementRemoteModels(name, remoteModels) {
+    if (name !== "zhipu") return remoteModels;
+    const seen = new Set();
+    const merged = [];
+    const append = (model) => {
+      const id = typeof model === "string" ? model : model?.id;
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      merged.push(typeof model === "string" ? knownCatalogModel(name, id) : model);
+    };
+
+    for (const model of remoteModels) append(model);
+    for (const id of engine.providerRegistry.getDefaultModels?.(name) || []) append(id);
+    for (const id of listKnownProviderModels(name)) append(id);
+    return merged;
+  }
+
   async function refreshProviderModels() {
     clearConfigCache();
     await engine.onProviderChanged();
@@ -316,8 +344,16 @@ export function createProvidersRoute(engine) {
     const effectiveKey = bodyKey
       ? (isMaskedSecretValue(bodyKey) ? saved.api_key || "" : bodyKey)
       : saved.api_key || "";
-    const effectiveBaseUrl = base_url || saved.base_url || "";
+    const effectiveBaseUrl = normalizeProviderBaseUrlForApi({
+      provider: name,
+      baseUrl: base_url || saved.base_url || "",
+      api: explicitApi || saved.api || "",
+    });
     const effectiveApi = explicitApi || saved.api || "";
+
+    if (effectiveApi === "openai-codex-responses") {
+      return c.json(registryOrDefaultsFallback(name));
+    }
 
     // ── 2. 远程 list models（baseUrl 为空时跳过）──
     if (effectiveBaseUrl) {
@@ -344,7 +380,7 @@ export function createProvidersRoute(engine) {
 
         if (res.ok) {
           const data = await res.json();
-          const remoteModels = normalizeRemoteModels(data, effectiveApi);
+          const remoteModels = supplementRemoteModels(name, normalizeRemoteModels(data, effectiveApi));
           const { models, ignoredModels } = filterDiscoveredProviderModels(name, remoteModels, {
             baseUrl: effectiveBaseUrl,
           });
@@ -406,8 +442,12 @@ export function createProvidersRoute(engine) {
     const api_key = bodyKey
       ? (isMaskedSecretValue(bodyKey) ? saved.api_key || "" : bodyKey)
       : saved.api_key || "";
-    const base_url = body.base_url || saved.base_url || "";
     const api = body.api || saved.api || "";
+    const base_url = normalizeProviderBaseUrlForApi({
+      provider: name,
+      baseUrl: body.base_url || saved.base_url || "",
+      api,
+    });
 
     if (!base_url) {
       return c.json({ error: "base_url is required" }, 400);

@@ -102,8 +102,52 @@ function buildPromptMediaOptions(opts) {
   };
 }
 
-function recordAssistantUsage({ ledger, event, sessionPath, agentId, model, source, attribution }) {
+function textOrNull(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function modelIdFromModel(model) {
+  return textOrNull(model?.id ?? model?.modelId);
+}
+
+function resolveAssistantUsageModel(modelMeta, fallbackModel, resolveModel) {
+  if (!modelMeta?.provider || !modelMeta?.modelId) return fallbackModel || null;
+  if (
+    fallbackModel?.provider === modelMeta.provider
+    && modelIdFromModel(fallbackModel) === modelMeta.modelId
+  ) {
+    return fallbackModel;
+  }
+  try {
+    const resolved = resolveModel?.({ id: modelMeta.modelId, provider: modelMeta.provider });
+    return resolved?.model || resolved || null;
+  } catch {
+    return null;
+  }
+}
+
+function modelMetaForAssistantUsage(message, fallbackModel, resolvedModel) {
+  return {
+    provider: textOrNull(message?.provider) ?? textOrNull(fallbackModel?.provider),
+    modelId: textOrNull(message?.model) ?? modelIdFromModel(fallbackModel),
+    api: textOrNull(message?.api) ?? textOrNull(resolvedModel?.api) ?? textOrNull(fallbackModel?.api),
+  };
+}
+
+function costRatesForAssistantUsage({ modelMeta, resolvedModel, fallbackModel }) {
+  if (!modelMeta?.provider || !modelMeta?.modelId) return fallbackModel?.cost ?? null;
+  return resolvedModel?.cost ?? null;
+}
+
+function recordAssistantUsage({ ledger, event, sessionPath, agentId, model, source, attribution, resolveModel }) {
   if (!ledger || event?.type !== "message_end" || event.message?.role !== "assistant") return null;
+  const initialModelMeta = {
+    provider: textOrNull(event.message?.provider) ?? textOrNull(model?.provider),
+    modelId: textOrNull(event.message?.model) ?? modelIdFromModel(model),
+  };
+  const resolvedModel = resolveAssistantUsageModel(initialModelMeta, model, resolveModel);
+  const modelMeta = modelMetaForAssistantUsage(event.message, model, resolvedModel);
+  const costRates = costRatesForAssistantUsage({ modelMeta, resolvedModel, fallbackModel: model });
   const usageContext = {
     source,
     attribution: attribution || {
@@ -112,17 +156,12 @@ function recordAssistantUsage({ ledger, event, sessionPath, agentId, model, sour
       sessionPath,
     },
   };
-  const modelMeta = {
-    provider: model?.provider ?? null,
-    modelId: model?.id ?? null,
-    api: model?.api ?? null,
-  };
   if (event.message?.usage) {
     return ledger.record({
       model: modelMeta,
       usage: event.message.usage,
       usageContext,
-      costRates: model?.cost,
+      costRates,
     });
   }
   const errorMessage = event.message?.errorMessage || event.message?.error?.message || null;
@@ -130,7 +169,7 @@ function recordAssistantUsage({ ledger, event, sessionPath, agentId, model, sour
     const request = ledger.start({
       model: modelMeta,
       usageContext,
-      costRates: model?.cost,
+      costRates,
     });
     return ledger.recordError(request.requestId, new Error(errorMessage || "provider request failed"));
   }
@@ -703,6 +742,7 @@ export class SessionCoordinator {
         sessionPath,
         agentId: creatingAgentId,
         model: resolvedModel,
+        resolveModel: (ref) => findModel(this._d.getModels?.()?.availableModels, ref.id, ref.provider),
         source: {
           subsystem: "session",
           operation: "reply",
@@ -2039,6 +2079,9 @@ export class SessionCoordinator {
           const sessKey = path.basename(s.path);
           const metaEntry = meta[sessKey];
           s.pinnedAt = typeof metaEntry?.pinnedAt === "string" ? metaEntry.pinnedAt : null;
+          s.projectId = typeof metaEntry?.projectId === "string" && metaEntry.projectId.trim()
+            ? metaEntry.projectId.trim()
+            : null;
           // 读取新格式 model:{id,provider}；老格式（只有 modelId）视为无 provider，
           // 调用方必须接受 modelProvider 可能为 null。
           if (metaEntry?.model && typeof metaEntry.model === "object") {
@@ -2083,6 +2126,7 @@ export class SessionCoordinator {
         modelId: entry.modelId || null,
         modelProvider: entry.modelProvider || null,
         pinnedAt: null,
+        projectId: null,
       });
       projectedPaths.add(sessionPath);
     }
@@ -2535,6 +2579,7 @@ export class SessionCoordinator {
     this._headlessOps.add(opId);
     if (this._headlessOps.size === 1) bm.setHeadless(true);
     let tempSessionMgr;
+    let childSessionPath = null;
     const cleanupTempSession = () => {
       const sp = tempSessionMgr?.getSessionFile?.();
       if (sp) {
@@ -2673,7 +2718,7 @@ export class SessionCoordinator {
         customTools: [...actCustomTools, ...extraCustomTools],
       });
 
-      const childSessionPath = session.sessionManager?.getSessionFile?.() || null;
+      childSessionPath = session.sessionManager?.getSessionFile?.() || null;
 
       // 通知调用方 session 已就绪（subagent 用它来后补 streamKey）
       try { opts.onSessionReady?.(childSessionPath); } catch (err) { log.warn(`isolated onSessionReady callback failed: ${err?.message}`); }
@@ -2694,6 +2739,7 @@ export class SessionCoordinator {
           sessionPath: childSessionPath,
           agentId: targetAgent.id,
           model: execModel,
+          resolveModel: (ref) => findModel(this._d.getModels?.()?.availableModels, ref.id, ref.provider),
           source: {
             subsystem: opts.subagentContext ? "subagent" : "automation",
             operation: "run",
@@ -2811,6 +2857,10 @@ export class SessionCoordinator {
       }
       return { sessionPath: null, replyText: "", error: err.message };
     } finally {
+      if (childSessionPath && bm.isRunning(childSessionPath)) {
+        try { await bm.closeBrowserForSession(childSessionPath); }
+        catch (err) { log.warn(`executeIsolated browser cleanup failed for ${path.basename(childSessionPath)}: ${err.message}`); }
+      }
       this._headlessOps.delete(opId);
       if (this._headlessOps.size === 0) bm.setHeadless(false);
       const browserNowRunning = bm.hasAnyRunning;

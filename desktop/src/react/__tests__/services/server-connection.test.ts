@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   appendConnectionAuth,
@@ -210,18 +210,74 @@ describe('server connection helpers', () => {
     });
   });
 
-  it('throws when multi-device connection is disabled', async () => {
-    await expect(connectDeviceServerConnection({
+  it('normalizes the browser desktop PWA URL when creating a manual LAN connection', () => {
+    const connection = createDeviceServerConnection({
+      baseUrl: '192.168.31.75:14500/desktop/',
+      credential: 'hana_dev_remote_secret',
+      identity: {
+        connectionKind: 'lan',
+        serverId: 'server_lan',
+        serverNodeId: 'node_lan',
+        userId: 'user_lan',
+        studioId: 'studio_lan',
+        label: 'LAN Server',
+        trustState: 'lan',
+        authState: 'paired',
+        credentialKind: 'device_credential',
+        capabilities: ['chat', 'resources', 'files'],
+      },
+    });
+
+    expect(connection).toMatchObject({
+      baseUrl: 'http://192.168.31.75:14500',
+      wsUrl: 'ws://192.168.31.75:14500',
+    });
+  });
+
+  it('logs in once before creating a manual LAN connection so WebSocket can use the web session cookie', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === 'http://192.168.31.75:14500/api/web-auth/login') {
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      if (url === 'http://192.168.31.75:14500/api/server/identity') {
+        return {
+          ok: true,
+          json: async () => ({
+            connectionKind: 'lan',
+            serverId: 'server_lan',
+            serverNodeId: 'node_lan',
+            userId: 'user_lan',
+            studioId: 'studio_lan',
+            label: 'LAN Server',
+            trustState: 'lan',
+            authState: 'paired',
+            credentialKind: 'device_credential',
+            capabilities: ['chat', 'resources', 'files'],
+          }),
+        } as Response;
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+
+    const connection = await connectDeviceServerConnection({
       baseUrl: 'http://192.168.31.75:14500/',
       credential: 'hana_dev_remote_secret',
-    })).rejects.toThrow('multi-device connection is disabled');
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, 'http://192.168.31.75:14500/api/web-auth/login', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ credential: 'hana_dev_remote_secret' }),
+    }));
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, 'http://192.168.31.75:14500/api/server/identity', expect.objectContaining({
+      headers: { Authorization: 'Bearer hana_dev_remote_secret' },
+      credentials: 'include',
+    }));
+    expect(connection.connectionId).toBe('lan:node_lan:studio_lan');
   });
 
-  it.skip('logs in once before creating a manual LAN connection so WebSocket can use the web session cookie', async () => {
-    // 多设备连接已禁用：此测试不再适用
-  });
-
-  it('always returns empty persisted state when multi-device is disabled', () => {
+  it('persists only non-local ServerConnections and the active remote selection', () => {
     const storageData = new Map<string, string>();
     const storage = {
       getItem: (key: string) => storageData.get(key) ?? null,
@@ -254,14 +310,12 @@ describe('server connection helpers', () => {
       activeServerConnectionId: remote.connectionId,
     }, storage);
 
-    // 多设备已禁用：readPersistedServerConnectionState 始终返回空状态
     const loaded = readPersistedServerConnectionState(storage);
-    expect(Object.keys(loaded.serverConnections)).toEqual([]);
-    expect(loaded.activeServerConnectionId).toBeNull();
+    expect(Object.keys(loaded.serverConnections)).toEqual([remote.connectionId]);
+    expect(loaded.activeServerConnectionId).toBe(remote.connectionId);
 
     const selected = persistServerConnectionSelection(remote, storage);
-    // 禁用状态下，selection 也不持久化远程连接
-    expect(selected.activeServerConnectionId).toBeNull();
+    expect(selected.activeServerConnectionId).toBe(remote.connectionId);
   });
 
   it('builds fetch URLs without leaking token into the query string', () => {

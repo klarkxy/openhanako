@@ -24,6 +24,7 @@ import { configureAppEventActions, handleAppEvent, readConfigCwdHistory, readCon
 import { configureWsMessageHandler } from './services/ws-message-handler';
 import { applyEditorTypography } from './editor/typography';
 import {
+  LOCAL_CONNECTION_ID,
   createLocalServerConnection,
   hasServerConnection,
   mergeServerIdentity,
@@ -32,7 +33,9 @@ import {
   type ServerConnection,
 } from './services/server-connection';
 import { persistAppearancePreferences } from './services/appearance-sync';
+// @ts-expect-error — shared JS module
 import { errorBus as _errorBus } from '../../../shared/error-bus.js';
+// @ts-expect-error — shared JS module
 import { AppError as _AppError } from '../../../shared/errors.js';
 
 declare const i18n: {
@@ -43,6 +46,14 @@ declare const i18n: {
 declare function t(key: string, vars?: Record<string, string | number>): string;
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- 全局 bootstrap：platform/IPC callback 签名含 any */
+
+function markRendererLaunch(event: string, details?: unknown) {
+  if (details === undefined) {
+    console.info(`[hana-launch] ${event}`);
+  } else {
+    console.info(`[hana-launch] ${event}`, details);
+  }
+}
 
 // ── __hanaLog：前端日志上报 ──
 window.__hanaLog = function (level: string, module: string, message: string) {
@@ -101,11 +112,13 @@ export async function initApp(): Promise<void> {
 
   if (!activeServerConnection) {
     setStatus('status.serverNotReady', false);
+    markRendererLaunch('app-ready', JSON.stringify({ reason: 'no-active-server-connection' }));
     platform.appReady();
     return;
   }
 
   try {
+    await refreshDeviceWebSession(activeServerConnection);
     const mergedConnection = await loadIdentityForActiveConnection(activeServerConnection);
     useStore.setState({
       serverConnections: upsertServerConnection(useStore.getState().serverConnections, mergedConnection),
@@ -113,10 +126,34 @@ export async function initApp(): Promise<void> {
       activeServerConnection: mergedConnection,
     });
   } catch (err) {
-    console.error('[init] server identity failed:', err);
-    setStatus('status.serverNotReady', false);
-    platform.appReady();
-    return;
+    if (activeServerConnection.connectionId !== LOCAL_CONNECTION_ID && localServerConnection) {
+      console.warn('[init] remote server identity failed, returning to local server:', err);
+      useStore.setState({
+        activeServerConnectionId: localServerConnection.connectionId,
+        activeServerConnection: localServerConnection,
+      });
+      try {
+        await refreshDeviceWebSession(localServerConnection);
+        const mergedConnection = await loadIdentityForActiveConnection(localServerConnection);
+        useStore.setState({
+          serverConnections: upsertServerConnection(useStore.getState().serverConnections, mergedConnection),
+          activeServerConnectionId: mergedConnection.connectionId,
+          activeServerConnection: mergedConnection,
+        });
+      } catch (localErr) {
+        console.error('[init] server identity failed:', localErr);
+        setStatus('status.serverNotReady', false);
+        markRendererLaunch('app-ready', JSON.stringify({ reason: 'local-server-identity-failed' }));
+        platform.appReady();
+        return;
+      }
+    } else {
+      console.error('[init] server identity failed:', err);
+      setStatus('status.serverNotReady', false);
+      markRendererLaunch('app-ready', JSON.stringify({ reason: 'server-identity-failed' }));
+      platform.appReady();
+      return;
+    }
   }
 
   persistAppearancePreferences().catch((err) => {
@@ -224,6 +261,7 @@ export async function initApp(): Promise<void> {
   });
 
   // 22. 通知 app ready
+  markRendererLaunch('app-ready');
   platform.appReady();
 }
 
@@ -231,4 +269,14 @@ async function loadIdentityForActiveConnection(connection: ServerConnection): Pr
   const identityRes = await hanaFetch('/api/server/identity');
   const identityData = await identityRes.json();
   return mergeServerIdentity(connection, identityData);
+}
+
+async function refreshDeviceWebSession(connection: ServerConnection): Promise<void> {
+  if (connection.credentialKind !== 'device_credential' || !connection.token) return;
+  await hanaFetch('/api/web-auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ credential: connection.token }),
+  });
 }

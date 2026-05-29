@@ -58,6 +58,12 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   if (isDeskFileReadRoute(verb, routePath)) return scoped("files.read");
   if (isDeskFileWriteRoute(verb, routePath)) return scoped("files.write");
   if (routePath === "/api/usage/llm") return verb === "GET" ? LOCAL_ONLY : LOCAL_ONLY;
+  if (routePath === "/api/session-projects" || routePath.startsWith("/api/session-projects/")) {
+    return scoped("chat");
+  }
+  if (routePath === "/api/preferences/sidebar-ui") {
+    return (verb === "GET" || verb === "PUT") ? scoped("chat") : LOCAL_ONLY;
+  }
   if (isSettingsReadRoute(verb, routePath)) return scoped("settings.read");
   if (isSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
   if (isProviderManagementRoute(verb, routePath)) return scoped("providers.manage");
@@ -153,17 +159,22 @@ export function scopeAllows(scopes, required) {
 
 function isMobileStaticRoute(verb, routePath) {
   if (verb !== "GET" && verb !== "HEAD") return false;
-  return routePath === "/mobile"
-    || routePath === "/mobile/"
-    || routePath === "/mobile/index.html"
-    || routePath === "/mobile/manifest.webmanifest"
-    || routePath === "/mobile/sw.js"
-    || routePath === "/mobile/icon.png"
-    || routePath.startsWith("/mobile/assets/")
-    || routePath.startsWith("/mobile/lib/")
-    || routePath.startsWith("/mobile/themes/")
-    || routePath.startsWith("/mobile/locales/")
-    || routePath.startsWith("/mobile/icons/");
+  return isWebClientStaticRoute(routePath, "/mobile")
+    || isWebClientStaticRoute(routePath, "/desktop");
+}
+
+function isWebClientStaticRoute(routePath, prefix) {
+  return routePath === prefix
+    || routePath === `${prefix}/`
+    || routePath === `${prefix}/index.html`
+    || routePath === `${prefix}/manifest.webmanifest`
+    || routePath === `${prefix}/sw.js`
+    || routePath === `${prefix}/icon.png`
+    || routePath.startsWith(`${prefix}/assets/`)
+    || routePath.startsWith(`${prefix}/lib/`)
+    || routePath.startsWith(`${prefix}/themes/`)
+    || routePath.startsWith(`${prefix}/locales/`)
+    || routePath.startsWith(`${prefix}/icons/`);
 }
 
 function isWebAuthBootstrapRoute(verb, routePath) {
@@ -175,7 +186,7 @@ function isWebAuthBootstrapRoute(verb, routePath) {
 
 function isHtmlPreviewDocumentRoute(verb, routePath) {
   if (verb !== "GET" && verb !== "HEAD") return false;
-  return /^\/preview\/html\/[^/]+$/.test(routePath);
+  return /^\/preview\/html\/[^/]+(?:\/assets\/[^/]+\/.+)?$/.test(routePath);
 }
 
 function isSettingsReadRoute(verb, routePath) {

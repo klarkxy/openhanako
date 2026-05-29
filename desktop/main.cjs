@@ -48,6 +48,9 @@ const {
   buildBrowserSearchUrl,
 } = require("../lib/browser/browser-search-extractors.cjs");
 const {
+  waitForBrowserState,
+} = require("./src/shared/browser-wait.cjs");
+const {
   normalizeNetworkProxyConfig,
   electronProxyRulesForConfig,
   electronProxyBypassRulesForConfig,
@@ -71,6 +74,9 @@ const {
 const {
   buildWin32ServerEnv,
 } = require("./src/shared/server-process-env.cjs");
+const {
+  createDesktopLaunchDiagnostics,
+} = require("./src/shared/desktop-launch-diagnostics.cjs");
 const {
   sanitizeWindowState,
 } = require("./src/shared/window-state.cjs");
@@ -238,6 +244,28 @@ if (!gpuStartupPolicy.hardwareAccelerationEnabled) {
   console.warn(`[desktop] GPU safe mode enabled (${gpuStartupPolicy.reason}); hardware acceleration disabled for this launch`);
 }
 const desktopStartupId = `${Date.now()}-${process.pid}`;
+const desktopLaunchDiagnostics = createDesktopLaunchDiagnostics({
+  hanakoHome,
+  startupId: desktopStartupId,
+  appVersion: app?.getVersion?.() || "unknown",
+  platform: process.platform,
+  arch: process.arch,
+  redactText: redactMainLogText,
+});
+try {
+  desktopLaunchDiagnostics.reset({
+    pid: process.pid,
+    argv: process.argv.slice(0, 20),
+    packaged: !!app.isPackaged,
+  });
+} catch {
+  // Launch diagnostics are best-effort. Startup must not depend on the log path.
+}
+
+function writeDesktopLaunchDiagnostic(event, details = {}) {
+  desktopLaunchDiagnostics.append(event, details);
+}
+
 if (process.platform === "win32") {
   markGpuStartupPending({
     hanakoHome,
@@ -313,6 +341,53 @@ function loadWindowURL(win, pageName, opts) {
       win.loadFile(path.join(__dirname, "src", `${pageName}.html`), opts);
     }
   }
+}
+
+function attachRendererLaunchDiagnostics(win, label) {
+  if (!win?.webContents) return;
+  writeDesktopLaunchDiagnostic("window-created", { label, id: win.id });
+
+  const wc = win.webContents;
+  const windowDetails = () => ({
+    label,
+    id: win.id,
+    url: wc.getURL(),
+    visible: typeof win.isVisible === "function" ? win.isVisible() : undefined,
+  });
+
+  wc.on("dom-ready", () => {
+    writeDesktopLaunchDiagnostic("dom-ready", windowDetails());
+  });
+  wc.on("did-finish-load", () => {
+    writeDesktopLaunchDiagnostic("did-finish-load", windowDetails());
+  });
+  wc.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    writeDesktopLaunchDiagnostic("did-fail-load", {
+      ...windowDetails(),
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame,
+    });
+  });
+  wc.on("render-process-gone", (_event, details) => {
+    writeDesktopLaunchDiagnostic("render-process-gone", {
+      ...windowDetails(),
+      details,
+    });
+  });
+  wc.on("console-message", (_event, level, message, line, sourceId) => {
+    writeDesktopLaunchDiagnostic("console-message", {
+      ...windowDetails(),
+      level,
+      message,
+      line,
+      sourceId,
+    });
+  });
+  win.on("closed", () => {
+    writeDesktopLaunchDiagnostic("window-closed", { label, id: win.id });
+  });
 }
 
 /** 校验浏览器 URL：仅允许 http/https */
@@ -1183,6 +1258,7 @@ function createSplashWindow() {
       nodeIntegration: false,
     },
   });
+  attachRendererLaunchDiagnostics(splashWindow, "splash");
 
   loadWindowURL(splashWindow, "splash");
 
@@ -1266,6 +1342,7 @@ function createMainWindow() {
   }
 
   mainWindow = new BrowserWindow(opts);
+  attachRendererLaunchDiagnostics(mainWindow, "main");
   applyWindowThemeColors(mainWindow, initialTheme);
 
   // auto-updater 是进程级服务：初始化只做一次，窗口重建时只更新目标 window 引用。
@@ -1289,6 +1366,12 @@ function createMainWindow() {
   const initTimeout = setTimeout(() => {
     if (_startHiddenAtLogin) return;
     console.warn("[desktop] ⚠ 主窗口初始化超时（30s），强制显示");
+    writeDesktopLaunchDiagnostic("app-ready-timeout", {
+      label: "main",
+      timeoutMs: 30000,
+      visible: mainWindow && !mainWindow.isDestroyed() ? mainWindow.isVisible() : false,
+      url: mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.getURL() : "",
+    });
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       mainWindow.show();
     }
@@ -1424,6 +1507,7 @@ function createSettingsWindow(tab, theme) {
       nodeIntegration: false,
     },
   });
+  attachRendererLaunchDiagnostics(settingsWindow, "settings");
   applyWindowThemeColors(settingsWindow, settingsTheme);
 
   settingsWindow.once("ready-to-show", () => {
@@ -1534,6 +1618,7 @@ function createBrowserViewerWindow(opts = {}) {
       nodeIntegration: false,
     },
   });
+  attachRendererLaunchDiagnostics(browserViewerWindow, "browser-viewer");
   applyWindowThemeColors(browserViewerWindow, _browserViewerTheme);
 
   loadWindowURL(browserViewerWindow, "browser-viewer");
@@ -1838,6 +1923,38 @@ function _bindBrowserViewLifecycle(view, sessionPath) {
   if (sessionPath && _isBrowserViewDestroyed(view)) forget("destroyed");
 }
 
+function _createBrowserWebContentsView(sessionPath) {
+  const ses = session.fromPartition("persist:hana-browser");
+  const view = new WebContentsView({
+    webPreferences: {
+      session: ses,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  view.webContents.setAudioMuted(true);
+  view.webContents.on("did-navigate", (_e, url) => {
+    if (view === _browserWebView) _notifyViewerUrl(url);
+  });
+  view.webContents.on("did-navigate-in-page", (_e, url) => {
+    if (view === _browserWebView) _notifyViewerUrl(url);
+  });
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedBrowserUrl(url)) {
+      view.webContents.loadURL(url);
+    }
+    return { action: "deny" };
+  });
+  view.webContents.on("page-title-updated", () => {
+    if (view === _browserWebView) _notifyViewerUrl(view.webContents.getURL());
+  });
+  view.setBorderRadius(10);
+  _bindBrowserViewLifecycle(view, sessionPath);
+  return view;
+}
+
 function _ensureLiveWebContents(view, sessionPath) {
   if (_isBrowserViewDestroyed(view)) {
     _forgetBrowserView(view, "destroyed");
@@ -1861,80 +1978,6 @@ async function _withLiveWebContents(sessionPath, fn) {
 
 function _delay(ms) {
   return new Promise(function(r) { setTimeout(r, ms); });
-}
-
-/**
- * 等待页面 DOM 渲染稳定（适用于 Vue/React 等 SPA）。
- * 轮询 DOM 节点数，连续 stableThreshold 次不变则认为稳定。
- * @param {Electron.WebContents} wc
- * @param {{ timeout?: number, interval?: number, stableThreshold?: number }} opts
- */
-function _waitForDomStable(wc, opts) {
-  const timeout = (opts && opts.timeout) || 8000;
-  const interval = (opts && opts.interval) || 200;
-  const stableThreshold = (opts && opts.stableThreshold) || 3;
-  const start = Date.now();
-  let lastCount = -1;
-  let stable = 0;
-  return new Promise(function(resolve) {
-    function poll() {
-      if (Date.now() - start >= timeout) { resolve(); return; }
-      wc.executeJavaScript("document.querySelectorAll('*').length").then(function(count) {
-        if (count === lastCount) {
-          stable++;
-          if (stable >= stableThreshold) { resolve(); return; }
-        } else {
-          stable = 0;
-          lastCount = count;
-        }
-        setTimeout(poll, interval);
-      }).catch(function() {
-        // executeJavaScript 失败时继续轮询（页面可能还在加载中）
-        setTimeout(poll, interval);
-      });
-    }
-    // 首次延迟，给页面一个初始渲染窗口
-    setTimeout(poll, Math.min(interval, 300));
-  });
-}
-
-/**
- * 根据 state 参数执行不同的等待策略。
- * @param {Electron.WebContents} wc
- * @param {string} state - 等待状态: domcontentloaded | load | stable
- * @param {number} timeout - 最大等待时间 (ms)
- */
-async function _waitForState(wc, state, timeout) {
-  switch (state) {
-    case "load": {
-      // 等待 document.readyState === 'complete' 或超时
-      const start = Date.now();
-      while (Date.now() - start < timeout) {
-        const ready = await wc.executeJavaScript("document.readyState").catch(function() { return "loading"; });
-        if (ready === "complete" || ready === "interactive") break;
-        await _delay(150);
-      }
-      break;
-    }
-    case "domcontentloaded": {
-      // 等待 document.readyState !== 'loading'
-      const start = Date.now();
-      while (Date.now() - start < timeout) {
-        const ready = await wc.executeJavaScript("document.readyState").catch(function() { return "loading"; });
-        if (ready !== "loading") break;
-        await _delay(100);
-      }
-      break;
-    }
-    case "stable":
-    default: {
-      // DOM 稳定性轮询：适用于 Vue/React SPA
-      await _waitForDomStable(wc, { timeout: timeout });
-      // 微等一帧确保渲染管线完成
-      await _delay(150);
-      break;
-    }
-  }
 }
 
 function _updateBrowserViewBounds() {
@@ -2043,8 +2086,10 @@ async function handleBrowserCommand(cmd, params) {
             reject(new Error(`Search navigation timed out after ${NAV_TIMEOUT / 1000}s: ${searchUrl}`));
           }, NAV_TIMEOUT)),
         ]);
-        await _waitForDomStable(view.webContents, { timeout: 6000 });
-        await _delay(200);
+        const wait = await waitForBrowserState(view.webContents, {
+          state: params.state || "stable",
+          timeoutMs: Math.min(Number(params.timeout) || 5000, 10000),
+        });
         const extracted = await view.webContents.executeJavaScript(
           buildBrowserSearchExtractionScript(provider, maxResults),
         );
@@ -2062,6 +2107,7 @@ async function handleBrowserCommand(cmd, params) {
             captcha: !!extracted.captcha,
             reason: extracted.reason || "",
             elapsed_ms: Date.now() - started,
+            wait,
           },
         };
       } finally {
@@ -2080,43 +2126,7 @@ async function handleBrowserCommand(cmd, params) {
       // 无 sessionPath 且已有活跃 view → 直接返回（兼容旧调用）
       if (!sp && _browserWebView && !_isBrowserViewDestroyed(_browserWebView)) return {};
 
-      const ses = session.fromPartition("persist:hana-browser");
-      const view = new WebContentsView({
-        webPreferences: {
-          session: ses,
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
-        },
-      });
-
-      // 默认静音
-      view.webContents.setAudioMuted(true);
-
-      // 监听导航事件，实时更新 URL 栏（只在该 view 是活跃 view 时通知）
-      view.webContents.on("did-navigate", (_e, url) => {
-        if (view === _browserWebView) _notifyViewerUrl(url);
-      });
-      view.webContents.on("did-navigate-in-page", (_e, url) => {
-        if (view === _browserWebView) _notifyViewerUrl(url);
-      });
-
-      // 在新窗口中打开链接（target=_blank）时，在当前视图中打开
-      view.webContents.setWindowOpenHandler(({ url }) => {
-        if (isAllowedBrowserUrl(url)) {
-          view.webContents.loadURL(url);
-        }
-        return { action: "deny" };
-      });
-
-      // 页面标题变化时更新标题栏（只在该 view 是活跃 view 时通知）
-      view.webContents.on("page-title-updated", () => {
-        if (view === _browserWebView) _notifyViewerUrl(view.webContents.getURL());
-      });
-
-      // 卡片圆角
-      view.setBorderRadius(10);
-      _bindBrowserViewLifecycle(view, sp);
+      const view = _createBrowserWebContentsView(sp);
 
       // 存入 Map
       if (sp) _browserViews.set(sp, view);
@@ -2226,11 +2236,17 @@ async function handleBrowserCommand(cmd, params) {
             reject(new Error(`Navigation timed out after ${NAV_TIMEOUT / 1000}s: ${params.url}`));
           }, NAV_TIMEOUT)),
         ]);
-        // 等待 SPA 渲染稳定（Vue/React 等），替代原来的盲等 _delay(500)
-        await _waitForDomStable(wc, { timeout: 8000 });
-        await _delay(200);
+        const wait = await waitForBrowserState(wc, {
+          state: params.state || "stable",
+          timeoutMs: Math.min(Number(params.timeout) || 5000, 10000),
+        });
         const snap = await wc.executeJavaScript(SNAPSHOT_SCRIPT);
-        return { url: snap.currentUrl, title: snap.title, snapshot: snap.text };
+        return {
+          url: snap.currentUrl,
+          title: snap.title,
+          snapshot: snap.text,
+          diagnostics: { wait },
+        };
       });
     }
 
@@ -2348,10 +2364,12 @@ async function handleBrowserCommand(cmd, params) {
     case "wait": {
       return await _withLiveWebContents(params.sessionPath, async (wc) => {
         const timeout = Math.min(params.timeout || 5000, 10000);
-        const state = params.state || "stable";
-        await _waitForState(wc, state, timeout);
+        const wait = await waitForBrowserState(wc, {
+          state: params.state || "stable",
+          timeoutMs: timeout,
+        });
         const snap = await wc.executeJavaScript(SNAPSHOT_SCRIPT);
-        return { currentUrl: snap.currentUrl, text: snap.text };
+        return { currentUrl: snap.currentUrl, text: snap.text, diagnostics: { wait } };
       });
     }
 
@@ -2499,6 +2517,7 @@ function createOnboardingWindow(query = {}) {
       nodeIntegration: false,
     },
   });
+  attachRendererLaunchDiagnostics(onboardingWindow, "onboarding");
   applyWindowThemeColors(onboardingWindow, initialTheme);
 
   loadWindowURL(onboardingWindow, "onboarding", { query });
@@ -2878,9 +2897,32 @@ wrapIpcHandler("set-auto-launch-enabled", (_event, enabled) => setAutoLaunchEnab
 wrapIpcBestEffortHandler("open-settings", (_event, tab, theme) => createSettingsWindow(tab, theme));
 
 // 浏览器查看器窗口
-wrapIpcBestEffortHandler("open-browser-viewer", (_event, theme) => {
+wrapIpcBestEffortHandler("open-browser-viewer", async (_event, theme, url) => {
   if (theme) _browserViewerTheme = theme;
   createBrowserViewerWindow();
+  if (!url || !isAllowedBrowserUrl(url)) return;
+
+  if (_browserWebView && _currentBrowserSession) {
+    if (browserViewerWindow && !browserViewerWindow.isDestroyed()) {
+      try { browserViewerWindow.contentView.removeChildView(_browserWebView); } catch {}
+    }
+    _browserWebView = null;
+    _currentBrowserSession = null;
+  }
+
+  if (!_browserWebView) {
+    _browserWebView = _createBrowserWebContentsView(null);
+    if (browserViewerWindow && !browserViewerWindow.isDestroyed()) {
+      try { browserViewerWindow.contentView.removeChildView(_browserWebView); } catch {}
+      browserViewerWindow.contentView.addChildView(_browserWebView);
+      _updateBrowserViewBounds();
+    }
+  }
+
+  await _withLiveWebContents(null, async (wc) => {
+    await wc.loadURL(url);
+  });
+  _notifyViewerUrl(url);
 });
 wrapIpcBestEffortHandler("browser-go-back", () => { if (_browserWebView) _browserWebView.webContents.goBack(); });
 wrapIpcBestEffortHandler("browser-go-forward", () => { if (_browserWebView) _browserWebView.webContents.goForward(); });
@@ -3355,27 +3397,9 @@ wrapIpcHandler("screenshot-render", (_event, payload) => {
 });
 
 // 文件监听（artifact 编辑 — 外部变更刷新用）
-// 使用 chokidar 替代 fs.watch：chokidar 能正确处理原子保存（write-temp + rename）
-// 等跨平台场景，避免 Windows 上 fs.watch 在文件被替换后停止追踪的问题。
 const _watchedRendererIds = new Set();
 const _fileWatchRegistry = createFileWatchRegistry({
-  watch: (filePath, _options, onChange) => {
-    const watcher = chokidar.watch(filePath, {
-      ignoreInitial: true,
-      awaitWriteFinish: false,
-      disableGlobbing: true,
-    });
-    watcher.on('all', (event) => {
-      // 将 chokidar 事件映射为 fs.watch 风格的事件类型，
-      // 保持 file-watch-registry 的接口兼容。
-      if (event === 'change' || event === 'add') {
-        onChange('change');
-      } else if (event === 'unlink') {
-        onChange('rename');
-      }
-    });
-    return watcher;
-  },
+  watch: (filePath, options, onChange) => fs.watch(filePath, options, onChange),
   notifySubscriber: (subscriberId, filePath) => {
     const wc = webContents.fromId(subscriberId);
     if (!wc || wc.isDestroyed()) {
@@ -3559,7 +3583,12 @@ wrapIpcHandler("window-is-maximized", (event) => {
 });
 
 // 前端初始化完成后调用，关闭 splash / onboarding，显示主窗口
-wrapIpcBestEffortHandler("app-ready", () => {
+wrapIpcBestEffortHandler("app-ready", (event) => {
+  writeDesktopLaunchDiagnostic("app-ready", {
+    label: "main",
+    senderUrl: event?.sender?.getURL?.() || "",
+    mainWindowVisible: mainWindow && !mainWindow.isDestroyed() ? mainWindow.isVisible() : false,
+  });
   if (process.platform === "win32") {
     markGpuStartupReady({
       hanakoHome,
@@ -3692,6 +3721,11 @@ app.whenReady().then(async () => {
     checkForUpdates().catch(() => {});
   } catch (err) {
     console.error("[desktop] 启动失败:", err.message);
+    writeDesktopLaunchDiagnostic("desktop-launch-failed", {
+      message: err?.message || String(err),
+      code: err?.code,
+      stack: err?.stack,
+    });
     if (process.platform === "win32") {
       markGpuStartupFailed({
         hanakoHome,
@@ -3859,30 +3893,4 @@ process.on('unhandledRejection', (reason) => {
   const traceId = Math.random().toString(16).slice(2, 10);
   console.error(`[ErrorBus][${err.code || 'UNKNOWN'}][${traceId}] unhandledRejection: ${redactMainLogText(err.message)}`);
   console.error(`[ErrorBus][${traceId}] ${redactMainLogText(err.stack || err.message)}`);
-});
-
-// ── 信号处理：确保 Ctrl-C / SIGTERM 时清理 server，不留孤儿进程 ──
-// Electron 不会自动把 SIGINT/SIGTERM 转为 app.quit()，需显式处理。
-// before-quit handler 已包含 shutdownServer() 逻辑，app.quit() 会触发清理链。
-function handleTerminationSignal(signal) {
-  if (isQuitting) return;
-  console.log(`[desktop] 收到 ${signal}，正在退出...`);
-  isExitingServer = true;
-  isQuitting = true;
-  app.quit();
-}
-process.on("SIGINT", () => handleTerminationSignal("SIGINT"));
-process.on("SIGTERM", () => handleTerminationSignal("SIGTERM"));
-if (process.platform === "win32") {
-  process.on("SIGBREAK", () => handleTerminationSignal("SIGBREAK"));
-}
-
-// 兜底：进程退出时强杀 server（防止 before-quit 异步清理未完成）
-process.on("exit", () => {
-  if (serverProcess && !hasChildExitObserved(serverProcess)) {
-    try { killPid(serverProcess.pid, true); } catch {}
-  }
-  if (reusedServerPid) {
-    try { killPid(reusedServerPid, true); } catch {}
-  }
 });

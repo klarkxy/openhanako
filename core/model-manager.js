@@ -41,6 +41,7 @@ export class ModelManager {
     this._authStorage = AuthStorage.create(path.join(this._hanakoHome, "auth.json"));
     this.providerRegistry.reload();
     this._removeApiKeyProviderAuthEntries();
+    this._applyRuntimeApiKeyOverrides(this.providerRegistry.getAllProvidersRaw());
     this._modelRegistry = createModelRegistry(
       this._authStorage,
       path.join(this._hanakoHome, "models.json"),
@@ -143,12 +144,24 @@ export class ModelManager {
       oauthKeyMap: this._buildOAuthKeyMap(),
       chatProjectionMap: this._buildChatProjectionMap(),
     });
+    this._applyRuntimeApiKeyOverrides(providers);
     if (changed) {
       this._modelRegistry.refresh();
       await this.refreshAvailable();
       this._rebindDefaultModel();
     }
     return changed;
+  }
+
+  _applyRuntimeApiKeyOverrides(providers) {
+    if (!this._authStorage?.setRuntimeApiKey) return;
+    for (const [providerId, provider] of Object.entries(providers || {})) {
+      if (typeof provider?.api_key === "string" && provider.api_key.length > 0) {
+        this._authStorage.setRuntimeApiKey(providerId, provider.api_key);
+      } else {
+        this._authStorage.removeRuntimeApiKey?.(providerId);
+      }
+    }
   }
 
   /**
@@ -251,13 +264,18 @@ export class ModelManager {
    * 根据 provider 名称查找凭证
    * 委托 ProviderRegistry，返回 snake_case 格式（兼容 callProviderText 消费方）
    * @param {string} provider
-   * @returns {{ api_key: string, base_url: string, api: string }}
+   * @returns {{ api_key: string, base_url: string, api: string, accountId?: string }}
    */
   resolveProviderCredentials(provider) {
     if (!provider) return { api_key: "", base_url: "", api: "" };
     const cred = this.providerRegistry.getCredentials(provider);
     if (cred) {
-      return { api_key: cred.apiKey || "", base_url: cred.baseUrl || "", api: cred.api || "" };
+      return {
+        api_key: cred.apiKey || "",
+        base_url: cred.baseUrl || "",
+        api: cred.api || "",
+        ...(cred.accountId ? { accountId: cred.accountId } : {}),
+      };
     }
     return { api_key: "", base_url: "", api: "" };
   }

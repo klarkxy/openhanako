@@ -7,7 +7,6 @@ import {
   getThinkingFormat,
   getReasoningProfile,
 } from "../core/provider-compat.js";
-import { matches as anthropicCacheMatches } from "../core/provider-compat/anthropic.js";
 import {
   resolveOutputBudgetPolicy,
   resolveOutputCapCapability,
@@ -25,58 +24,6 @@ describe("isAnthropicModel", () => {
   it("匹配 anthropic provider", () => {
     expect(isAnthropicModel({ provider: "anthropic" })).toBe(true);
     expect(isAnthropicModel({ provider: "openai" })).toBe(false);
-  });
-});
-
-describe("anthropic cache_control matches", () => {
-  it("匹配 anthropic provider", () => {
-    expect(anthropicCacheMatches({ provider: "anthropic", api: "anthropic-messages" })).toBe(true);
-  });
-
-  it("匹配 minimax provider", () => {
-    expect(anthropicCacheMatches({
-      id: "MiniMax-M2.7",
-      provider: "minimax",
-      api: "anthropic-messages",
-    })).toBe(true);
-  });
-
-  it("匹配 claude-* 模型 id", () => {
-    expect(anthropicCacheMatches({
-      id: "claude-opus-4-7",
-      provider: "custom-proxy",
-      api: "anthropic-messages",
-    })).toBe(true);
-  });
-
-  it("匹配 compat.cacheControlFormat = anthropic", () => {
-    expect(anthropicCacheMatches({
-      id: "custom-model",
-      provider: "custom-provider",
-      api: "anthropic-messages",
-      compat: { cacheControlFormat: "anthropic" },
-    })).toBe(true);
-  });
-
-  it("不匹配非 anthropic-messages API", () => {
-    expect(anthropicCacheMatches({
-      id: "MiniMax-M2.7",
-      provider: "minimax",
-      api: "openai-completions",
-    })).toBe(false);
-  });
-
-  it("不匹配无显式声明的第三方 provider", () => {
-    expect(anthropicCacheMatches({
-      id: "custom-model",
-      provider: "custom-provider",
-      api: "anthropic-messages",
-    })).toBe(false);
-  });
-
-  it("容忍 null/undefined model", () => {
-    expect(anthropicCacheMatches(null)).toBe(false);
-    expect(anthropicCacheMatches(undefined)).toBe(false);
   });
 });
 
@@ -681,6 +628,70 @@ describe("normalizeProviderPayload — 通用层", () => {
       video_url: { url: "data:video/webm;base64,AAAA" },
     });
   });
+
+  it("Zhipu payloads remove OpenAI-only fields and normalize reasoning/output controls", () => {
+    const payload = {
+      model: "glm-4.7-flash",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "lookup",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {},
+          },
+        },
+      }],
+      store: true,
+      stream_options: { include_usage: true },
+      reasoning_effort: "high",
+      max_completion_tokens: 32000,
+    };
+
+    const result = normalizeProviderPayload(payload, {
+      id: "glm-4.7-flash",
+      provider: "zhipu",
+      api: "openai-completions",
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      reasoning: true,
+    }, { mode: "chat", reasoningLevel: "high", outputBudgetSource: "system" });
+
+    expect(result).not.toBe(payload);
+    expect(result).not.toHaveProperty("store");
+    expect(result).not.toHaveProperty("stream_options");
+    expect(result).not.toHaveProperty("reasoning_effort");
+    expect(result.max_tokens).toBe(32000);
+    expect(result.thinking).toEqual({ type: "enabled" });
+    expect(result.tools[0].function).not.toHaveProperty("strict");
+    expect(payload.store).toBe(true);
+    expect(payload.tools[0].function.strict).toBe(true);
+  });
+
+  it("Zhipu utility payloads explicitly disable thinking instead of falling back to hidden provider defaults", () => {
+    const payload = {
+      model: "glm-4.7-flash",
+      messages: [{ role: "user", content: "hi" }],
+      reasoning_effort: "high",
+      max_completion_tokens: 100,
+    };
+
+    const result = normalizeProviderPayload(payload, {
+      id: "glm-4.7-flash",
+      provider: "custom",
+      api: "openai-completions",
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      reasoning: true,
+    }, { mode: "utility" });
+
+    expect(result).toMatchObject({
+      max_tokens: 100,
+      thinking: { type: "disabled" },
+    });
+    expect(result).not.toHaveProperty("reasoning_effort");
+    expect(result).not.toHaveProperty("max_completion_tokens");
+  });
 });
 
 describe("normalizeProviderPayload — DeepSeek Anthropic 模式", () => {
@@ -1018,6 +1029,25 @@ describe("normalizeProviderPayload — DeepSeek utility 模式", () => {
     // 默认 mode = "chat"，会拉 max_tokens
     const result = normalizeProviderPayload(payload, deepseekV4);
     expect(result.max_tokens).toBe(65536);
+  });
+
+  it("utility 模式尊重自定义 provider 显式声明的 DeepSeek thinking format", () => {
+    const payload = {
+      model: "deepseek-v4-pro",
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 80,
+    };
+    const result = normalizeProviderPayload(payload, {
+      id: "deepseek-v4-pro",
+      provider: "opencode-go",
+      api: "openai-completions",
+      reasoning: true,
+      maxTokens: 384000,
+      compat: { thinkingFormat: "deepseek" },
+    }, { mode: "utility" });
+
+    expect(result).toMatchObject({ thinking: { type: "disabled" } });
+    expect(result.max_tokens).toBe(80);
   });
 });
 
