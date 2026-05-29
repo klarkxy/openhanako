@@ -224,6 +224,25 @@ export function extractToolDetail(name: string, args: Record<string, unknown> | 
       return { text: (args.skill_name || '') as string };
     case 'update_settings':
       return { text: (args.key || args.setting || '') as string };
+    case 'text_file': {
+      const action = (args.action || '') as string;
+      const p = (args.path || '') as string;
+      const detail = action ? `${action}` : '';
+      return { text: detail + (p ? ` ${truncatePath(p)}` : ''), href: p || undefined, hrefType: 'file' };
+    }
+    case 'apply_patch': {
+      const p = (args.filePath || '') as string;
+      return { text: truncatePath(p), href: p || undefined, hrefType: 'file' };
+    }
+    case 'count_chars': {
+      const p = (args.filePath || '') as string;
+      return p ? { text: truncatePath(p), href: p, hrefType: 'file' } : { text: '' };
+    }
+    case 'json_query': {
+      const p = (args.filePath || '') as string;
+      const queryPath = (args.path || '') as string;
+      return { text: (queryPath ? `${truncatePath(p)} → ${queryPath}` : truncatePath(p)), href: p || undefined, hrefType: 'file' };
+    }
     default: {
       // 插件工具：取第一个有意义的字符串参数作详情
       const first = Object.values(args).find(v => typeof v === 'string' && v.length > 0);

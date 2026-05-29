@@ -12,6 +12,7 @@ import type { FileVersion } from '../types';
 
 export interface ToolCall {
   name: string;
+  label?: string;
   args?: Record<string, unknown>;
   done: boolean;
   success: boolean;

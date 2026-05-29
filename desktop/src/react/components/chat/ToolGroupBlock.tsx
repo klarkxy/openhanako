@@ -17,11 +17,69 @@ interface Props {
   agentName?: string;
 }
 
-function getToolLabel(name: string, phase: string, agentName: string): string {
+function getToolLabel(name: string, phase: string, agentName: string, toolLabel?: string): string {
   const t = window.t;
   const vars = { name: agentName };
   const val = t?.(`tool.${name}.${phase}`, vars);
+  // Has a locale entry for this specific tool + phase → use it (these are fun!)
   if (val && val !== `tool.${name}.${phase}`) return val;
+  // No locale entry: craft a fun message using the tool label
+  if (toolLabel) {
+    const funFallbacks: Record<string, Record<string, string>> = {
+      running: {
+        'edit': `✏️ ${agentName} 正在精雕细琢`,
+        'search': `🔍 ${agentName} 正在翻箱倒柜`,
+        'read': `📖 ${agentName} 正在认真研读`,
+        'write': `✍️ ${agentName} 正在奋笔疾书`,
+        'query': `🔎 ${agentName} 正在刨根问底`,
+        'generate': `🎨 ${agentName} 正在灵感迸发`,
+        'analyze': `🧠 ${agentName} 正在深度思考`,
+        'send': `💌 ${agentName} 正在传递心意`,
+        'fetch': `🌐 ${agentName} 正在探索网络`,
+        'convert': `🔄 ${agentName} 正在变形转化`,
+        'build': `🏗️ ${agentName} 正在搭建构造`,
+        'check': `✅ ${agentName} 正在仔细检查`,
+      },
+      done: {
+        'edit': `✏️ ${agentName} 改得漂漂亮亮`,
+        'search': `🔍 ${agentName} 满载而归`,
+        'read': `📖 ${agentName} 了然于胸`,
+        'write': `✍️ ${agentName} 大功告成`,
+        'query': `🔎 ${agentName} 找到答案了`,
+        'generate': `🎨 ${agentName} 作品出炉`,
+        'analyze': `🧠 ${agentName} 想明白了`,
+        'send': `💌 ${agentName} 送达`,
+        'fetch': `🌐 ${agentName} 取到宝了`,
+        'convert': `🔄 ${agentName} 变好了`,
+        'build': `🏗️ ${agentName} 搭好了`,
+        'check': `✅ ${agentName} 检查完毕`,
+      },
+      failed: {
+        'edit': `✏️ ${agentName} 改砸了`,
+        'search': `🔍 ${agentName} 白忙一场`,
+        'read': `📖 ${agentName} 没读到`,
+        'write': `✍️ ${agentName} 写不出`,
+        'query': `🔎 ${agentName} 没查到`,
+        'generate': `🎨 ${agentName} 灵感枯竭`,
+        'analyze': `🧠 ${agentName} 想不通了`,
+        'send': `💌 ${agentName} 信没寄出`,
+        'fetch': `🌐 ${agentName} 迷路了`,
+        'convert': `🔄 ${agentName} 变不了`,
+        'build': `🏗️ ${agentName} 塌了`,
+        'check': `✅ ${agentName} 检查失败`,
+      },
+    };
+    const lower = toolLabel.toLowerCase();
+    for (const [keyword, messages] of Object.entries(funFallbacks[phase] || {})) {
+      if (lower.includes(keyword)) {
+        return messages;
+      }
+    }
+    // No keyword match → generic but with tool label
+    if (phase === 'running') return `🔧 ${agentName} 正在使用 ${toolLabel}`;
+    if (phase === 'done') return `✅ ${agentName} 完成了 ${toolLabel}`;
+  }
+  // Ultimate fallback
   return t?.(`tool._fallback.${phase}`, vars) || name;
 }
 
@@ -127,7 +185,7 @@ const ToolIndicator = memo(function ToolIndicator({ tool, agentName }: { tool: T
   const detail = tool.name === 'wait'
     ? waitToolDetail(tool, now)
     : extractToolDetail(tool.name, tool.args);
-  const label = getToolLabel(tool.name, tool.done ? 'done' : 'running', agentName);
+  const label = getToolLabel(tool.name, tool.done ? 'done' : 'running', agentName, tool.label);
   const detailTitle = detail.title || detail.href;
 
   // 如果 args 里有 tag 类型信息（如 agent 名）

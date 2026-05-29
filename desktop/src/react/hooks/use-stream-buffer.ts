@@ -320,7 +320,7 @@ class StreamBufferManager {
             if (tg.tools.some(t => !t.done)) {
               blocks[lastTg] = {
                 ...tg,
-                tools: [...tg.tools, { name: msg.name, args: msg.args, done: false, success: false }],
+                tools: [...tg.tools, { name: msg.name, label: msg.label || undefined, args: msg.args, done: false, success: false }],
               };
               return { ...m, blocks };
             }
@@ -328,7 +328,7 @@ class StreamBufferManager {
           // 新建 tool_group
           blocks.push({
             type: 'tool_group',
-            tools: [{ name: msg.name, args: msg.args, done: false, success: false }],
+            tools: [{ name: msg.name, label: msg.label || undefined, args: msg.args, done: false, success: false }],
             collapsed: false,
           });
           return { ...m, blocks };
@@ -345,7 +345,13 @@ class StreamBufferManager {
             const toolIdx = tg.tools.findIndex(t => t.name === msg.name && !t.done);
             if (toolIdx >= 0) {
               const tools = [...tg.tools];
-              tools[toolIdx] = { ...tools[toolIdx], done: true, success: !!msg.success, details: msg.details };
+              tools[toolIdx] = {
+                ...tools[toolIdx],
+                done: true,
+                success: !!msg.success,
+                details: msg.details,
+                label: msg.label || tools[toolIdx].label,
+              };
               const allDone = tools.every(t => t.done);
               blocks[i] = { ...tg, tools, collapsed: allDone && tools.length > 1 };
               return { ...m, blocks };

@@ -486,133 +486,158 @@
   "tool": {
     "web_search": {
       "running": "🌐 {name} 正在互联网冲浪",
-      "done": "🌐 {name} 冲浪回来了",
-      "failed": "🌐 {name} 没冲到浪"
+      "done": "🌐 {name} 冲浪满载而归",
+      "failed": "🌐 {name} 浪太大翻船了"
     },
     "web_fetch": {
-      "running": "📄 {name} 正在看网页",
-      "done": "📄 {name} 了然于心",
-      "failed": "📄 {name} 上网失败"
+      "running": "📄 {name} 正在认真阅读网页",
+      "done": "📄 {name} 读完了一目了然",
+      "failed": "📄 {name} 这网页打不开"
     },
     "search_memory": {
-      "running": "💭 {name} 正在努力回想",
-      "done": "💭 {name} 想起来了",
-      "failed": "💭 {name} 怎么也想不起来"
+      "running": "💭 {name} 正在翻找记忆碎片",
+      "done": "💭 {name} 想起来了！灵光一闪",
+      "failed": "💭 {name} 这段记忆模糊了"
     },
     "bash": {
-      "running": "💻 {name} 正在小心翼翼地用你的电脑",
-      "done": "💻 {name} 用完电脑了",
-      "failed": "💻 {name} 电脑没听话"
+      "running": "💻 {name} 正在终端里大展拳脚",
+      "done": "💻 {name} 命令执行完毕，干净利落",
+      "failed": "💻 {name} 终端给了一个红叉"
     },
     "read": {
       "running": "📖 {name} 正在翻阅文件",
-      "done": "📖 {name} 翻完了",
-      "failed": "📖 {name} 没翻到"
+      "done": "📖 {name} 读完了，了然于心",
+      "failed": "📖 {name} 这一页翻不开"
     },
     "write": {
-      "running": "✏️ {name} 提笔写字中",
-      "done": "✏️ {name} 落笔了",
-      "failed": "✏️ {name} 笔没墨了"
+      "running": "✍️ {name} 正在奋笔疾书",
+      "done": "✍️ {name} 大笔一挥，写好了",
+      "failed": "✍️ {name} 墨水干了"
     },
     "edit": {
-      "running": "✏️ {name} 提笔改字中",
-      "done": "✏️ {name} 改好了",
-      "failed": "✏️ {name} 越改越乱了"
+      "running": "✂️ {name} 正在精雕细琢",
+      "done": "✂️ {name} 改得漂漂亮亮",
+      "failed": "✂️ {name} 剪坏了"
     },
     "edit-diff": {
-      "running": "✏️ {name} 提笔改字中",
-      "done": "✏️ {name} 改好了",
-      "failed": "✏️ {name} 越改越乱了"
+      "running": "✂️ {name} 正在精雕细琢",
+      "done": "✂️ {name} 改得漂漂亮亮",
+      "failed": "✂️ {name} 剪坏了"
     },
     "glob": {
-      "running": "🔍 {name} 正在找文件",
-      "done": "🔍 {name} 找到了",
-      "failed": "🔍 {name} 翻遍了也没找到"
+      "running": "🔍 {name} 正在翻箱倒柜找文件",
+      "done": "🔍 {name} 找到了，眼疾手快",
+      "failed": "🔍 {name} 翻遍了每个角落，没有"
     },
     "grep": {
-      "running": "🔍 {name} 正在文件里翻找",
-      "done": "🔍 {name} 翻到了",
-      "failed": "🔍 {name} 翻了个遍，没有"
+      "running": "🔍 {name} 正在大海捞针",
+      "done": "🔍 {name} 捞到了！",
+      "failed": "🔍 {name} 捞了个寂寞"
     },
     "find": {
-      "running": "🔍 {name} 正在找文件",
-      "done": "🔍 {name} 找到了",
-      "failed": "🔍 {name} 翻遍了也没找到"
+      "running": "🔍 {name} 正在追踪目标文件",
+      "done": "🔍 {name} 锁定目标",
+      "failed": "🔍 {name} 目标消失在茫茫文件海中"
     },
     "ls": {
-      "running": "📂 {name} 正在看文件夹里有什么",
-      "done": "📂 {name} 看完了",
-      "failed": "📂 {name} 打不开这个目录"
+      "running": "📂 {name} 正在参观文件夹",
+      "done": "📂 {name} 参观完毕",
+      "failed": "📂 {name} 这个门打不开"
     },
     "truncate": {
-      "running": "✂️ {name} 正在整理文件",
-      "done": "✂️ {name} 整理好了",
-      "failed": "✂️ {name} 整理不动了"
+      "running": "✂️ {name} 正在修剪文件",
+      "done": "✂️ {name} 修剪得整整齐齐",
+      "failed": "✂️ {name} 剪刀钝了"
     },
     "stage_files": {
-      "running": "📎 {name} 正在整理文件",
-      "done": "📎 在这！",
-      "failed": "📎 文件没放好"
+      "running": "📎 {name} 正在打包文件",
+      "done": "📎 打包完毕，请查收",
+      "failed": "📎 打包时掉了一地"
     },
     "browser": {
-      "running": "🌐 {name} 正在操作浏览器",
-      "done": "🌐 {name} 操作完了",
-      "failed": "🌐 {name} 浏览器不听使唤"
+      "running": "🌐 {name} 正在网上冲浪",
+      "done": "🌐 {name} 冲浪归来",
+      "failed": "🌐 {name} 网速太慢翻车了"
     },
     "subagent": {
-      "running": "🧭 子代理执行中",
-      "done": "🧭 子代理已完成",
-      "failed": "🧭 子代理执行失败"
+      "running": "🧭 {name} 正在派分身去干活",
+      "done": "🧭 分身回来了，任务完成",
+      "failed": "🧭 分身遇到了麻烦"
     },
     "wait": {
-      "running": "⏳ {name} 正在等待结果",
-      "done": "⏳ 等待结束",
-      "failed": "⏳ 等待被中断"
+      "running": "⏳ {name} 正在耐心等待",
+      "done": "⏳ 等到了！",
+      "failed": "⏳ 等了个寂寞"
     },
     "check_pending_tasks": {
-      "running": "📋 {name} 正在找找没做完的事儿",
-      "done": "📋 {name} 找完了",
-      "failed": "📋 找不着"
+      "running": "📋 {name} 正在翻看待办清单",
+      "done": "📋 {name} 清点完毕",
+      "failed": "📋 清单找不到了"
     },
     "cron": {
-      "running": "⏰ {name} 正在设定时任务",
-      "done": "⏰ 设好了",
-      "failed": "⏰ 没设成"
+      "running": "⏰ {name} 正在设定闹钟",
+      "done": "⏰ 闹钟设好了，到点就响",
+      "failed": "⏰ 闹钟没设上"
     },
     "notify": {
-      "running": "🔔 {name} 正在发通知",
-      "done": "🔔 通知发了",
-      "failed": "🔔 通知没发出去"
+      "running": "🔔 {name} 正在敲锣打鼓通知",
+      "done": "🔔 通知到位",
+      "failed": "🔔 鼓槌断了"
     },
     "artifact": {
-      "running": "🖼️ {name} 正在写写画画",
-      "done": "🖼️ 画好了",
-      "failed": "🖼️ 画崩了"
+      "running": "🖼️ {name} 正在挥毫泼墨",
+      "done": "🖼️ 大作完成",
+      "failed": "🖼️ 画到一半颜料没了"
     },
     "dm": {
-      "running": "✉️ {name} 打开了手机",
-      "done": "✉️ 发出去了",
-      "failed": "✉️ 没发出去"
+      "running": "✉️ {name} 正在写信",
+      "done": "✉️ 信已寄出",
+      "failed": "✉️ 邮筒坏了"
     },
     "channel": {
       "running": "📢 {name} 正在频道发言",
-      "done": "📢 发完了",
-      "failed": "📢 发不出去"
+      "done": "📢 发言完毕，掌声响起来",
+      "failed": "📢 麦克风没声音"
     },
     "install_skill": {
-      "running": "📥 {name} 正在装技能",
-      "done": "📥 装好了",
-      "failed": "📥 没装上"
+      "running": "📥 {name} 正在修炼新技能",
+      "done": "📥 技能已习得！",
+      "failed": "📥 修炼失败，走火入魔"
     },
     "update_settings": {
-      "running": "⚙️ {name} 正在改设置",
-      "done": "⚙️ 改好了",
-      "failed": "⚙️ 没改成"
+      "running": "⚙️ {name} 正在调教设置",
+      "done": "⚙️ 调好了，焕然一新",
+      "failed": "⚙️ 拧错螺丝了"
+    },
+    "text_file": {
+      "running": "📝 {name} 正在字斟句酌",
+      "done": "📝 {name} 落笔生花",
+      "failed": "📝 {name} 笔下生风…翻车了"
+    },
+    "apply_patch": {
+      "running": "🩹 {name} 正在妙手回春",
+      "done": "🩹 {name} 补得天衣无缝",
+      "failed": "🩹 {name} 补丁打歪了"
+    },
+    "count_chars": {
+      "running": "🔢 {name} 正在掰着手指数",
+      "done": "🔢 {name} 数得清清楚楚",
+      "failed": "🔢 {name} 数晕了"
+    },
+    "json_query": {
+      "running": "📋 {name} 正在翻箱倒柜找配置",
+      "done": "📋 {name} 找到了，一目了然",
+      "failed": "📋 {name} 翻了个底朝天也没找到"
+    },
+    "diff": {
+      "running": "🔀 {name} 正在火眼金睛找不同",
+      "done": "🔀 {name} 找出所有蛛丝马迹",
+      "failed": "🔀 {name} 看花了眼"
     },
     "_fallback": {
-      "running": "🔧 {name} 正在忙碌中…",
-      "done": "🔧 {name} 忙完了",
-      "failed": "🔧 {name} 没忙明白"
+      "running": "🔧 {name} 正在默默努力中…",
+      "done": "🔧 {name} 搞定了！",
+      "failed": "🔧 {name} 这次不太顺利"
     }
   },
   "file_output": {

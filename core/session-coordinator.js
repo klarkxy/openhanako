@@ -735,6 +735,8 @@ export class SessionCoordinator {
       }
     }
     const creatingAgentId = ownerAgentId;
+    // Tool label map (populated after allToolObjects is defined below)
+    let toolLabelMap = new Map();
     const unsub = session.subscribe((event) => {
       recordAssistantUsage({
         ledger: this._d.getUsageLedger?.(),
@@ -750,8 +752,13 @@ export class SessionCoordinator {
           trigger: "user",
         },
       });
+      // Enrich tool events with label from tool definition
+      const enriched = (event.type === "tool_execution_start" || event.type === "tool_execution_end")
+        && event.toolName && !event.label
+        ? { ...event, label: toolLabelMap.get(event.toolName) || null }
+        : event;
       this._d.emitEvent(
-        event.agentId ? event : { ...event, agentId: creatingAgentId },
+        enriched.agentId ? enriched : { ...enriched, agentId: creatingAgentId },
         sessionPath,
       );
     });
@@ -776,6 +783,10 @@ export class SessionCoordinator {
       ...(sessionTools || []),
       ...(sessionCustomTools || []),
     ];
+    // Populate tool label map now that allToolObjects is available
+    for (const t of allToolObjects) {
+      if (t?.name && t?.label) toolLabelMap.set(t.name, t.label);
+    }
     const allToolNames = toolNamesFromObjects(allToolObjects);
     const stableRestoreToolNames = toolNamesFromObjects(allToolObjects, {
       includePluginTools: false,
@@ -2729,6 +2740,11 @@ export class SessionCoordinator {
       let finalErrorMessage = null;
       const sessionFiles = [];
       const toolErrors = [];
+      // Build tool label map for enriching events
+      const toolLabelMap = new Map();
+      for (const t of [...actTools, ...actCustomTools]) {
+        if (t?.name && t?.label) toolLabelMap.set(t.name, t.label);
+      }
       const unsub = session.subscribe((event) => {
         const parentSessionPath = typeof opts.parentSessionPath === "string" && opts.parentSessionPath.trim()
           ? opts.parentSessionPath
@@ -2792,7 +2808,11 @@ export class SessionCoordinator {
           }
         }
         if (opts.emitEvents && childSessionPath) {
-          this._d.emitEvent({ ...event, isolated: true }, childSessionPath);
+          const enriched = (event.type === "tool_execution_start" || event.type === "tool_execution_end")
+            && event.toolName && !event.label
+            ? { ...event, label: toolLabelMap.get(event.toolName) || null }
+            : event;
+          this._d.emitEvent({ ...enriched, isolated: true }, childSessionPath);
         }
       });
 

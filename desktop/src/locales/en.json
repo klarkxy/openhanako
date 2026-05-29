@@ -485,134 +485,159 @@
   },
   "tool": {
     "web_search": {
-      "running": "🌐 {name} is surfing the web",
-      "done": "🌐 {name} is back from surfing",
-      "failed": "🌐 {name} couldn't catch a wave"
+      "running": "🌐 {name} is riding the web wave",
+      "done": "🌐 {name} surfed back with treasure",
+      "failed": "🌐 {name} wiped out on that wave"
     },
     "web_fetch": {
-      "running": "📄 {name} is peeking at a webpage",
-      "done": "📄 {name} got it all",
-      "failed": "📄 {name} couldn't reach the page"
+      "running": "📄 {name} is reading a page with great interest",
+      "done": "📄 {name} got the full picture",
+      "failed": "📄 {name} couldn't reach that page"
     },
     "search_memory": {
-      "running": "💭 {name} is trying to remember",
-      "done": "💭 {name} remembered!",
-      "failed": "💭 {name} can't seem to remember"
+      "running": "💭 {name} is digging through memories",
+      "done": "💭 {name} found it! A lightbulb moment",
+      "failed": "💭 {name} that memory is hazy"
     },
     "bash": {
-      "running": "💻 {name} is tiptoeing through your computer",
-      "done": "💻 {name} is done with the computer",
-      "failed": "💻 {name}'s computer didn't cooperate"
+      "running": "💻 {name} is flexing in the terminal",
+      "done": "💻 {name} nailed it, clean and quick",
+      "failed": "💻 {name} the terminal fought back"
     },
     "read": {
-      "running": "📖 {name} is flipping through a file",
-      "done": "📖 {name} done flipping",
-      "failed": "📖 {name} found nothing there"
+      "running": "📖 {name} is flipping through pages",
+      "done": "📖 {name} done reading, got it all",
+      "failed": "📖 {name} that page won't turn"
     },
     "write": {
-      "running": "✏️ {name} is putting pen to paper",
-      "done": "✏️ {name} ink's down",
-      "failed": "✏️ {name} ran out of ink"
+      "running": "✍️ {name} is writing with flair",
+      "done": "✍️ {name} penned it down beautifully",
+      "failed": "✍️ {name} ran out of ink"
     },
     "edit": {
-      "running": "✏️ {name} is making edits",
-      "done": "✏️ {name} all fixed up",
-      "failed": "✏️ {name} made a bit of a mess"
+      "running": "✂️ {name} is fine-tuning",
+      "done": "✂️ {name} polished to perfection",
+      "failed": "✂️ {name} snipped the wrong thread"
     },
     "edit-diff": {
-      "running": "✏️ {name} is making edits",
-      "done": "✏️ {name} all fixed up",
-      "failed": "✏️ {name} made a bit of a mess"
+      "running": "✂️ {name} is fine-tuning",
+      "done": "✂️ {name} polished to perfection",
+      "failed": "✂️ {name} snipped the wrong thread"
     },
     "glob": {
-      "running": "🔍 {name} is looking for files",
-      "done": "🔍 {name} found them",
-      "failed": "🔍 {name} searched high and low, nothing"
+      "running": "🔍 {name} is rummaging through folders",
+      "done": "🔍 {name} found them, quick as a flash",
+      "failed": "🔍 {name} turned every folder inside out, nothing"
     },
     "grep": {
-      "running": "🔍 {name} is rummaging through files",
-      "done": "🔍 {name} found something",
-      "failed": "🔍 {name} rummaged through everything, nope"
+      "running": "🔍 {name} is fishing for patterns",
+      "done": "🔍 {name} caught a big one!",
+      "failed": "🔍 {name} fished all day, came back empty"
     },
     "find": {
-      "running": "🔍 {name} is looking for files",
-      "done": "🔍 {name} found them",
-      "failed": "🔍 {name} searched high and low, nothing"
+      "running": "🔍 {name} is on the hunt",
+      "done": "🔍 {name} target acquired",
+      "failed": "🔍 {name} lost the trail in the file jungle"
     },
     "ls": {
       "running": "📂 {name} is peeking inside a folder",
-      "done": "📂 {name} all seen",
-      "failed": "📂 {name} couldn't open this folder"
+      "done": "📂 {name} done snooping around",
+      "failed": "📂 {name} that door is locked"
     },
     "truncate": {
-      "running": "✂️ {name} is tidying up a file",
-      "done": "✂️ {name} all tidied up",
-      "failed": "✂️ {name} couldn't tidy up"
+      "running": "✂️ {name} is trimming a file",
+      "done": "✂️ {name} trimmed and tidy",
+      "failed": "✂️ {name} scissors went dull"
     },
     "stage_files": {
-      "running": "📎 {name} is preparing the file",
-      "done": "📎 Here it is!",
-      "failed": "📎 Couldn't hand it over"
+      "running": "📎 {name} is packaging files",
+      "done": "📎 All wrapped up, here you go!",
+      "failed": "📎 Dropped everything during packing"
     },
     "browser": {
       "running": "🌐 {name} is browsing the web",
-      "done": "🌐 {name} done with the browser",
-      "failed": "🌐 {name}'s browser wouldn't cooperate"
+      "done": "🌐 {name} back from the browser",
+      "failed": "🌐 {name} browser threw a tantrum"
     },
     "subagent": {
-      "running": "🧭 {name} is investigating",
-      "done": "🧭 Clone dispatched",
+      "running": "🧭 {name} is dispatching a clone",
+      "done": "🧭 Clone is back, mission accomplished",
       "failed": "🧭 Clone ran into trouble"
     },
     "wait": {
-      "running": "⏳ {name} is waiting for results",
-      "done": "⏳ Wait finished",
-      "failed": "⏳ Wait interrupted"
+      "running": "⏳ {name} is waiting patiently",
+      "done": "⏳ Worth the wait!",
+      "failed": "⏳ Waited for nothing"
     },
     "check_pending_tasks": {
-      "running": "📋 {name} is checking unfinished business",
-      "done": "📋 {name} all caught up",
-      "failed": "📋 Couldn't check"
+      "running": "📋 {name} is checking the to-do list",
+      "done": "📋 {name} all accounted for",
+      "failed": "📋 Lost the to-do list"
     },
     "cron": {
-      "running": "⏰ {name} is setting a scheduled task",
-      "done": "⏰ All set",
-      "failed": "⏰ Couldn't set it up"
+      "running": "⏰ {name} is setting an alarm",
+      "done": "⏰ Alarm set, it'll ring on time",
+      "failed": "⏰ Alarm didn't take"
     },
     "notify": {
-      "running": "🔔 {name} is sending a notification",
-      "done": "🔔 Notification sent",
-      "failed": "🔔 Notification didn't go through"
+      "running": "🔔 {name} is ringing the bell",
+      "done": "🔔 Message delivered!",
+      "failed": "🔔 Bell got stuck"
     },
     "artifact": {
-      "running": "🖼️ {name} is doodling away",
-      "done": "🖼️ Masterpiece ready",
-      "failed": "🖼️ Canvas fell apart"
+      "running": "🖼️ {name} is creating a masterpiece",
+      "done": "🖼️ Masterpiece complete!",
+      "failed": "🖼️ Ran out of paint halfway"
     },
     "dm": {
-      "running": "✉️ {name} picked up the phone",
-      "done": "✉️ Message sent",
-      "failed": "✉️ Message didn't go through"
+      "running": "✉️ {name} is writing a letter",
+      "done": "✉️ Letter sent!",
+      "failed": "✉️ Mailbox is broken"
     },
     "channel": {
-      "running": "📢 {name} is posting in a channel",
-      "done": "📢 Posted",
-      "failed": "📢 Couldn't post"
+      "running": "📢 {name} is speaking up",
+      "done": "📢 Spoken! Applause please",
+      "failed": "📢 Microphone isn't working"
     },
     "install_skill": {
-      "running": "📥 {name} is installing a skill",
-      "done": "📥 Installed",
-      "failed": "📥 Installation failed"
+      "running": "📥 {name} is learning a new skill",
+      "done": "📥 Skill acquired!",
+      "failed": "📥 Training went sideways"
     },
     "update_settings": {
-      "running": "⚙️ {name} is updating settings",
-      "done": "⚙️ Settings updated",
-      "failed": "⚙️ Couldn't update"
+      "running": "⚙️ {name} is tweaking settings",
+      "done": "⚙️ Tweaked! Looking fresh",
+      "failed": "⚙️ Turned the wrong knob"
+    },
+    "text_file": {
+      "running": "📝 {name} is crafting text",
+      "done": "📝 {name} nailed it, every word in place",
+      "failed": "📝 {name} the words rebelled"
+    },
+    "apply_patch": {
+      "running": "🩹 {name} is patching things up",
+      "done": "🩹 {name} seamless fix!",
+      "failed": "🩹 {name} the patch didn't stick"
+    },
+    "count_chars": {
+      "running": "🔢 {name} is counting on fingers",
+      "done": "🔢 {name} counted every last one",
+      "failed": "🔢 {name} lost count"
+    },
+    "json_query": {
+      "running": "📋 {name} is digging through config",
+      "done": "📋 {name} found it, crystal clear",
+      "failed": "📋 {name} dug everywhere, nothing"
+    },
+    "diff": {
+      "running": "🔀 {name} is spot-the-diff-ing",
+      "done": "🔀 {name} caught every difference",
+      "failed": "🔀 {name} eyes got crossed"
     },
     "_fallback": {
-      "running": "🔧 {name} is busy working…",
-      "done": "🔧 {name} all done",
-      "failed": "🔧 {name} that didn't go as planned"
+      "running": "🔧 {name} is hard at work…",
+      "done": "🔧 {name} done! Easy peasy",
+      "failed": "🔧 {name} that didn't quite work out"
     }
   },
   "file_output": {
