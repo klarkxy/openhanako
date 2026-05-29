@@ -329,7 +329,7 @@ export interface PlatformApi {
   onboardingComplete?(): Promise<void>;
 
   // ── Notification ──
-  showNotification?(title: string, body: string): void;
+  showNotification?(title: string, body: string, agentId?: string | null): void;
 
   // ── App info ──
   getAppVersion?(): Promise<string>;

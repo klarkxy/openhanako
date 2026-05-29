@@ -1,6 +1,6 @@
 /** ChannelsPanel — 频道系统入口 + 保留组件（子组件在 ./channels/） */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../stores';
 import { fetchConfig } from '../hooks/use-config';
 import { hanaFetch } from '../hooks/use-hana-fetch';
@@ -387,7 +387,14 @@ export function AgentPhoneSessionPreview({ sessionPath, agentId, agentYuan }: {
   });
   const moodYuan = agentYuan || 'hanako';
 
-  useEffect(() => {
+  // Switch landing runs in the layout phase (before paint) so the panel never shows a wrong
+  // scrollTop frame. Only arm an instant landing when the target session has no messages yet:
+  // the first async hydrate (0 -> N) then snaps without animating. If the session is already
+  // loaded, the instant scroll below lands it and later growth = streaming (keeps smooth follow).
+  useLayoutEffect(() => {
+    const alreadyHydrated = !!sessionPath
+      && (useStore.getState().chatSessions[sessionPath]?.items?.length ?? 0) > 0;
+    if (sessionPath && !alreadyHydrated) bottomScroll.armInstantLanding();
     bottomScroll.scrollToBottom({ mode: 'instant', forceSticky: true });
     streamTurnRef.current = 0;
     setStreamMessage(null);
