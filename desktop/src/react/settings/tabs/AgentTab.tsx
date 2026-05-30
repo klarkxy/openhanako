@@ -251,6 +251,14 @@ export function AgentTab() {
             value={agentName}
             placeholder={t('settings.agent.agentNameHint')}
             onChange={(e) => setAgentName(e.target.value)}
+            onKeyDown={(e) => {
+              // 回车保存名称（等同下方「保存」按钮）；排除中文输入法组合态，
+              // 否则用拼音输入时按回车确认候选词会误触发保存（#1306）。
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void saveAgent();
+              }
+            }}
           />
         </div>
         <div className={`${styles['settings-form-field']} ${styles['settings-form-field-center']}`}>
@@ -330,30 +338,9 @@ export function AgentTab() {
           />
           <span className={styles['settings-form-hint']}>{t('settings.agent.ishikiHint')}</span>
         </div>
-        <div className={styles['settings-form-field']} style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-sm)' }}>
+        <div className={styles['settings-form-field']} style={{ display: 'flex', justifyContent: 'center' }}>
           <button className={styles['settings-save-btn-sm']} onClick={saveAgent}>
             {t('settings.save')}
-          </button>
-          <button
-            className={styles['settings-icon-btn']}
-            onClick={async () => {
-              try {
-                await loadSettingsConfig();
-                await loadAgents();
-                showToast(t('settings.saved'), 'success');
-              } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : String(err);
-                showToast(t('settings.saveFailed') + ': ' + msg, 'error');
-              }
-            }}
-            title="重新加载身份与意识"
-            aria-label="重新加载身份与意识"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="23 4 23 10 17 10" />
-              <polyline points="1 20 1 14 7 14" />
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-            </svg>
           </button>
         </div>
       </section>

@@ -209,6 +209,7 @@ export function createChannelsRoute(engine, hub) {
     const id = c.req.param("id");
     return c.json({
       activities: hub?.agentPhoneActivities?.snapshot?.(id) || [],
+      ticker: hub?.channelRouter?.tickerSnapshot?.(id) || hub?.tickerSnapshot?.(id) || null,
     });
   });
 

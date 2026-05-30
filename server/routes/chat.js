@@ -140,6 +140,17 @@ export function toCompactionLifecycleWsMessage(event, sessionPath, getSessionByP
   };
 }
 
+export function toNotificationWsMessage(event) {
+  return {
+    type: "notification",
+    title: event.title,
+    body: event.body,
+    // 携带触发 agent 的 agentId，展示侧据此显示对应助手头像（多 agent 并发定时任务可分辨身份）。
+    // 缺失时归一化为 null，由消费侧退回无 icon 行为，禁止从全局焦点兜底。
+    agentId: event.agentId ?? null,
+  };
+}
+
 export const DEFAULT_DISCONNECT_ABORT_GRACE_MS = 5 * 60_000;
 
 export function resolveDisconnectAbortGraceMs(value = process.env.HANA_WS_DISCONNECT_ABORT_GRACE_MS) {
@@ -476,13 +487,12 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
       }
       // 只保留前端 extractToolDetail 需要的字段，避免广播完整文件内容
       const args = summarizeToolStartArgs(event.toolName || "", event.args);
-      emitStreamEvent(sessionPath, ss, { type: "tool_start", name: event.toolName || "", label: event.label || null, args });
+      emitStreamEvent(sessionPath, ss, { type: "tool_start", name: event.toolName || "", args });
     } else if (event.type === "tool_execution_end") {
       if (!ss) return;
       emitStreamEvent(sessionPath, ss, {
         type: "tool_end",
         name: event.toolName || "",
-        label: event.label || null,
         success: !event.isError,
         details: event.result?.details,
       });
@@ -510,7 +520,7 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
         else if (!BrowserManager.instance().hasAnyRunning) stopBrowserThumbPoll();
       }
 
-      if (["write", "edit", "bash", "text_file", "apply_patch"].includes(event.toolName)) {
+      if (["write", "edit", "bash"].includes(event.toolName)) {
         broadcast({ type: "desk_changed", sessionPath });
       }
     } else if (event.type === "jian_update") {
@@ -647,7 +657,7 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
     } else if (event.type === "plan_mode") {
       broadcast({ type: "plan_mode", enabled: event.enabled, sessionPath });
     } else if (event.type === "notification") {
-      broadcast({ type: "notification", title: event.title, body: event.body });
+      broadcast(toNotificationWsMessage(event));
     } else if (event.type === "channel_new_message") {
       broadcast({
         type: "channel_new_message",
