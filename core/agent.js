@@ -45,6 +45,7 @@ import { createGrepTool } from "../lib/tools/grep-tool.js";
 import { createJsonQueryTool } from "../lib/tools/json-query-tool.js";
 import { createDiffTool } from "../lib/tools/diff.js";
 import { createFriendsContactsTools } from "../lib/tools/friends-contacts-tools.js";
+import { createLlmRequestTool } from "../lib/tools/llm-request-tool.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
 import { assertAgentConfigPatchYuan, getAgentConfigRepairState } from "./yuan-registry.js";
@@ -519,6 +520,14 @@ export class Agent {
       persistSubagentSessionMeta: (sessionPath, meta) => writeSubagentSessionMeta(sessionPath, meta),
     });
 
+    // 13. LLM 请求工具（独立 LLM 调用，无 tools/skills）
+    this._llmRequestTool = createLlmRequestTool({
+      resolveUtilityConfig: () => this._cb?.resolveUtilityConfig?.(),
+      getAvailableModels: () => this._cb?.getEngine?.()?.availableModels || [],
+      resolveModelWithCredentials: (ref) => this._cb?.getEngine?.()?.resolveModelWithCredentials?.(ref) || null,
+      getAgentConfig: () => this._config,
+    });
+
     // 12. 组装 system prompt（按 master 构建，与 per-session 开关解耦）
     log(`  [agent] 9. buildSystemPrompt...`);
     this._systemPrompt = this.buildSystemPrompt({ forceMemoryEnabled: this._memoryMasterEnabled });
@@ -685,6 +694,7 @@ export class Agent {
       this._diffTool,
       ...(this._friendsContactTools || []),
       createLlmUsageTool(),
+      this._llmRequestTool,
       createWaitTool(),
     ].filter(Boolean);
   }
