@@ -48,6 +48,9 @@ export const STANDARD_TOOL_NAMES = [
   "stop_task",
   "terminal",
   "llm_usage",
+  "llm_request",
+  "apply_patch",
+  "json_query",
 ];
 
 export const GLOBAL_TOOL_NAMES = [
