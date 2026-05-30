@@ -944,6 +944,7 @@ try {
       version: appVersion,
       ownerKind: process.env.HANA_SERVER_OWNER === "desktop" ? "desktop" : "standalone",
       ownerPid: Number.parseInt(process.env.HANA_SERVER_OWNER_PID || "", 10) || null,
+      ppid: process.ppid || null,
       serverId: runtimeContext.serverId || null,
       serverNodeId: runtimeContext.serverNodeId || runtimeContext.serverId || null,
       studioId: runtimeContext.studioId || null,
@@ -1053,6 +1054,9 @@ process.on("uncaughtException", (err) => {
       _stdoutBroken = true;
       dlog.error("server", `stdout pipe broken (${err.code}), suppressing further console output`);
     }
+    // EPIPE 通常意味着 desktop 前端已断开。若 server 是 desktop-owned，
+    // 启动 ppid 存活探测，父进程消失则自动优雅退出，避免孤儿进程。
+    _startParentWatchdog();
     return;
   }
   dlog.error("server", `uncaughtException: ${err.message}`);
@@ -1062,3 +1066,40 @@ process.on("unhandledRejection", (reason) => {
   dlog.error("server", `unhandledRejection: ${reason}`);
   _safeConsoleError("[server] unhandledRejection:", reason);
 });
+
+// ── 父进程存活探测（防孤儿进程） ──
+// 当 desktop-owned server 检测到 stdout/stderr 管道断裂 (EPIPE) 后，
+// 定期检查父进程是否仍在运行。若父进程已消失，触发优雅关闭。
+// 纯 standalone 模式（CLI / 手动启动）不受影响，因为不走 pipe。
+let _parentWatchdogStarted = false;
+function _startParentWatchdog() {
+  if (_parentWatchdogStarted) return;
+  // 仅 desktop-owned 模式下生效
+  if (process.env.HANA_SERVER_OWNER !== "desktop") return;
+  const ppid = process.ppid;
+  if (!ppid || ppid <= 0) return;
+  _parentWatchdogStarted = true;
+  dlog.log("server", `parent watchdog started, monitoring ppid=${ppid}`);
+  const CHECK_INTERVAL_MS = 5_000;
+  const GRACE_PERIOD_MS = 15_000;
+  let parentGoneAt = null;
+  const timer = setInterval(() => {
+    try {
+      // process.kill(pid, 0) 不发送信号，只检测进程是否存在
+      process.kill(ppid, 0);
+      parentGoneAt = null; // 父进程仍在，重置计时
+    } catch {
+      // 父进程不可达
+      const now = Date.now();
+      if (!parentGoneAt) {
+        parentGoneAt = now;
+        dlog.warn("server", `parent process ${ppid} appears gone, starting grace period (${GRACE_PERIOD_MS}ms)`);
+      } else if (now - parentGoneAt >= GRACE_PERIOD_MS) {
+        dlog.log("server", `parent process ${ppid} confirmed gone after grace period, initiating shutdown`);
+        clearInterval(timer);
+        gracefulShutdown();
+      }
+    }
+  }, CHECK_INTERVAL_MS);
+  timer.unref();
+}
