@@ -696,6 +696,11 @@
       "requestPermissionsFailed": "請求系統權限失敗",
       "refresh": "刷新"
     },
+    "workflow": {
+      "title": "Workflow",
+      "enabled": "Workflow 編排",
+      "enabledHint": "允許模型執行確定性的多 agent 編排腳本。預設關閉。"
+    },
     "appearance": {
       "title": "外觀",
       "theme": "主題",

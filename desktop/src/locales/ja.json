@@ -696,6 +696,11 @@
       "requestPermissionsFailed": "権限の要求に失敗しました",
       "refresh": "更新"
     },
+    "workflow": {
+      "title": "Workflow",
+      "enabled": "ワークフロー編成",
+      "enabledHint": "決定論的なマルチエージェントのワークフロースクリプトをモデルに実行させます。既定ではオフです。"
+    },
     "appearance": {
       "title": "外観",
       "theme": "テーマ",

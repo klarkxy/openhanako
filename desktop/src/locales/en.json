@@ -762,6 +762,11 @@
       "requestPermissionsFailed": "Failed to request permissions",
       "refresh": "Refresh"
     },
+    "workflow": {
+      "title": "Workflow",
+      "enabled": "Workflow orchestration",
+      "enabledHint": "Let the model run deterministic multi-agent workflow scripts. Off by default."
+    },
     "agent": {
       "title": "Agent",
       "changeAvatar": "Change",

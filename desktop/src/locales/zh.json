@@ -762,6 +762,11 @@
       "requestPermissionsFailed": "请求系统权限失败",
       "refresh": "刷新"
     },
+    "workflow": {
+      "title": "Workflow",
+      "enabled": "Workflow 编排",
+      "enabledHint": "允许模型运行确定性的多 agent 编排脚本。默认关闭。"
+    },
     "agent": {
       "title": "助手",
       "changeAvatar": "更换",

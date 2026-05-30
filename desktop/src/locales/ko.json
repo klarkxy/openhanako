@@ -696,6 +696,11 @@
       "requestPermissionsFailed": "권한 요청 실패",
       "refresh": "새로고침"
     },
+    "workflow": {
+      "title": "Workflow",
+      "enabled": "워크플로 오케스트레이션",
+      "enabledHint": "모델이 결정론적 멀티 에이전트 워크플로 스크립트를 실행하도록 허용합니다. 기본값은 꺼짐입니다."
+    },
     "appearance": {
       "title": "외관",
       "theme": "테마",
