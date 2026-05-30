@@ -409,6 +409,31 @@ export function createPreferencesRoute(engine, { platform = process.platform } =
     }
   });
 
+  route.get("/preferences/workflow", (c) => {
+    try {
+      return c.json({ ok: true, settings: engine.getWorkflowSettings() });
+    } catch (err) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  route.put("/preferences/workflow", async (c) => {
+    try {
+      // safeJson 默认在解析失败/空 body 时静默返回 {}，会把非法输入伪装成"关闭 workflow"。
+      // 传 null 作为 fallback，使非法 JSON / 空 body 触发下方守卫返回 400，而非静默兜底。
+      const body = await safeJson(c, null);
+      if (!body || typeof body !== "object") {
+        return c.json({ error: "invalid JSON body" }, 400);
+      }
+      const nextSettings = body.settings && typeof body.settings === "object" ? body.settings : body;
+      const settings = engine.setWorkflowSettings(nextSettings);
+      emitAppEvent(engine, "workflow-settings-changed", {});
+      return c.json({ ok: true, settings });
+    } catch (err) {
+      return c.json({ error: err.message }, 400);
+    }
+  });
+
   return route;
 }
 
