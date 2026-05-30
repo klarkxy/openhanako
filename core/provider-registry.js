@@ -828,8 +828,11 @@ export class ProviderRegistry {
   remove(providerId) {
     const userConfig = this._loadAddedModels();
     if (!Object.prototype.hasOwnProperty.call(userConfig, providerId)) return;
-    delete userConfig[providerId];
-    this._saveAddedModels(userConfig);
+    // 浅拷贝后再删除，避免 _saveAddedModels 失败时污染缓存（缓存与文件不一致后
+    // hasOwnProperty 永远返回 false，remove 变成 no-op，provider 无法被删除）
+    const next = { ...userConfig };
+    delete next[providerId];
+    this._saveAddedModels(next);
     this._entries.delete(providerId);
     // 如果有内置插件声明，以默认值重建 entry
     if (this._plugins.has(providerId)) {
@@ -1013,10 +1016,11 @@ export class ProviderRegistry {
     const uc = userConfig[providerId];
     if (!uc?.models || !Array.isArray(uc.models)) return;
 
-    uc.models = uc.models.filter(
+    // 浅拷贝后再修改 models 数组，避免 _saveAddedModels 失败时污染缓存
+    const next = { ...userConfig, [providerId]: { ...uc, models: uc.models.filter(
       (m) => (typeof m === "object" ? m.id : m) !== modelId,
-    );
-    this._saveAddedModels(userConfig);
+    ) } };
+    this._saveAddedModels(next);
     this._entries.clear();
   }
 

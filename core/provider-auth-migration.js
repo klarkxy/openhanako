@@ -167,6 +167,10 @@ export function migrateLegacyApiKeyAuthToProviders({ hanakoHome, providerRegistr
     const current = isPlainObject(providers[providerId]) ? providers[providerId] : {};
     if (hasOwn(current, "api_key")) continue;
 
+    // 不迁移已删除的用户自定义 provider：如果 provider 不在 registry 中（非内置插件）
+    // 且不在 added-models.yaml 中，说明是用户主动删除的，不应从 auth.json/models.json 恢复
+    if (!entry && !hasOwn(raw.providers || {}, providerId)) continue;
+
     const modelsJsonProvider = getModelsJsonProvider(
       modelsJsonProviders,
       providerId,
