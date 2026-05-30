@@ -91,10 +91,10 @@ describe("llm-request-tool", () => {
     expect(result.content[0].text).toBe("Hello from LLM");
     expect(result.details.model).toBe("openai/gpt-4o");
 
-    // 应该调用了 resolveUtilityConfig 作为 fallback
-    expect(opts.resolveUtilityConfig).toHaveBeenCalled();
-    // 不应该调用 resolveModelWithCredentials（未指定模型）
-    expect(opts.resolveModelWithCredentials).not.toHaveBeenCalled();
+    // 默认模型走 resolveModelWithCredentials（优先）而非 resolveUtilityConfig
+    expect(opts.resolveModelWithCredentials).toHaveBeenCalledWith("openai/gpt-4o");
+    // resolveUtilityConfig 不应被调用（chat 模型在 availableModels 中找到了）
+    expect(opts.resolveUtilityConfig).not.toHaveBeenCalled();
   });
 
   it("returns error when no chat model configured and no model specified", async () => {
@@ -111,7 +111,9 @@ describe("llm-request-tool", () => {
   });
 
   it("returns error when resolveUtilityConfig returns no utility model", async () => {
+    // chat 模型不在 availableModels 中 → 走 fallback → utilityConfig 也失败
     const opts = makeOpts({
+      getAgentConfig: vi.fn(() => ({ models: { chat: "unknown-provider/unknown-model" } })),
       resolveUtilityConfig: vi.fn(() => null),
     });
     const tool = createLlmRequestTool(opts);
