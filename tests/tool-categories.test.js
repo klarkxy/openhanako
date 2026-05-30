@@ -31,12 +31,12 @@ describe("tool-categories constants", () => {
 
   it("OPTIONAL_TOOL_NAMES is exactly the user-toggleable whitelist", () => {
     expect(new Set(OPTIONAL_TOOL_NAMES)).toEqual(
-      new Set(["automation", "beautify", "browser", "cron", "dm", "install_skill", "update_settings"])
+      new Set(["automation", "beautify", "browser", "cron", "dm", "install_skill", "update_settings", "workflow"])
     );
   });
 
   it("GLOBAL_TOOL_NAMES is exactly the global setting governed whitelist", () => {
-    expect(new Set(GLOBAL_TOOL_NAMES)).toEqual(new Set(["computer", "workflow"]));
+    expect(new Set(GLOBAL_TOOL_NAMES)).toEqual(new Set(["computer"]));
   });
 });
 

@@ -495,7 +495,7 @@ export class Agent {
       persistSubagentSessionMeta: (sessionPath, meta) => writeSubagentSessionMeta(sessionPath, meta),
     });
 
-    // 13. workflow 工具（受设置开关控制，默认关）
+    // 13. workflow 工具（per-agent 工具开关，默认关；纳入与否由 tools.disabled 决定）
     this._workflowTool = createWorkflowTool({
       executeIsolated: (prompt, opts) => {
         if (!this._cb?.executeIsolated) throw new Error("workflow 调用失败：engine 未初始化");
@@ -645,7 +645,6 @@ export class Agent {
     const computerUseTools = this._isComputerUseAvailableForThisAgent()
       ? [this._getComputerUseTool()]
       : [];
-    const workflowTools = this._isWorkflowEnabled() ? [this._workflowTool] : [];
     const legacyArtifactTools = options.includeLegacyArtifactTool === true
       ? [this._artifactTool]
       : [];
@@ -668,7 +667,7 @@ export class Agent {
       this._stopTaskTool,
       this._updateSettingsTool,
       this._subagentTool,
-      ...workflowTools,
+      this._workflowTool,
       this._checkDeferredTool,
       this._currentStatusTool,
       this._terminalTool,
@@ -703,10 +702,6 @@ export class Agent {
     if (settings?.enabled !== true) return false;
     const primaryAgentId = engine?.getPrimaryAgentId?.() || null;
     return !primaryAgentId || primaryAgentId === this.id;
-  }
-
-  _isWorkflowEnabled() {
-    return this._cb?.getEngine?.()?.getWorkflowSettings?.()?.enabled === true;
   }
 
   // Desk 系统访问

@@ -823,7 +823,8 @@
           "cron": { "label": "예약 작업", "summary": "지정한 시간에 작업을 자동 실행" },
           "dm": { "label": "다이렉트 메시지", "summary": "다른 에이전트에게 1대1 메시지 전송" },
           "install_skill": { "label": "스킬 설치", "summary": "GitHub 또는 스킬 라이브러리에서 새 스킬 설치" },
-          "update_settings": { "label": "설정 변경", "summary": "Agent가 앱 설정을 수정할 수 있도록 허용" }
+          "update_settings": { "label": "설정 변경", "summary": "Agent가 앱 설정을 수정할 수 있도록 허용" },
+          "workflow": { "label": "Workflow", "summary": "Agent가 다중 에이전트 워크플로 스크립트를 백그라운드 작업으로 실행하도록 허용" }
         }
       },
       "computerUse": {

@@ -823,7 +823,8 @@
           "cron": { "label": "定时任务", "summary": "在指定时间自动执行任务" },
           "dm": { "label": "私信", "summary": "向其他 Agent 发送一对一消息" },
           "install_skill": { "label": "安装技能", "summary": "从 GitHub 或技能库安装新技能" },
-          "update_settings": { "label": "修改设置", "summary": "让 Agent 修改应用配置项" }
+          "update_settings": { "label": "修改设置", "summary": "让 Agent 修改应用配置项" },
+          "workflow": { "label": "Workflow", "summary": "让 Agent 把多 Agent 编排脚本作为后台任务运行" }
         }
       },
       "computerUse": {

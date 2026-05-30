@@ -17,6 +17,7 @@ const OPTIONAL_TOOL_NAMES = [
   "dm",
   "install_skill",
   "update_settings",
+  "workflow",
 ] as const;
 
 type OptionalToolName = (typeof OPTIONAL_TOOL_NAMES)[number];

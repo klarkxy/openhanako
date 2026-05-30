@@ -44,7 +44,6 @@ export const STANDARD_TOOL_NAMES = [
 
 export const GLOBAL_TOOL_NAMES = [
   "computer",
-  "workflow",
 ];
 
 export const OPTIONAL_TOOL_NAMES = [
@@ -55,6 +54,7 @@ export const OPTIONAL_TOOL_NAMES = [
   "dm",
   "install_skill",
   "update_settings",
+  "workflow",
 ];
 
 export const PLUGIN_BACKED_OPTIONAL_TOOL_IDS = {
@@ -77,8 +77,10 @@ const OPTIONAL_TOOL_NAMES_SET = new Set(OPTIONAL_TOOL_NAMES);
  *                     off by default until the feature has baked for a few versions.
  *   dm              — direct-messages between agents; off by default because
  *                     single-agent setups have no peers and it adds context.
+ *   workflow        — deterministic multi-agent orchestration; a heavy fan-out
+ *                     capability, opt-in per agent until it has baked.
  */
-export const DEFAULT_DISABLED_TOOL_NAMES = ["dm", "beautify"];
+export const DEFAULT_DISABLED_TOOL_NAMES = ["dm", "beautify", "workflow"];
 
 export function uniqueToolNames(names) {
   const seen = new Set();

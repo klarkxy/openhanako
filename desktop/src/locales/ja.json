@@ -823,7 +823,8 @@
           "cron": { "label": "定期実行", "summary": "指定した時刻にタスクを自動実行" },
           "dm": { "label": "ダイレクトメッセージ", "summary": "別のエージェントに 1 対 1 のメッセージを送信" },
           "install_skill": { "label": "スキルをインストール", "summary": "GitHub またはスキルライブラリから新しいスキルをインストール" },
-          "update_settings": { "label": "設定を変更", "summary": "Agent にアプリ設定の変更を許可" }
+          "update_settings": { "label": "設定を変更", "summary": "Agent にアプリ設定の変更を許可" },
+          "workflow": { "label": "Workflow", "summary": "Agent に複数 Agent のワークフロースクリプトをバックグラウンドタスクとして実行させる" }
         }
       },
       "computerUse": {
