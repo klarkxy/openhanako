@@ -66,3 +66,42 @@ describe("host api - agent()", () => {
     await expect(api.agent("x")).rejects.toThrow(/中止/);
   });
 });
+
+describe("host api - parallel / pipeline / log / phase", () => {
+  it("parallel 等齐所有 thunk", async () => {
+    const api = createHostApi(makeDeps());
+    const r = await api.parallel([async () => 1, async () => 2, async () => 3]);
+    expect(r).toEqual([1, 2, 3]);
+  });
+
+  it("parallel 单个 thunk 抛错落 null，不拖累其他", async () => {
+    const api = createHostApi(makeDeps());
+    const r = await api.parallel([async () => 1, async () => { throw new Error("x"); }, async () => 3]);
+    expect(r).toEqual([1, null, 3]);
+  });
+
+  it("pipeline 每个 item 穿过所有 stage", async () => {
+    const api = createHostApi(makeDeps());
+    const r = await api.pipeline([1, 2], (n) => n + 1, (n) => n * 10);
+    expect(r).toEqual([20, 30]);
+  });
+
+  it("pipeline 某 stage 抛错时该 item 落 null", async () => {
+    const api = createHostApi(makeDeps());
+    const r = await api.pipeline([1, 2], (n) => { if (n === 1) throw new Error("x"); return n; }, (n) => n * 10);
+    expect(r).toEqual([null, 20]);
+  });
+
+  it("pipeline 后续 stage 能拿到 originalItem 与 index", async () => {
+    const api = createHostApi(makeDeps());
+    const r = await api.pipeline(["a", "b"], (v) => v.toUpperCase(), (prev, orig, i) => `${prev}:${orig}:${i}`);
+    expect(r).toEqual(["A:a:0", "B:b:1"]);
+  });
+
+  it("log / phase 转发到 onProgress", () => {
+    const evts = [];
+    const api = createHostApi(makeDeps({ onProgress: (e) => evts.push(e) }));
+    api.phase("Find"); api.log("hi");
+    expect(evts).toEqual([{ type: "phase", title: "Find" }, { type: "log", message: "hi" }]);
+  });
+});
