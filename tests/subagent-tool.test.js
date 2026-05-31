@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createSubagentTool } from "../lib/tools/subagent-tool.js";
+import { createSubagentTool, composeReuseKey } from "../lib/tools/subagent-tool.js";
+import { ReusableSubagentStore } from "../lib/reusable-subagent-store.js";
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -668,5 +669,125 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
     // sync fallback returns the reply text directly (no details / streamStatus)
     expect(result.content[0].text).toBe("sync result");
     expect(result.details).toBeUndefined();
+  });
+});
+
+describe("subagent-tool 复用模式 (instance)", () => {
+  let mockStore;
+  beforeEach(() => {
+    mockStore = { defer: vi.fn(), resolve: vi.fn(), fail: vi.fn(), query: vi.fn(() => ({ meta: {} })), _save: vi.fn() };
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const REUSE_KEY = composeReuseKey("other-agent", "探索");
+
+  it("首跑：persist 指向 reusable 目录、无 resumeSessionPath、subagentContext 仍剥离记忆、beginRun 落库", async () => {
+    const reuseStore = new ReusableSubagentStore();
+    const capture = makeExecuteIsolated({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
+    const tool = createSubagentTool(makeDeps({
+      executeIsolated: capture,
+      getDeferredStore: () => mockStore,
+      getReusableSubagentStore: () => reuseStore,
+    }));
+
+    const res = await tool.execute("c1", { task: "探索任务", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
+    expect(res.details.reuseInstance).toBe("探索");
+
+    await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+    const opts = capture.mock.calls[0][1];
+    expect(opts.persist).toMatch(/subagent-sessions[/\\]reusable$/);
+    expect(opts.resumeSessionPath).toBeUndefined(); // 首跑无历史
+    expect(opts.subagentContext).toBe(true); // 复用不改记忆档位（forSubagent 剥离记忆三段）
+
+    await vi.waitFor(() => {
+      const rec = reuseStore.get(REUSE_KEY);
+      expect(rec?.childSessionPath).toBe("/test/child.jsonl");
+      expect(rec?.runCount).toBe(1);
+    });
+  });
+
+  it("二跑：resume 上次的 childSessionPath（续接历史），runCount 累加到 2", async () => {
+    const reuseStore = new ReusableSubagentStore();
+    const capture = makeExecuteIsolated({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
+    const tool = createSubagentTool(makeDeps({
+      executeIsolated: capture,
+      getDeferredStore: () => mockStore,
+      getReusableSubagentStore: () => reuseStore,
+    }));
+
+    await tool.execute("c1", { task: "第一次", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
+    await vi.waitFor(() => expect(reuseStore.get(REUSE_KEY)?.childSessionPath).toBe("/test/child.jsonl"));
+
+    await tool.execute("c2", { task: "第二次", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
+    await vi.waitFor(() => {
+      expect(capture).toHaveBeenCalledTimes(2);
+      expect(capture.mock.calls[1][1].resumeSessionPath).toBe("/test/child.jsonl");
+    });
+    expect(reuseStore.get(REUSE_KEY)?.runCount).toBe(2);
+  });
+
+  it("不同后缀 = 独立实例（独立 reuseKey，各自 runCount=1）", async () => {
+    const reuseStore = new ReusableSubagentStore();
+    const tool = createSubagentTool(makeDeps({
+      getDeferredStore: () => mockStore,
+      getReusableSubagentStore: () => reuseStore,
+    }));
+
+    await tool.execute("c1", { task: "探索", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
+    await tool.execute("c2", { task: "下笔", agent: "other-agent", instance: "下笔" }, null, null, mockCtx());
+
+    await vi.waitFor(() => {
+      expect(reuseStore.get(composeReuseKey("other-agent", "探索"))?.runCount).toBe(1);
+      expect(reuseStore.get(composeReuseKey("other-agent", "下笔"))?.runCount).toBe(1);
+    });
+    expect(reuseStore.size).toBe(2);
+  });
+
+  it("不带 instance：维持一次性，persist 不进 reusable 子目录、不碰复用账本", async () => {
+    const reuseStore = new ReusableSubagentStore();
+    const capture = makeExecuteIsolated({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
+    const tool = createSubagentTool(makeDeps({
+      executeIsolated: capture,
+      getDeferredStore: () => mockStore,
+      getReusableSubagentStore: () => reuseStore,
+    }));
+
+    await tool.execute("c1", { task: "一次性", agent: "other-agent" }, null, null, mockCtx());
+    await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+    const opts = capture.mock.calls[0][1];
+    expect(opts.persist).toMatch(/subagent-sessions$/); // 非 reusable 子目录
+    expect(opts.resumeSessionPath).toBeUndefined();
+    expect(reuseStore.size).toBe(0); // 完全没碰复用账本
+  });
+
+  it("同实例并发：串行排队，第二次派单返回「已排队」反馈、executeIsolated 不并发", async () => {
+    const reuseStore = new ReusableSubagentStore();
+    const pending = [];
+    const blockingExecute = vi.fn().mockImplementation((_p, opts) => {
+      opts?.onSessionReady?.("/test/child.jsonl");
+      return new Promise((resolve) => pending.push(resolve));
+    });
+    const tool = createSubagentTool(makeDeps({
+      executeIsolated: blockingExecute,
+      getDeferredStore: () => mockStore,
+      getReusableSubagentStore: () => reuseStore,
+    }));
+
+    const r1 = await tool.execute("c1", { task: "t1", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
+    expect(r1.details.streamStatus).toBe("running");
+    await vi.waitFor(() => expect(blockingExecute).toHaveBeenCalledTimes(1));
+
+    const r2 = await tool.execute("c2", { task: "t2", agent: "other-agent", instance: "探索" }, null, null, mockCtx());
+    expect(r2.content[0].text).toMatch(/subagentReuseQueued|排队|queued|busy/);
+
+    // 串行：第一个未结束前，第二个不开始
+    await new Promise((r) => setTimeout(r, 0));
+    expect(blockingExecute).toHaveBeenCalledTimes(1);
+
+    // 放行第一个 → 第二个才开始
+    pending[0]({ replyText: "ok", error: null, sessionPath: "/test/child.jsonl" });
+    await vi.waitFor(() => expect(blockingExecute).toHaveBeenCalledTimes(2));
+
+    pending.forEach((res) => res({ replyText: "ok", error: null, sessionPath: null }));
   });
 });
