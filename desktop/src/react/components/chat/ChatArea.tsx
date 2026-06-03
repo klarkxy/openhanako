@@ -83,6 +83,7 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
   const loadingMore = useStore(s => s.chatSessions[path]?.loadingMore ?? false);
   const isSessionStreaming = useStore(s => s.streamingSessions.includes(path));
   const sessionAgentId = useStore(s => s.sessions.find(se => se.path === path)?.agentId ?? null);
+  const sessionReadOnly = useStore(s => s.sessions.find(se => se.path === path)?.agentDeleted === true);
   const ref = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const messageElementsRef = useRef(new Map<string, HTMLDivElement>());
@@ -253,6 +254,7 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
             items={items}
             sessionPath={path}
             agentId={sessionAgentId}
+            readOnly={sessionReadOnly}
             registerMessageElement={registerMessageElement}
             enableProcessFold
           />

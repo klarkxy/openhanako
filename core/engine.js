@@ -250,6 +250,9 @@ export class HanaEngine {
       getAgentById: (id) => this._agentMgr.getAgent(id),
       ensureAgentRuntime: (id, opts) => this.ensureAgentRuntime(id, opts),
       listAgents: () => this.listAgents(),
+      listDeletedAgents: () => this.listDeletedAgents(),
+      isAgentDeleted: (id) => this.isAgentDeleted(id),
+      getDeletedAgentInfo: (id) => this.getDeletedAgentInfo(id),
       getConfirmStore: () => this._confirmStore,
       getDeferredResultStore: () => this._deferredResultStore,
       getTaskRegistry: () => this._taskRegistry,
@@ -583,6 +586,9 @@ export class HanaEngine {
 
   get agents() { return this._agentMgr.agents; }
   listAgents() { return this._agentMgr.listAgents(); }
+  listDeletedAgents() { return this._agentMgr.listDeletedAgents(); }
+  isAgentDeleted(agentId) { return this._agentMgr.isAgentDeleted(agentId); }
+  getDeletedAgentInfo(agentId) { return this._agentMgr.getDeletedAgentInfo(agentId); }
   invalidateAgentListCache() { this._agentMgr.invalidateAgentListCache(); }
   async createAgent(opts) { return this._agentMgr.createAgent(opts); }
   async switchAgent(agentId) {
@@ -673,6 +679,7 @@ export class HanaEngine {
   isSessionSwitching(p) { return this._sessionCoord.isSessionSwitching(p); }
   async abortSessionByPath(p) { return this._sessionCoord.abortSessionByPath(p); }
   async listSessions() { return this._sessionCoord.listSessions(); }
+  async continueDeletedAgentSession(p) { return this._sessionCoord.continueDeletedAgentSession(p); }
   getSessionProjectCatalog() { return this._sessionProjects.getCatalog(); }
   createSessionProjectFolder(input) { return this._sessionProjects.createFolder(input); }
   updateSessionProjectFolder(id, patch) { return this._sessionProjects.updateFolder(id, patch); }

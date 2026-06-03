@@ -13,6 +13,7 @@ import { createDefaultSettings } from "./session-defaults.js";
 import { computeHardTruncation } from "./compaction-utils.js";
 import {
   appendCompactionResultToSession,
+  createCachePreservingCompactionResult,
   runCachePreservingCompactionForSession,
 } from "./session-compactor.js";
 import { teardownSessionResources } from "./session-teardown.js";
@@ -95,6 +96,52 @@ function buildPromptMediaOptions(opts) {
     ...(opts.imageAttachmentPaths?.length ? { imageAttachmentPaths: opts.imageAttachmentPaths } : {}),
     ...(opts.videoAttachmentPaths?.length ? { videoAttachmentPaths: opts.videoAttachmentPaths } : {}),
   };
+}
+
+function extractPlainTextFromContent(content, { stripThink = false } = {}) {
+  let text = "";
+  if (typeof content === "string") {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content
+      .filter(block => block?.type === "text" && typeof block.text === "string")
+      .map(block => block.text)
+      .join("");
+  }
+  if (!stripThink) return text;
+  return text.replace(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>\n*/g, "");
+}
+
+function timestampFromHistoryMessage(message, fallback = Date.now()) {
+  if (typeof message?.timestamp === "number" && Number.isFinite(message.timestamp)) return message.timestamp;
+  if (typeof message?.timestamp === "string") {
+    const parsed = Date.parse(message.timestamp);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function normalizeDeletedAgentTranscriptMessage(message) {
+  if (!message || typeof message !== "object") return null;
+  if (message.role !== "user" && message.role !== "assistant") return null;
+  const text = extractPlainTextFromContent(message.content, { stripThink: message.role === "assistant" }).trim();
+  if (!text) return null;
+  return {
+    role: message.role,
+    content: [{ type: "text", text }],
+    timestamp: timestampFromHistoryMessage(message),
+  };
+}
+
+function readSessionBranchMessages(sessionPath) {
+  const manager = SessionManager.open(sessionPath, path.dirname(sessionPath));
+  const branch = manager.getBranch();
+  return branch
+    .filter(entry => entry?.type === "message" && entry.message)
+    .map(entry => ({
+      ...entry.message,
+      timestamp: entry.message.timestamp ?? entry.timestamp ?? null,
+    }));
 }
 
 function textOrNull(value) {
@@ -950,6 +997,165 @@ export class SessionCoordinator {
     return { session, sessionPath: sessionPath || mapKey, agentId: creatingAgentId };
   }
 
+  async continueDeletedAgentSession(sourceSessionPath) {
+    this._assertActiveDesktopSessionPath(sourceSessionPath, "continueDeletedAgentSession");
+    const sourceAgentId = this._d.agentIdFromSessionPath(sourceSessionPath);
+    if (!sourceAgentId) {
+      throw new Error(`continueDeletedAgentSession: cannot resolve source agentId for ${sourceSessionPath}`);
+    }
+    if (!this._d.isAgentDeleted?.(sourceAgentId)) {
+      throw new Error(`continueDeletedAgentSession: source agent "${sourceAgentId}" is not deleted`);
+    }
+    try {
+      await fsp.access(sourceSessionPath);
+    } catch {
+      throw new Error(`continueDeletedAgentSession: source session not found`);
+    }
+
+    const primaryAgentId = this._d.getPrefs?.()?.getPrimaryAgent?.() || this._d.getActiveAgentId?.();
+    const targetAgent = primaryAgentId ? this._d.getAgentById?.(primaryAgentId) : this._d.getAgent();
+    if (!targetAgent) {
+      throw new Error(`continueDeletedAgentSession: primary agent "${primaryAgentId || "(missing)"}" not found`);
+    }
+    if (this._d.isAgentDeleted?.(targetAgent.id)) {
+      throw new Error(`continueDeletedAgentSession: primary agent "${targetAgent.id}" has been deleted`);
+    }
+
+    const sourceManager = SessionManager.open(sourceSessionPath, path.dirname(sourceSessionPath));
+    const sourceCwd = sourceManager.getCwd?.() || null;
+    const targetCwd = sourceCwd || this._d.getHomeCwd(targetAgent.id) || process.cwd();
+    const sourceMessages = readSessionBranchMessages(sourceSessionPath);
+    const transcriptMessages = sourceMessages
+      .map(normalizeDeletedAgentTranscriptMessage)
+      .filter(Boolean);
+    if (transcriptMessages.length === 0) {
+      throw new Error("continueDeletedAgentSession: source session has no displayable transcript");
+    }
+
+    let createdSessionPath = null;
+    try {
+      const result = await this.createSession(null, targetCwd, true, null, {
+        agent: targetAgent,
+        agentId: targetAgent.id,
+        visibleInSessionList: true,
+      });
+      const session = result.session;
+      createdSessionPath = result.sessionPath;
+      const manager = session.sessionManager;
+      for (const message of transcriptMessages) {
+        manager.appendMessage(message);
+      }
+      if (session.model?.provider && session.model?.id) {
+        manager.appendModelChange(session.model.provider, session.model.id);
+      }
+      manager._rewriteFile?.();
+
+      await this.writeSessionMeta(createdSessionPath, {
+        continuedFrom: {
+          sourceSessionPath,
+          sourceAgentId,
+          sourceAgentDeleted: true,
+          migratedAt: new Date().toISOString(),
+        },
+      });
+      await this._freshCompactDeletedAgentContinuation(session, transcriptMessages, {
+        sourceSessionPath,
+        sourceAgentId,
+      });
+      manager._rewriteFile?.();
+      return {
+        session,
+        sessionPath: createdSessionPath,
+        agentId: targetAgent.id,
+        agentName: targetAgent.agentName || targetAgent.name || targetAgent.id,
+        cwd: manager.getCwd?.() || targetCwd,
+        workspaceFolders: this.getSessionWorkspaceFolders(createdSessionPath),
+        compacted: true,
+      };
+    } catch (err) {
+      if (createdSessionPath) {
+        try { await this.discardSessionRuntime(createdSessionPath, "deleted agent continuation failed"); } catch {}
+        try { await fsp.rm(createdSessionPath, { force: true }); } catch {}
+      }
+      throw err;
+    }
+  }
+
+  async _freshCompactDeletedAgentContinuation(session, transcriptMessages, { sourceSessionPath, sourceAgentId }) {
+    if (!session?.sessionManager) throw new Error("deleted-agent continuation compaction requires a session manager");
+    const model = session.model;
+    if (!model) throw new Error("deleted-agent continuation compaction requires a model");
+    const settings = session.settingsManager?.getCompactionSettings?.() || this._createSettings(model)?.getCompactionSettings?.();
+    const tokensBefore = transcriptMessages.reduce((sum, message) => sum + estimateTokens(message), 0);
+    const preparation = {
+      messagesToSummarize: transcriptMessages,
+      turnPrefixMessages: [],
+      previousSummary: null,
+      isSplitTurn: false,
+      firstKeptEntryId: null,
+      tokensBefore,
+      settings,
+      fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+    };
+    session?._emit?.({ type: "compaction_start", reason: "deleted_agent_continue" });
+    try {
+      const result = await createCachePreservingCompactionResult({
+        preparation,
+        model,
+        systemPrompt: session.agent?.state?.systemPrompt ?? session.systemPrompt,
+        customInstructions: [
+          "This is a fresh continuation summary created from a read-only session whose Agent was deleted.",
+          `Source agent id: ${sourceAgentId}.`,
+          `Source session path: ${sourceSessionPath}.`,
+          "Summarize the old transcript so the new primary Agent can continue without depending on the deleted Agent runtime.",
+        ].join(" "),
+        thinkingLevel: session.thinkingLevel ?? session.agent?.state?.thinkingLevel,
+        streamFn: session.agent?.streamFn,
+        streamOptions: {
+          sessionId: session.agent?.sessionId,
+          onPayload: session.agent?.onPayload,
+          onResponse: session.agent?.onResponse,
+          transport: session.agent?.transport,
+          thinkingBudgets: session.agent?.thinkingBudgets,
+          maxRetryDelayMs: session.agent?.maxRetryDelayMs,
+        },
+        convertToLlm: session.agent?.convertToLlm,
+        usageLedger: this._d.getUsageLedger?.(),
+        usageContext: {
+          source: {
+            subsystem: "compaction",
+            operation: "deleted_agent_continue",
+            surface: "desktop",
+            trigger: "user",
+          },
+          attribution: {
+            kind: "session",
+            agentId: session.agentId || session.agent?.id || null,
+            sessionPath: session.sessionManager?.getSessionFile?.() || null,
+          },
+        },
+      });
+      const saved = await appendCompactionResultToSession(session, result, { fromExtension: false });
+      session?._emit?.({
+        type: "compaction_end",
+        reason: "deleted_agent_continue",
+        result: saved,
+        aborted: false,
+        willRetry: false,
+      });
+      return saved;
+    } catch (error) {
+      session?._emit?.({
+        type: "compaction_end",
+        reason: "deleted_agent_continue",
+        aborted: false,
+        willRetry: false,
+        errorMessage: `Compaction failed: ${error.message || error}`,
+      });
+      throw error;
+    }
+  }
+
   getSessionWorkspaceFolders(sessionPath = this.currentSessionPath) {
     if (!sessionPath) return [];
     const entry = this._sessions.get(sessionPath) || this._hibernatedSessionMeta.get(sessionPath);
@@ -962,6 +1168,9 @@ export class SessionCoordinator {
     // 它伪造成"新对话"幻影条目（不能归档、重启即消失）。
     if (!isActiveSessionPath(sessionPath, this._d.agentsDir)) {
       throw new Error(`switchSession: path must be in active desktop session agents/{id}/sessions/*.jsonl; got ${sessionPath}`);
+    }
+    if (this._isDeletedAgentSessionPath(sessionPath)) {
+      throw new Error("switchSession: session belongs to a deleted agent");
     }
 
     // 切到已有 session 时清空 pendingModel（用户的临时选择不应跟到别的 session）
@@ -1882,6 +2091,24 @@ export class SessionCoordinator {
     return !!entry || hadHibernated;
   }
 
+  async discardSessionsForAgent(agentId, reason = "agent deleted") {
+    if (!agentId) return 0;
+    const paths = new Set();
+    for (const [sessionPath, entry] of this._sessions) {
+      const entryAgentId = entry?.agentId || this._d.agentIdFromSessionPath?.(sessionPath);
+      if (entryAgentId === agentId) paths.add(sessionPath);
+    }
+    for (const [sessionPath, entry] of this._hibernatedSessionMeta) {
+      const entryAgentId = entry?.agentId || this._d.agentIdFromSessionPath?.(sessionPath);
+      if (entryAgentId === agentId) paths.add(sessionPath);
+    }
+    let discarded = 0;
+    for (const sessionPath of paths) {
+      if (await this.discardSessionRuntime(sessionPath, reason)) discarded += 1;
+    }
+    return discarded;
+  }
+
   async closeSession(sessionPath) {
     return this.discardSessionRuntime(sessionPath, "close");
   }
@@ -1957,8 +2184,14 @@ export class SessionCoordinator {
     }
   }
 
+  _isDeletedAgentSessionPath(sessionPath) {
+    const agentId = this._d.agentIdFromSessionPath?.(sessionPath);
+    return !!agentId && this._d.isAgentDeleted?.(agentId) === true;
+  }
+
   isRunnableSessionPath(sessionPath) {
     if (!isActiveSessionPath(sessionPath, this._d.agentsDir)) return false;
+    if (this._isDeletedAgentSessionPath(sessionPath)) return false;
     if (this._sessions.has(sessionPath) || this._hibernatedSessionMeta.has(sessionPath)) return true;
     try {
       return fs.existsSync(sessionPath);
@@ -1969,6 +2202,9 @@ export class SessionCoordinator {
 
   async reloadSessionRuntime(sessionPath) {
     this._assertActiveDesktopSessionPath(sessionPath, "reloadSessionRuntime");
+    if (this._isDeletedAgentSessionPath(sessionPath)) {
+      throw new Error("reloadSessionRuntime: session belongs to a deleted agent");
+    }
     const targetAgentId = this._d.agentIdFromSessionPath(sessionPath);
     if (!targetAgentId) {
       throw new Error(`reloadSessionRuntime: cannot resolve agentId for ${sessionPath}`);
@@ -2029,6 +2265,9 @@ export class SessionCoordinator {
    */
   async ensureSessionLoaded(sessionPath) {
     this._assertActiveDesktopSessionPath(sessionPath, "ensureSessionLoaded");
+    if (this._isDeletedAgentSessionPath(sessionPath)) {
+      throw new Error("ensureSessionLoaded: session belongs to a deleted agent");
+    }
     const existing = this._sessions.get(sessionPath);
     if (existing) {
       existing.lastTouchedAt = Date.now();
@@ -2103,7 +2342,12 @@ export class SessionCoordinator {
   }
 
   async listSessions() {
-    const agents = this._d.listAgents();
+    const activeAgents = this._d.listAgents();
+    const deletedAgents = this._d.listDeletedAgents?.() || [];
+    const agents = [
+      ...activeAgents.map(agent => ({ ...agent, agentDeleted: false })),
+      ...deletedAgents.map(agent => ({ ...agent, agentDeleted: true })),
+    ];
 
     // 并行处理每个 agent，避免串行同步 I/O 阻塞事件循环
     const perAgent = await Promise.all(agents.map(async (agent) => {
@@ -2119,6 +2363,12 @@ export class SessionCoordinator {
           if (titles[s.path]) s.title = titles[s.path];
           s.agentId = agent.id;
           s.agentName = agent.name;
+          if (agent.agentDeleted) {
+            s.agentDeleted = true;
+            s.readOnlyReason = "agent_deleted";
+            s.continuationAvailable = true;
+            s.deletedAt = agent.deletedAt || null;
+          }
           const sessKey = path.basename(s.path);
           const metaEntry = meta[sessKey];
           s.pinnedAt = typeof metaEntry?.pinnedAt === "string" ? metaEntry.pinnedAt : null;
@@ -2156,7 +2406,9 @@ export class SessionCoordinator {
         || (sessionPath === currentPath && this._sessionStarted);
       if (!shouldExpose) continue;
 
-      const agent = this._d.getAgentById?.(entry.agentId) || this._d.getAgent();
+      const deletedInfo = this._d.getDeletedAgentInfo?.(entry.agentId);
+      const isDeleted = !!deletedInfo || this._d.isAgentDeleted?.(entry.agentId);
+      const agent = isDeleted ? deletedInfo : (this._d.getAgentById?.(entry.agentId) || this._d.getAgent());
       allSessions.push({
         path: sessionPath,
         title: null,
@@ -2170,6 +2422,12 @@ export class SessionCoordinator {
         modelProvider: entry.modelProvider || null,
         pinnedAt: null,
         projectId: null,
+        ...(isDeleted ? {
+          agentDeleted: true,
+          readOnlyReason: "agent_deleted",
+          continuationAvailable: true,
+          deletedAt: deletedInfo?.deletedAt || null,
+        } : {}),
       });
       projectedPaths.add(sessionPath);
     }

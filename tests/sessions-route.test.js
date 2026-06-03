@@ -429,6 +429,132 @@ describe("sessions route", () => {
     expect(getSessionPermissionMode).toHaveBeenCalledWith(session.path);
   });
 
+  it("marks deleted-agent sessions read-only in the session list response", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.js");
+    const app = new Hono();
+    const session = {
+      path: "/tmp/agents/deleted/sessions/a.jsonl",
+      title: "Old agent chat",
+      firstMessage: "hello",
+      modified: new Date("2026-06-03T07:00:00.000Z"),
+      messageCount: 2,
+      cwd: "/tmp/work",
+      agentId: "deleted",
+      agentName: "Deleted Agent",
+      agentDeleted: true,
+      readOnlyReason: "agent_deleted",
+      continuationAvailable: true,
+    };
+
+    app.route("/api", createSessionsRoute({
+      listSessions: vi.fn(async () => [session]),
+      rcState: null,
+    }));
+
+    const res = await app.request("/api/sessions");
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data[0]).toMatchObject({
+      path: session.path,
+      agentDeleted: true,
+      readOnlyReason: "agent_deleted",
+      continuationAvailable: true,
+    });
+  });
+
+  it("creates a primary-agent continuation from a deleted-agent session", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.js");
+    const app = new Hono();
+    const hub = { eventBus: { emit: vi.fn() } };
+    const agentsDir = path.join(tmpDir, "agents");
+    const oldPath = path.join(agentsDir, "deleted", "sessions", "old.jsonl");
+    const newPath = path.join(agentsDir, "hana", "sessions", "new.jsonl");
+    fs.mkdirSync(path.dirname(oldPath), { recursive: true });
+    fs.writeFileSync(oldPath, JSON.stringify({ role: "user", content: "old hello" }) + "\n");
+    const engine = {
+      agentsDir,
+      agentIdFromSessionPath: vi.fn(() => "deleted"),
+      isAgentDeleted: vi.fn(() => true),
+      continueDeletedAgentSession: vi.fn(async () => ({
+        sessionPath: newPath,
+        agentId: "hana",
+        agentName: "Hana",
+        cwd: "/tmp/work",
+        workspaceFolders: [],
+        compacted: true,
+      })),
+      getSessionWorkspaceFolders: vi.fn(() => []),
+      getAgent: vi.fn(() => ({ agentName: "Hana" })),
+      planMode: false,
+      permissionMode: "ask",
+      accessMode: "ask",
+      getSessionThinkingLevel: vi.fn(() => "medium"),
+      memoryModelUnavailableReason: null,
+    };
+
+    app.route("/api", createSessionsRoute(engine, hub));
+
+    const res = await app.request("/api/sessions/continue-deleted-agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: oldPath }),
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(engine.continueDeletedAgentSession).toHaveBeenCalledWith(oldPath);
+    expect(data).toMatchObject({ ok: true, path: newPath, agentId: "hana", compacted: true });
+    expect(hub.eventBus.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "session_created",
+        session: expect.objectContaining({ path: newPath, agentId: "hana" }),
+      }),
+      newPath,
+    );
+  });
+
+  it("rejects write operations against deleted-agent sessions", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.js");
+    const app = new Hono();
+    const deletedPath = "/tmp/agents/deleted/sessions/old.jsonl";
+    const engine = {
+      agentsDir: "/tmp/agents",
+      agentIdFromSessionPath: vi.fn(() => "deleted"),
+      isAgentDeleted: vi.fn(() => true),
+      setSessionPinned: vi.fn(),
+      switchSession: vi.fn(),
+      saveSessionTitle: vi.fn(),
+      rcState: null,
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const pin = await app.request("/api/sessions/pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: deletedPath, pinned: true }),
+    });
+    const rename = await app.request("/api/sessions/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: deletedPath, title: "Nope" }),
+    });
+    const switchRes = await app.request("/api/sessions/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: deletedPath }),
+    });
+
+    expect(pin.status).toBe(409);
+    expect(rename.status).toBe(409);
+    expect(switchRes.status).toBe(409);
+    expect(await pin.json()).toMatchObject({ error: "agent_deleted" });
+    expect(engine.setSessionPinned).not.toHaveBeenCalled();
+    expect(engine.saveSessionTitle).not.toHaveBeenCalled();
+    expect(engine.switchSession).not.toHaveBeenCalled();
+  });
+
   it("rejects session projection when the authenticated Studio differs from the server Studio", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.js");
     const app = new Hono();

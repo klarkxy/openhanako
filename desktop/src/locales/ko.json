@@ -151,6 +151,14 @@
     "pinFailed": "세션 고정 실패",
     "unpinFailed": "세션 고정 해제 실패",
     "archive": "보관",
+    "deletedAgent": {
+      "title": "Agent가 삭제됨",
+      "description": "이 대화는 읽기 전용 기록으로 유지됩니다. 계속하면 이전 컨텍스트를 압축한 뒤 기본 Agent에서 새 세션을 만듭니다.",
+      "continueButton": "기본 Agent로 이전",
+      "continuing": "압축하고 세션 만드는 중",
+      "continueFailed": "이전 실패",
+      "meta": "읽기 전용"
+    },
     "summary": {
       "title": "세션 요약",
       "open": "세션 요약",

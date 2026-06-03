@@ -211,7 +211,7 @@ import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { clearChat } from '../../stores/agent-actions';
 import { loadDeskFiles } from '../../stores/desk-actions';
 import { bumpMessageLiveVersion, clearMessageLiveVersion } from '../../stores/message-live-version';
-import { archiveSession, createNewSession, ensureSession, loadMessages, loadSessions, pinSession, switchSession } from '../../stores/session-actions';
+import { archiveSession, continueDeletedAgentSession, createNewSession, ensureSession, loadMessages, loadSessions, pinSession, switchSession } from '../../stores/session-actions';
 import { snapshotStreamBuffer } from '../../stores/stream-invalidator';
 
 const mockFetch = vi.mocked(hanaFetch);
@@ -223,7 +223,7 @@ function jsonResponse(body: unknown, ok = true): Response {
   return { ok, json: async () => body } as unknown as Response;
 }
 
-describe('session-actions', () => {
+  describe('session-actions', () => {
   beforeEach(() => {
     Object.keys(mockState).forEach(k => delete mockState[k]);
     Object.assign(mockState, initialStateFactory());
@@ -271,6 +271,76 @@ describe('session-actions', () => {
     mockSnapshot.mockReturnValue(null);
     clearMessageLiveVersion();
     dispatchedEvents.length = 0;
+  });
+
+  it('opens deleted-agent sessions as read-only history without calling the runtime switch route', async () => {
+    const deletedPath = '/tmp/agents/deleted/sessions/old.jsonl';
+    Object.assign(mockState, {
+      currentSessionPath: null,
+      sessions: [{
+        path: deletedPath,
+        agentDeleted: true,
+        agentId: 'deleted',
+        agentName: 'Deleted',
+        cwd: '/tmp/work',
+      }],
+      chatSessions: {},
+    });
+    mockFetch.mockImplementation(async (url: string) => {
+      if (String(url).startsWith('/api/sessions/messages')) {
+        return jsonResponse({ messages: [{ role: 'user', content: 'old hello' }], blocks: [], todos: [], hasMore: false });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await switchSession(deletedPath);
+
+    expect(mockFetch).not.toHaveBeenCalledWith('/api/sessions/switch', expect.anything());
+    expect(mockState.currentSessionPath).toBe(deletedPath);
+    expect(mockState.pendingSessionSwitchPath).toBeNull();
+    expect(mockState.pendingNewSession).toBe(false);
+    expect(mockState.currentAgentId).toBeNull();
+    expect(deskActionMocks.activateWorkspaceDesk).toHaveBeenCalledWith('/tmp/work');
+    expect((mockState.chatSessions as Record<string, any>)[deletedPath].items).toHaveLength(1);
+  });
+
+  it('continues a deleted-agent session by creating and switching to the returned primary-agent session', async () => {
+    const oldPath = '/tmp/agents/deleted/sessions/old.jsonl';
+    const newPath = '/tmp/agents/hana/sessions/new.jsonl';
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url === '/api/sessions/continue-deleted-agent') {
+        return jsonResponse({ ok: true, path: newPath, agentId: 'hana', agentName: 'Hana' });
+      }
+      if (url === '/api/sessions') {
+        return jsonResponse([{ path: newPath, agentId: 'hana', agentName: 'Hana', cwd: '/tmp/work' }]);
+      }
+      if (url === '/api/sessions/switch') {
+        return jsonResponse({
+          ok: true,
+          agentId: 'hana',
+          agentName: 'Hana',
+          cwd: '/tmp/work',
+          workspaceFolders: [],
+          memoryEnabled: true,
+          permissionMode: 'ask',
+          accessMode: 'ask',
+        });
+      }
+      if (String(url).startsWith('/api/sessions/messages')) {
+        return jsonResponse({ messages: [], blocks: [], todos: [], hasMore: false });
+      }
+      if (String(url).startsWith('/api/models')) return jsonResponse({});
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const ok = await continueDeletedAgentSession(oldPath);
+
+    expect(ok).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith('/api/sessions/continue-deleted-agent', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ path: oldPath }),
+    }));
+    expect(mockState.currentSessionPath).toBe(newPath);
   });
 
   describe('createNewSession cwd draft', () => {

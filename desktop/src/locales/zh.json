@@ -151,6 +151,14 @@
     "pinFailed": "置顶 session 失败",
     "unpinFailed": "取消置顶失败",
     "archive": "归档",
+    "deletedAgent": {
+      "title": "Agent 已删除",
+      "description": "这段对话会保留为只读历史。继续聊天会用主 Agent 新建一个 session，并先压缩旧上下文。",
+      "continueButton": "迁移到现有主 Agent",
+      "continuing": "正在压缩并新建 session",
+      "continueFailed": "迁移失败",
+      "meta": "只读"
+    },
     "summary": {
       "title": "Session 摘要",
       "open": "摘要",

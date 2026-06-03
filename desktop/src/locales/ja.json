@@ -151,6 +151,14 @@
     "pinFailed": "セッションのピン留めに失敗しました",
     "unpinFailed": "ピン留め解除に失敗しました",
     "archive": "アーカイブ",
+    "deletedAgent": {
+      "title": "Agent は削除済みです",
+      "description": "このチャットは読み取り専用の履歴として保持されます。続行すると、古いコンテキストを圧縮してから主 Agent で新しいセッションを作成します。",
+      "continueButton": "主 Agent に移行",
+      "continuing": "圧縮してセッションを作成中",
+      "continueFailed": "移行に失敗しました",
+      "meta": "読み取り専用"
+    },
     "summary": {
       "title": "セッション要約",
       "open": "セッション要約",

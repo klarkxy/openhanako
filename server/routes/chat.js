@@ -212,6 +212,16 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
     return null;
   }
 
+  function isDeletedAgentSessionPath(sessionPath) {
+    if (!sessionPath) return false;
+    const agentId = engine.agentIdFromSessionPath?.(sessionPath) || null;
+    return !!agentId && engine.isAgentDeleted?.(agentId) === true;
+  }
+
+  function rejectDeletedAgentSession(ws, sessionPath) {
+    wsSend(ws, { type: "error", message: "agent_deleted", sessionPath });
+  }
+
   function getState(sessionPath) {
     if (!sessionPath) return null;
     if (!sessionState.has(sessionPath)) {
@@ -918,6 +928,10 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
             if (msg.type === "steer" && msg.text) {
               debugLog()?.log("ws", `steer (${msg.text.length} chars)`);
               const steerPath = requireSessionPath(msg, ws); if (!steerPath) return;
+              if (isDeletedAgentSessionPath(steerPath)) {
+                rejectDeletedAgentSession(ws, steerPath);
+                return;
+              }
               if (engine.steerSession(steerPath, msg.text)) {
                 wsSend(ws, { type: "steered" });
                 return;
@@ -979,6 +993,10 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
 
             if (msg.type === "slash" && typeof msg.text === "string") {
               const sp = requireSessionPath(msg, ws); if (!sp) return;
+              if (isDeletedAgentSessionPath(sp)) {
+                rejectDeletedAgentSession(ws, sp);
+                return;
+              }
               const dispatcher = engine.slashDispatcher;
               if (!dispatcher) {
                 wsSend(ws, { type: "error", message: "slash system not ready", sessionPath: sp });
@@ -1008,6 +1026,10 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
 
             if (msg.type === "compact") {
               const compactPath = requireSessionPath(msg, ws); if (!compactPath) return;
+              if (isDeletedAgentSessionPath(compactPath)) {
+                rejectDeletedAgentSession(ws, compactPath);
+                return;
+              }
               let session = engine.getSessionByPath(compactPath)
                 || await engine.ensureSessionLoaded?.(compactPath);
               if (!session) {
@@ -1090,6 +1112,10 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
               debugLog()?.log("ws", `user message (${promptText.length} chars, ${msg.images?.length || 0} images, ${msg.videos?.length || 0} videos)`);
               // Phase 2: 客户端可指定 sessionPath，否则用焦点 session
               const promptSessionPath = requireSessionPath(msg, ws); if (!promptSessionPath) return;
+              if (isDeletedAgentSessionPath(promptSessionPath)) {
+                rejectDeletedAgentSession(ws, promptSessionPath);
+                return;
+              }
               if (engine.isSessionStreaming(promptSessionPath)) {
                 wsSend(ws, { type: "error", message: t("error.stillStreaming", { name: engine.agentName }), sessionPath: promptSessionPath });
                 return;

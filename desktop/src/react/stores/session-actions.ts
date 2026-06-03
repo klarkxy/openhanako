@@ -66,6 +66,14 @@ function requestChatInputFocus(path: string | null): void {
   if (shouldRestoreInputFocus(path)) useStore.getState().requestInputFocus?.();
 }
 
+function findSessionProjection(path: string): any | null {
+  return useStore.getState().sessions.find((session: any) => session.path === path) || null;
+}
+
+function isDeletedAgentSession(path: string): boolean {
+  return findSessionProjection(path)?.agentDeleted === true;
+}
+
 async function resetDeskForSessionCwd(cwd?: string | null): Promise<void> {
   // Session 切换后的 cwd 以服务端显式返回值为准；右侧 desk 视图归 workspace/CWD 所有。
   // 切到同一 workspace 时保留当前子目录；切到不同 workspace 时恢复该 workspace 的上次子目录。
@@ -254,6 +262,11 @@ export async function switchSession(path: string): Promise<void> {
 
   useStore.setState({ pendingSessionSwitchPath: path });
 
+  if (isDeletedAgentSession(path)) {
+    await switchDeletedAgentSession(path, myVersion);
+    return;
+  }
+
   // 关闭浮动面板
   const activePanel = useStore.getState().activePanel;
   if (activePanel === 'activity' || activePanel === 'automation') {
@@ -405,6 +418,46 @@ export async function switchSession(path: string): Promise<void> {
     if (_switchAbortController === abortController) {
       _switchAbortController = null;
     }
+  }
+}
+
+async function switchDeletedAgentSession(path: string, version: number): Promise<void> {
+  const state = useStore.getState();
+  const projection = findSessionProjection(path);
+  const currentPath = state.currentSessionPath;
+  const currentAttachments = state.attachedFiles;
+  if (currentPath) {
+    useStore.setState(prev => ({
+      attachedFilesBySession: { ...prev.attachedFilesBySession, [currentPath]: [...currentAttachments] },
+    }));
+  }
+
+  useStore.setState({
+    currentSessionPath: path,
+    pendingSessionSwitchPath: null,
+    pendingNewSession: false,
+    pendingProjectId: null,
+    selectedFolder: null,
+    workspaceFolders: [],
+    selectedAgentId: null,
+    welcomeVisible: false,
+    streamingSessions: state.streamingSessions.filter((sessionPath: string) => sessionPath !== path),
+    attachedFiles: state.attachedFilesBySession[path] || [],
+    deskContextAttached: false,
+    docContextAttached: false,
+  });
+
+  await resetDeskForSessionCwd(projection?.cwd || null);
+  if (version !== _switchVersion) return;
+
+  useStore.getState().clearQuotedSelection();
+  window.dispatchEvent(new CustomEvent('hana-plan-mode', {
+    detail: { enabled: true, mode: 'read_only' },
+  }));
+
+  const hasData = !!useStore.getState().chatSessions?.[path];
+  if (!hasData) {
+    await loadMessages(path);
   }
 }
 
@@ -575,6 +628,31 @@ export async function ensureSession(): Promise<boolean> {
   } catch (err) {
     console.error('[session] create failed:', err);
     showSessionCreationError(errorMessage(err));
+    return false;
+  }
+}
+
+export async function continueDeletedAgentSession(path: string): Promise<boolean> {
+  try {
+    const res = await hanaFetch('/api/sessions/continue-deleted-agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error || !data.path) {
+      const message = data.error || res.statusText || 'continue failed';
+      console.error('[session] continue deleted-agent session failed:', message);
+      useStore.getState().addToast(`${tr('session.deletedAgent.continueFailed')}: ${message}`, 'error', 6000);
+      return false;
+    }
+
+    await loadSessions();
+    await switchSession(data.path);
+    return true;
+  } catch (err) {
+    console.error('[session] continue deleted-agent session failed:', err);
+    useStore.getState().addToast(`${tr('session.deletedAgent.continueFailed')}: ${errorMessage(err)}`, 'error', 6000);
     return false;
   }
 }

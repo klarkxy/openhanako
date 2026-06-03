@@ -389,6 +389,16 @@
     pointer-events: auto;
 }
 
+.sessionItemReadOnly .sessionItemTitle {
+    color: color-mix(in srgb, var(--text) 76%, var(--text-muted));
+}
+
+.sessionItemReadOnly .sessionItemMeta,
+.sessionItemReadOnly:hover .sessionItemMeta,
+.sessionItemReadOnly:focus-visible .sessionItemMeta {
+    padding-right: 0;
+}
+
 /* streaming 呼吸动画 */
 .sessionStreamingDot {
     width: 5px;

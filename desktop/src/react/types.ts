@@ -40,6 +40,10 @@ export interface Session {
   permissionMode?: SessionPermissionMode | null;
   pinnedAt?: string | null;
   hasSummary?: boolean;
+  agentDeleted?: boolean;
+  readOnlyReason?: 'agent_deleted' | string | null;
+  continuationAvailable?: boolean;
+  deletedAt?: string | null;
   rcAttachment?: {
     sessionKey: string;
     platform: string;

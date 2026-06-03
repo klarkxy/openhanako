@@ -14,7 +14,7 @@ import { selectSessionFiles } from '../stores/selectors/file-refs';
 import { isImageFile, isVideoFile } from '../utils/format';
 import { fetchConfig } from '../hooks/use-config';
 import { useI18n } from '../hooks/use-i18n';
-import { ensureSession, loadSessions } from '../stores/session-actions';
+import { continueDeletedAgentSession, ensureSession, loadSessions } from '../stores/session-actions';
 import { revealDeskDirectory, searchDeskFiles, toggleJianSidebar } from '../stores/desk-actions';
 import { getWebSocket } from '../services/websocket';
 import { collectUiContext } from '../utils/ui-context';
@@ -184,6 +184,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const pendingNewSession = useStore(s => s.pendingNewSession);
   const pendingSessionSwitchPath = useStore(s => s.pendingSessionSwitchPath);
   const currentSessionPath = useStore(s => s.currentSessionPath);
+  const currentSessionProjection = useStore(s => s.currentSessionPath
+    ? s.sessions.find(session => session.path === s.currentSessionPath)
+    : null);
+  const deletedAgentReadOnly = currentSessionProjection?.agentDeleted === true;
   const compacting = useStore(s => currentSessionPath ? s.compactingSessions.includes(currentSessionPath) : false);
   const screenshotBusy = useStore(s => s.screenshotTaskCount > 0);
   const screenshotProgress = useStore(s => s.screenshotProgress);
@@ -252,6 +256,14 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const [fileMentionSearchResults, setFileMentionSearchResults] = useState<DeskSearchResult[]>([]);
   const [fileMentionBusy, setFileMentionBusy] = useState(false);
   const [completingTodos, setCompletingTodos] = useState(false);
+  const [continuingDeletedAgentSession, setContinuingDeletedAgentSession] = useState(false);
+  const [deletedAgentContinueError, setDeletedAgentContinueError] = useState<string | null>(null);
+  const inputLocked = deletedAgentReadOnly || continuingDeletedAgentSession;
+
+  useEffect(() => {
+    setContinuingDeletedAgentSession(false);
+    setDeletedAgentContinueError(null);
+  }, [currentSessionPath]);
 
   useEffect(() => {
     if (pendingSessionConfirmation) {
@@ -358,8 +370,17 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     },
   });
 
+  useEffect(() => {
+    editor?.setEditable?.(!inputLocked);
+    if (inputLocked) {
+      setSlashMenuOpen(false);
+      setFileMenuOpen(false);
+    }
+  }, [editor, inputLocked]);
+
   const restoreEditorFocus = useCallback(() => {
     if (!editor || editor.isDestroyed) return;
+    if (inputLocked) return;
     if (!shouldAllowInputFocus({ inputRoot: inputSurfaceRef.current })) return;
 
     const run = () => {
@@ -378,7 +399,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     }
 
     window.setTimeout(run, 0);
-  }, [editor]);
+  }, [editor, inputLocked]);
 
   useEffect(() => {
     return () => {
@@ -472,6 +493,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   // ── 统一命令发送 ──
 
   const sendAsUser = useCallback(async (text: string, displayText?: string): Promise<boolean> => {
+    if (inputLocked) return false;
     const ws = getWebSocket();
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     const _s = useStore.getState();
@@ -492,7 +514,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       displayMessage: { text: displayText ?? text },
     }));
     return true;
-  }, [pendingNewSession]);
+  }, [inputLocked, pendingNewSession]);
 
   // ── 斜杠命令 ──
 
@@ -599,6 +621,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   }, [slashMenuOpen, dismissSlashMenu, openSlashMenu]);
 
   const handleBrowserFileInputChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    if (inputLocked) {
+      event.currentTarget.value = '';
+      return;
+    }
     const files = Array.from(event.currentTarget.files || []);
     event.currentTarget.value = '';
     try {
@@ -643,9 +669,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     } finally {
       restoreEditorFocus();
     }
-  }, [addAttachedFile, restoreEditorFocus, t]);
+  }, [addAttachedFile, inputLocked, restoreEditorFocus, t]);
 
   const handleAttach = useCallback(async () => {
+    if (inputLocked) return;
     if (surface === 'mobile') {
       browserFileInputRef.current?.click();
       return;
@@ -661,7 +688,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     }
     browserFileInputRef.current?.click();
     window.setTimeout(restoreEditorFocus, 0);
-  }, [restoreEditorFocus, surface]);
+  }, [inputLocked, restoreEditorFocus, surface]);
 
   // Sync editor text to React state (drives hasInput / canSend) + slash menu detection + draft save
   useEffect(() => {
@@ -749,7 +776,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const hasContent = inputText.trim().length > 0 || attachedFiles.length > 0 || docContextAttached || quotedSelections.length > 0
     || editorHasInlineNode(editor, 'skillBadge')
     || editorHasInlineNode(editor, 'fileBadge');
-  const canSend = hasContent && connected && !isStreaming && !modelSwitching && !pendingSessionSwitchPath;
+  const canSend = hasContent && connected && !isStreaming && !modelSwitching && !pendingSessionSwitchPath && !inputLocked;
 
   const loadVisionAuxiliaryConfig = useCallback(async () => {
     if (surface === 'mobile') {
@@ -774,6 +801,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   // （只有 path/name/isDirectory，没有 base64Data）。是否走 vision 桥由发送阶段的
   // visionAuxiliary 标记统一决定，handlePaste 不再做能力判断。
   const handlePaste = useCallback((e: ClipboardEvent): boolean => {
+    if (inputLocked) {
+      e.preventDefault();
+      return true;
+    }
     const items = e.clipboardData?.items;
     if (items) {
       for (const item of items) {
@@ -825,7 +856,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       return true;
     }
     return false;
-  }, [addAttachedFile, editor, t]);
+  }, [addAttachedFile, editor, inputLocked, t]);
 
   pasteHandlerRef.current = handlePaste;
 
@@ -848,6 +879,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
 
   // ── Handle slash selection (builtin vs skill) ──
   const handleSlashSelect = useCallback((item: SlashItem) => {
+    if (inputLocked) return;
     slashDismissedTextRef.current = null;
     if (item.type === 'builtin') {
       item.execute();
@@ -861,9 +893,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       .focus()
       .run();
     setSlashMenuOpen(false);
-  }, [editor]);
+  }, [editor, inputLocked]);
 
   const handleFileMentionSelect = useCallback((item: FileMentionItem) => {
+    if (inputLocked) return;
     if (!editor || !fileMentionRange) return;
     editor.chain()
       .focus()
@@ -883,10 +916,11 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     setFileMenuOpen(false);
     setFileMentionRange(null);
     setFileMentionQuery('');
-  }, [editor, fileMentionRange]);
+  }, [editor, fileMentionRange, inputLocked]);
 
   // ── Send message ──
   const handleSend = useCallback(async () => {
+    if (inputLocked) return;
     if (!editor) return;
     const editorJson = editor.getJSON();
     const { text: rawText, skills, fileRefs } = serializeEditor(editorJson);
@@ -1065,10 +1099,11 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     } finally {
       setSending(false);
     }
-  }, [editor, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, clearDraft, currentSessionPath, setDocContextAttached, slashCommands, slashSelected, handleSlashSelect, supportsVision, currentModelInfo, loadVisionAuxiliaryConfig, modelSwitching, t]);
+  }, [editor, inputLocked, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, clearDraft, currentSessionPath, setDocContextAttached, slashCommands, slashSelected, handleSlashSelect, supportsVision, currentModelInfo, loadVisionAuxiliaryConfig, modelSwitching, t]);
 
   // ── Steer ──
   const handleSteer = useCallback(async () => {
+    if (inputLocked) return;
     if (!editor) return;
     const text = editor.getText().trim();
     if (!text || !isStreaming) return;
@@ -1086,7 +1121,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     const sp = useStore.getState().currentSessionPath;
     if (sp) clearDraft(sp);
     ws.send(JSON.stringify({ type: 'steer', text, sessionPath: sp }));
-  }, [editor, isStreaming, clearDraft]);
+  }, [editor, inputLocked, isStreaming, clearDraft]);
 
   // ── Stop ──
   const handleStop = useCallback(() => {
@@ -1097,6 +1132,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
 
   // ── Key handler ──
   const handleEditorKeyDown = useCallback((e: InputKeyEvent): boolean => {
+    if (inputLocked) {
+      e.preventDefault();
+      return true;
+    }
     if (e.defaultPrevented) return false;
     if (fileMenuOpen && (fileMentionItems.length > 0 || fileMentionBusy)) {
       if (e.key === 'ArrowDown' && fileMentionItems.length > 0) {
@@ -1150,6 +1189,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     handleSteer,
     handleSlashSelect,
     isStreaming,
+    inputLocked,
     editor,
     slashMenuOpen,
     slashSelected,
@@ -1194,6 +1234,22 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       setCompletingTodos(false);
     }
   }, [addToast, completingTodos, currentSessionPath, sessionTodos.length]);
+
+  const handleContinueDeletedAgentSession = useCallback(async () => {
+    const path = currentSessionPath;
+    if (!path || continuingDeletedAgentSession) return;
+    setDeletedAgentContinueError(null);
+    setContinuingDeletedAgentSession(true);
+    try {
+      const ok = await continueDeletedAgentSession(path);
+      if (!ok) setDeletedAgentContinueError(t('session.deletedAgent.continueFailed'));
+    } catch (err) {
+      console.warn('[input] continue deleted-agent session failed', err);
+      setDeletedAgentContinueError(t('session.deletedAgent.continueFailed'));
+    } finally {
+      setContinuingDeletedAgentSession(false);
+    }
+  }, [continuingDeletedAgentSession, currentSessionPath, t]);
 
   return (
     <div
@@ -1257,6 +1313,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
             type="file"
             multiple
             accept="image/png,image/jpeg,image/gif,image/webp"
+            disabled={inputLocked}
             onChange={handleBrowserFileInputChange}
           />
           <div
@@ -1275,7 +1332,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
             onSlashToggle={handleSlashToggle}
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionMode}
-            planModeLocked={false}
+            planModeLocked={inputLocked}
             showThinking={showThinkingControl}
             thinkingLevel={thinkingLevel}
             onThinkingChange={setThinkingLevel}
@@ -1289,6 +1346,38 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
             onSteer={handleSteer}
             onStop={handleStop}
           />
+          {deletedAgentReadOnly && (
+            <div className={styles['deleted-agent-overlay']} role="status" aria-live="polite">
+              <div className={styles['deleted-agent-panel']}>
+                <div className={styles['deleted-agent-title']}>
+                  {t('session.deletedAgent.title')}
+                </div>
+                <div className={styles['deleted-agent-text']}>
+                  {t('session.deletedAgent.description')}
+                </div>
+                <button
+                  type="button"
+                  className={styles['deleted-agent-action']}
+                  onClick={handleContinueDeletedAgentSession}
+                  disabled={continuingDeletedAgentSession}
+                >
+                  {continuingDeletedAgentSession
+                    ? t('session.deletedAgent.continuing')
+                    : t('session.deletedAgent.continueButton')}
+                </button>
+                {continuingDeletedAgentSession && (
+                  <div className={styles['deleted-agent-progress']} data-testid="deleted-agent-progress">
+                    <div className={styles['deleted-agent-progress-fill']} />
+                  </div>
+                )}
+                {deletedAgentContinueError && (
+                  <div className={styles['deleted-agent-error']}>
+                    {deletedAgentContinueError}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

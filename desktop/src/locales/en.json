@@ -151,6 +151,14 @@
     "pinFailed": "Failed to pin session",
     "unpinFailed": "Failed to unpin session",
     "archive": "Archive",
+    "deletedAgent": {
+      "title": "Agent deleted",
+      "description": "This chat is kept as read-only history. Continuing will create a new session on your primary Agent after compacting the old context.",
+      "continueButton": "Migrate to primary Agent",
+      "continuing": "Compacting and creating session",
+      "continueFailed": "Migration failed",
+      "meta": "Read-only"
+    },
     "summary": {
       "title": "Session Summary",
       "open": "Session Summary",
