@@ -1812,7 +1812,9 @@
       "title": "This Conversation",
       "cwd": "Workspace",
       "model": "Model",
-      "files": "Files"
+      "files": "Files",
+      "authorizedFolders": "Authorized folders",
+      "addAuthorizedFolder": "Add authorized folder"
     },
     "tabs": {
       "label": "Right workspace",
@@ -2354,9 +2356,9 @@
     },
     "currentStatus": {
       "label": "Current Status",
-      "description": "Lightweight current-environment status. Use it to check fresh state such as time, logical date, agent identity, user/agent avatar appearance, model identity, Bridge platform context, open sub-agent instances, and the user's visible UI context. IMPORTANT: The date/time shown in the system prompt is a snapshot from when the session was created and may be outdated. For precise current time, scheduling, reminders, date calculations that need clock time, greetings, or any case where hour/minute matters, call this tool with action=\"get\", key=\"time\". Use key=\"logical_date\" only when you need to know which calendar day Hana should treat as today under the 4:00 boundary; it does not return hour/minute/second. Use key=\"appearance\" when the user asks what the user or current agent looks like. When the user refers to this file, here, the current/open/visible/selected item, the pinned window, current Bridge chat/platform, or the current folder, call this tool with action=\"get\", key=\"ui_context\" first to resolve the reference.",
+      "description": "Lightweight current-environment status. Use it to check fresh state such as time, logical date, agent identity, user/agent avatar appearance, model identity, current session folder scope, Bridge platform context, open sub-agent instances, and the user's visible UI context. IMPORTANT: The date/time shown in the system prompt is a snapshot from when the session was created and may be outdated. For precise current time, scheduling, reminders, date calculations that need clock time, greetings, or any case where hour/minute matters, call this tool with action=\"get\", key=\"time\". Use key=\"logical_date\" only when you need to know which calendar day Hana should treat as today under the 4:00 boundary; it does not return hour/minute/second. Use key=\"appearance\" when the user asks what the user or current agent looks like. Use key=\"session_folders\" to inspect which folders the current session can access. When the user refers to this file, here, the current/open/visible/selected item, the pinned window, current Bridge chat/platform, or the current folder, call this tool with action=\"get\", key=\"ui_context\" first to resolve the reference.",
       "actionDesc": "list returns available status keys; get returns one status key value.",
-      "keyDesc": "Status key to fetch when action=get. Common keys: time, logical_date, agent, appearance, model, ui_context, session_files, bridge_context, subagents. Use bridge_context for references to the current Bridge platform/chat; use subagents before continuing or closing a sub-agent."
+      "keyDesc": "Status key to fetch when action=get. Common keys: time, logical_date, agent, appearance, model, ui_context, session_files, session_folders, bridge_context, subagents. Use bridge_context for references to the current Bridge platform/chat; use subagents before continuing or closing a sub-agent."
     },
     "pinnedMemory": {
       "pinLabel": "Pin Memory",

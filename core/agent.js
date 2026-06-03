@@ -30,6 +30,7 @@ import { createExperienceTools } from "../lib/tools/experience.js";
 import { createInstallSkillTool } from "../lib/tools/install-skill.js";
 import { createNotifyTool } from "../lib/tools/notify-tool.js";
 import { createUpdateSettingsTool } from "../lib/tools/update-settings-tool.js";
+import { createSessionFoldersTool } from "../lib/tools/session-folders-tool.js";
 import {
   createSubagentCloseTool,
   createSubagentReplyTool,
@@ -390,6 +391,7 @@ export class Agent {
       getCurrentModel: () => this._cb?.getEngine?.()?.currentModel || null,
       getUiContext: (sessionPath) => this._cb?.getEngine?.()?.getUiContext?.(sessionPath) || null,
       listSessionFiles: (sessionPath) => this._cb?.getEngine?.()?.listSessionFiles?.(sessionPath) || [],
+      getSessionFolderScope: (sessionPath) => this._cb?.getEngine?.()?.getSessionFolderScope?.(sessionPath) || null,
       getBridgeContext: (sessionPath) => this._cb?.getEngine?.()?.getBridgeContextForSessionPath?.(sessionPath, { agentId: this.id }) || null,
       listOpenSubagentThreads: (sessionPath) => this._cb?.getSubagentThreadStore?.()?.listOpenDirectBySession?.(sessionPath) || [],
     });
@@ -403,6 +405,12 @@ export class Agent {
     this._updateSettingsTool = createUpdateSettingsTool({
       getEngine: () => this._cb?.getEngine?.(),
       getAgent: () => this,
+      getConfirmStore: () => this._cb?.getConfirmStore?.(),
+      getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+      emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
+    });
+    this._sessionFoldersTool = createSessionFoldersTool({
+      getEngine: () => this._cb?.getEngine?.(),
       getConfirmStore: () => this._cb?.getConfirmStore?.(),
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
       emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
@@ -702,6 +710,7 @@ export class Agent {
       this._notifyTool,
       this._stopTaskTool,
       this._updateSettingsTool,
+      this._sessionFoldersTool,
       this._subagentTool,
       this._subagentReplyTool,
       this._subagentCloseTool,

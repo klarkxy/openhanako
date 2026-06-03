@@ -1771,7 +1771,9 @@
       "title": "この対話",
       "cwd": "作業フォルダ",
       "model": "モデル",
-      "files": "ファイル"
+      "files": "ファイル",
+      "authorizedFolders": "許可フォルダ",
+      "addAuthorizedFolder": "許可フォルダを追加"
     },
     "tabs": {
       "label": "右側ワークスペース",

@@ -92,6 +92,7 @@ function clearSessionRuntimeCaches(path: string): void {
     const { [path]: _scroll, ...scrollPositions } = s.scrollPositions || {};
     const { [path]: _todos, ...todosBySession } = s.todosBySession || {};
     const { [path]: _todosLive, ...todosLiveVersionBySession } = s.todosLiveVersionBySession || {};
+    const { [path]: _authorizedFolders, ...sessionAuthorizedFoldersByPath } = s.sessionAuthorizedFoldersByPath || {};
     return {
       attachedFilesBySession,
       sessionRegistryFilesByPath,
@@ -103,6 +104,7 @@ function clearSessionRuntimeCaches(path: string): void {
       streamingSessions: (s.streamingSessions || []).filter((sessionPath: string) => sessionPath !== path),
       todosBySession,
       todosLiveVersionBySession,
+      sessionAuthorizedFoldersByPath,
       inlineErrors: s.inlineErrors ? { ...s.inlineErrors, [path]: null } : s.inlineErrors,
     };
   });
@@ -331,6 +333,10 @@ export async function switchSession(path: string): Promise<void> {
       pendingProjectId: null,
       selectedFolder: null,
       workspaceFolders: Array.isArray(data.workspaceFolders) ? data.workspaceFolders : [],
+      sessionAuthorizedFoldersByPath: {
+        ...state.sessionAuthorizedFoldersByPath,
+        [path]: Array.isArray(data.authorizedFolders) ? data.authorizedFolders : [],
+      },
       selectedAgentId: null,
       welcomeVisible: false,
       memoryEnabled: data.memoryEnabled !== false,
@@ -439,6 +445,10 @@ async function switchDeletedAgentSession(path: string, version: number): Promise
     pendingProjectId: null,
     selectedFolder: null,
     workspaceFolders: [],
+    sessionAuthorizedFoldersByPath: {
+      ...state.sessionAuthorizedFoldersByPath,
+      [path]: [],
+    },
     selectedAgentId: null,
     welcomeVisible: false,
     streamingSessions: state.streamingSessions.filter((sessionPath: string) => sessionPath !== path),
@@ -592,6 +602,10 @@ export async function ensureSession(): Promise<boolean> {
 
     if (data.path) {
       patch.currentSessionPath = data.path;
+      patch.sessionAuthorizedFoldersByPath = {
+        ...useStore.getState().sessionAuthorizedFoldersByPath,
+        [data.path]: Array.isArray(data.authorizedFolders) ? data.authorizedFolders : [],
+      };
       // 初始化空 session，ChatArea 自动渲染
       useStore.getState().initSession(data.path, [], false);
     }

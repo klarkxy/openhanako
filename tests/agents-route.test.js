@@ -109,6 +109,7 @@ describe("agents route", () => {
       }),
       updateConfig: vi.fn().mockResolvedValue(undefined),
       getSessionWorkspaceFolders: vi.fn(() => ["/workspace/reference"]),
+      getSessionAuthorizedFolders: vi.fn(() => ["/workspace/assets"]),
       getAgent: vi.fn(() => ({
         agentName: "Target",
         memoryMasterEnabled: false,
@@ -137,6 +138,7 @@ describe("agents route", () => {
       cwd: "/workspace/target",
       homeFolder: "/workspace/target",
       workspaceFolders: ["/workspace/reference"],
+      authorizedFolders: ["/workspace/assets"],
       cwdHistory: ["/workspace/target", "/old"],
       memoryMasterEnabled: false,
     });
@@ -147,6 +149,7 @@ describe("agents route", () => {
       cwd: "/workspace/target",
       homeFolder: "/workspace/target",
       workspaceFolders: ["/workspace/reference"],
+      authorizedFolders: ["/workspace/assets"],
       cwdHistory: ["/workspace/target", "/old"],
       memoryMasterEnabled: false,
     });

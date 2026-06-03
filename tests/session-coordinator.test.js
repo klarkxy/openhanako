@@ -130,6 +130,95 @@ describe("SessionCoordinator", () => {
     expect(createAgentSessionMock.mock.calls[0][0].resourceLoader.getSystemPrompt()).toBe("MEMORY OFF");
   });
 
+  it("persists authorized folders without adding them to the session prompt snapshot", async () => {
+    const agentDir = path.join(tempDir, "hana");
+    const sessionDir = path.join(agentDir, "sessions");
+    const sessionPath = path.join(sessionDir, "authorized-folders.jsonl");
+    const cwd = path.join(tempDir, "project");
+    const workspaceFolder = path.join(tempDir, "reference");
+    const authorizedFolder = path.join(tempDir, "assets");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.mkdirSync(cwd, { recursive: true });
+    fs.mkdirSync(workspaceFolder, { recursive: true });
+    fs.mkdirSync(authorizedFolder, { recursive: true });
+    sessionManagerCreateMock.mockReturnValueOnce({
+      getCwd: () => cwd,
+      getSessionFile: () => sessionPath,
+    });
+    createAgentSessionMock.mockResolvedValueOnce({
+      session: {
+        sessionManager: { getSessionFile: () => sessionPath },
+        subscribe: vi.fn(() => vi.fn()),
+        setActiveToolsByName: vi.fn(),
+        model: { id: "model-a", provider: "provider-a" },
+      },
+    });
+    const buildTools = vi.fn(() => ({ tools: [], customTools: [] }));
+    const agent = {
+      id: "hana",
+      agentDir,
+      sessionDir,
+      config: { locale: "zh-CN" },
+      setMemoryEnabled: vi.fn(),
+      buildSystemPrompt: () => "BASE",
+      tools: [],
+    };
+
+    const coordinator = new SessionCoordinator({
+      agentsDir: tempDir,
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: { id: "model-a", provider: "provider-a" },
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: () => "medium",
+      }),
+      getResourceLoader: () => ({
+        getSystemPrompt: () => "BASE",
+        getAppendSystemPrompt: () => [],
+        getExtensions: () => ({ extensions: [], errors: [] }),
+      }),
+      getSkills: () => null,
+      buildTools,
+      emitEvent: () => {},
+      getHomeCwd: () => cwd,
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [],
+    });
+
+    await coordinator.createSession(null, cwd, true, null, {
+      workspaceFolders: [workspaceFolder],
+      authorizedFolders: [authorizedFolder],
+    });
+
+    const buildOpts = buildTools.mock.calls[0][2];
+    expect(buildOpts.workspaceFolders).toEqual([workspaceFolder]);
+    expect(buildOpts.authorizedFolders).toEqual([authorizedFolder]);
+    expect(buildOpts.getAuthorizedFolders()).toEqual([authorizedFolder]);
+    expect(coordinator.getSessionAuthorizedFolders(sessionPath)).toEqual([authorizedFolder]);
+    expect(coordinator.getSessionFolderScope(sessionPath)).toMatchObject({
+      cwd,
+      workspaceFolders: [workspaceFolder],
+      authorizedFolders: [authorizedFolder],
+      sandboxFolders: [cwd, workspaceFolder, authorizedFolder],
+    });
+
+    const resourceLoader = createAgentSessionMock.mock.calls.at(-1)[0].resourceLoader;
+    const appendPrompt = resourceLoader.getAppendSystemPrompt().join("\n");
+    expect(appendPrompt).toContain(workspaceFolder);
+    expect(appendPrompt).not.toContain(authorizedFolder);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(sessionDir, "session-meta.json"), "utf-8"));
+    expect(meta[path.basename(sessionPath)].authorizedFolders).toEqual([authorizedFolder]);
+  });
+
   it("attributes assistant usage to the model recorded on the message after a session model switch", async () => {
     const sessionPath = path.join(tempDir, "usage-model-switch.jsonl");
     const initialModel = {

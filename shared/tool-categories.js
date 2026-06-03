@@ -39,6 +39,7 @@ export const STANDARD_TOOL_NAMES = [
   "recall_experience",
   "check_pending_tasks",
   "current_status",
+  "session_folders",
   "wait",
   "stop_task",
   "terminal",

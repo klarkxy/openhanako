@@ -1771,7 +1771,9 @@
       "title": "이 대화",
       "cwd": "작업 폴더",
       "model": "모델",
-      "files": "파일"
+      "files": "파일",
+      "authorizedFolders": "허용 폴더",
+      "addAuthorizedFolder": "허용 폴더 추가"
     },
     "tabs": {
       "label": "오른쪽 작업공간",

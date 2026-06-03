@@ -647,6 +647,21 @@ export class HanaEngine {
   getSessionWorkspaceFolders(p = this.currentSessionPath) {
     return this._sessionCoord.getSessionWorkspaceFolders(p);
   }
+  getSessionAuthorizedFolders(p = this.currentSessionPath) {
+    return this._sessionCoord.getSessionAuthorizedFolders(p);
+  }
+  getSessionFolderScope(p = this.currentSessionPath) {
+    return this._sessionCoord.getSessionFolderScope(p);
+  }
+  setSessionAuthorizedFolders(p, folders) {
+    return this._sessionCoord.setSessionAuthorizedFolders(p, folders);
+  }
+  addSessionAuthorizedFolder(p, folder) {
+    return this._sessionCoord.addSessionAuthorizedFolder(p, folder);
+  }
+  removeSessionAuthorizedFolder(p, folder) {
+    return this._sessionCoord.removeSessionAuthorizedFolder(p, folder);
+  }
 
   async abortAllStreaming() { return this._sessionCoord.abortAllStreaming(); }
   isBridgeSessionStreaming(key, opts) { return this._bridge?.isSessionStreaming(key, opts) ?? false; }
@@ -1659,6 +1674,13 @@ export class HanaEngine {
     const effectiveAgentDir = opts.agentDir || this.agent.agentDir;
     const effectiveWorkspace = opts.workspace !== undefined ? opts.workspace : this.homeCwd;
     const workspaceFolders = opts.workspaceFolders || [];
+    const staticAuthorizedFolders = Array.isArray(opts.authorizedFolders) ? opts.authorizedFolders : [];
+    const getAuthorizedFolders = typeof opts.getAuthorizedFolders === "function"
+      ? () => {
+          const folders = opts.getAuthorizedFolders();
+          return Array.isArray(folders) ? folders : [];
+        }
+      : () => staticAuthorizedFolders;
     const fileReadSessionPaths = Array.isArray(opts.fileReadSessionPaths)
       ? opts.fileReadSessionPaths.filter((sp) => typeof sp === "string" && sp.trim())
       : [];
@@ -1677,7 +1699,7 @@ export class HanaEngine {
         ? sessionPaths.flatMap((sp) => this.listSessionFiles(sp))
         : [];
       return externalReadPathsFromSessionFiles(files, {
-        workspaceRoots: workspaceRootsForSandbox(effectiveWorkspace, workspaceFolders),
+        workspaceRoots: workspaceRootsForSandbox(effectiveWorkspace, workspaceFolders, getAuthorizedFolders()),
         hanakoHome: this.hanakoHome,
       });
     };
@@ -1686,6 +1708,8 @@ export class HanaEngine {
       agentDir: effectiveAgentDir,
       workspace: effectiveWorkspace,
       workspaceFolders,
+      authorizedFolders: staticAuthorizedFolders,
+      getAuthorizedFolders,
       hanakoHome: this.hanakoHome,
       executionBoundary,
       getSandboxEnabled: () => this._readPreferences().sandbox !== false,

@@ -60,6 +60,7 @@ const SUBAGENT_BLOCKED_TOOLS = new Set([
   "notify",
   "install_skill",
   "update_settings",
+  "session_folders",
 ]);
 
 const BROWSER_READ_ACTIONS = new Set([
@@ -128,6 +129,12 @@ function classifyTerminalAction(mode, action) {
   return { action: "allow" };
 }
 
+function classifySessionFoldersAction(mode, action) {
+  if (action === "list") return { action: "allow" };
+  if (mode === SESSION_PERMISSION_MODES.READ_ONLY) return blocked("session_folders");
+  return { action: "allow" };
+}
+
 export function classifySessionPermission({ mode, toolName, params, context } = {}) {
   let normalized = normalizeSessionPermissionMode(mode);
   const name = typeof toolName === "string" ? toolName : "";
@@ -146,6 +153,7 @@ export function classifySessionPermission({ mode, toolName, params, context } = 
   if (INFORMATION_TOOLS.has(name)) return { action: "allow" };
   if (name === "browser") return classifyBrowserAction(normalized, params?.action);
   if (name === "terminal") return classifyTerminalAction(normalized, params?.action);
+  if (name === "session_folders") return classifySessionFoldersAction(normalized, params?.action);
   if (normalized === SESSION_PERMISSION_MODES.OPERATE) return { action: "allow" };
   if (normalized === SESSION_PERMISSION_MODES.READ_ONLY) return blocked(name);
   if (SIDE_EFFECT_TOOLS.has(name)) return prompt(name);

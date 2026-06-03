@@ -159,6 +159,57 @@ describe("sessions route", () => {
     );
   });
 
+  it("adds a session authorized folder through an explicit session route", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.js");
+    const app = new Hono();
+    const sessionPath = path.join(tmpDir, "agents", "hana", "sessions", "new.jsonl");
+    const cwd = path.join(tmpDir, "workspace");
+    const authorizedFolder = path.join(tmpDir, "assets");
+    fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+    fs.mkdirSync(cwd, { recursive: true });
+    fs.mkdirSync(authorizedFolder, { recursive: true });
+    fs.writeFileSync(sessionPath, "{}\n");
+    const engine = {
+      agentsDir: path.join(tmpDir, "agents"),
+      agentIdFromSessionPath: vi.fn(() => "hana"),
+      getSessionFolderScope: vi.fn(() => ({
+        sessionPath,
+        cwd,
+        workspaceFolders: [],
+        authorizedFolders: [authorizedFolder],
+        sandboxFolders: [cwd, authorizedFolder],
+      })),
+      addSessionAuthorizedFolder: vi.fn(async () => ({
+        sessionPath,
+        cwd,
+        workspaceFolders: [],
+        authorizedFolders: [authorizedFolder],
+        sandboxFolders: [cwd, authorizedFolder],
+      })),
+      isAgentDeleted: vi.fn(() => false),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/authorized-folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: sessionPath, action: "add", folder: authorizedFolder }),
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(engine.addSessionAuthorizedFolder).toHaveBeenCalledWith(sessionPath, authorizedFolder);
+    expect(data).toMatchObject({
+      ok: true,
+      sessionPath,
+      cwd,
+      workspaceFolders: [],
+      authorizedFolders: [authorizedFolder],
+      sandboxFolders: [cwd, authorizedFolder],
+    });
+  });
+
   it("assigns a new session to the requested project before broadcasting it", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.js");
     const app = new Hono();

@@ -1812,7 +1812,9 @@
       "title": "本次对话",
       "cwd": "工作目录",
       "model": "模型",
-      "files": "文件"
+      "files": "文件",
+      "authorizedFolders": "授权目录",
+      "addAuthorizedFolder": "添加授权目录"
     },
     "tabs": {
       "label": "右侧工作台",
@@ -2354,9 +2356,9 @@
     },
     "currentStatus": {
       "label": "当前状态",
-      "description": "查询当前环境的轻量状态。可查：时间、逻辑日期、agent 身份、用户/agent 头像外观、模型身份、Bridge 平台上下文、开放子 Agent 实例，以及用户当前可见的界面视野。重要：系统提示里的日期时间是 session 创建时的快照，可能已过时；需要精确当前时间、排程、提醒、按钟点算日期、问候等任何在意时分的场景，用 action=get、key=time。key=logical_date 仅用于判断 4:00 边界下 Hana 该把哪一天当今天，不返回时分秒。key=appearance 用于用户问「我/当前 agent 长什么样」。当用户用「这个文件、这里、当前/打开的/可见的/选中的项、钉住的窗口、当前 Bridge 会话/平台、当前文件夹」指代界面时，先用 action=get、key=ui_context 取当前视野再继续。",
+      "description": "查询当前环境的轻量状态。可查：时间、逻辑日期、agent 身份、用户/agent 头像外观、模型身份、本对话文件夹范围、Bridge 平台上下文、开放子 Agent 实例，以及用户当前可见的界面视野。重要：系统提示里的日期时间是 session 创建时的快照，可能已过时；需要精确当前时间、排程、提醒、按钟点算日期、问候等任何在意时分的场景，用 action=get、key=time。key=logical_date 仅用于判断 4:00 边界下 Hana 该把哪一天当今天，不返回时分秒。key=appearance 用于用户问「我/当前 agent 长什么样」。需要确认当前对话能访问哪些文件夹时，用 key=session_folders。当用户用「这个文件、这里、当前/打开的/可见的/选中的项、钉住的窗口、当前 Bridge 会话/平台、当前文件夹」指代界面时，先用 action=get、key=ui_context 取当前视野再继续。",
       "actionDesc": "list 返回所有可查询的状态键；get 取某个状态键的值。",
-      "keyDesc": "action=get 时要取的状态键。常用键：time、logical_date、agent、appearance、model、ui_context、session_files、bridge_context、subagents。引用当前 Bridge 平台/会话用 bridge_context；续接或关闭子 Agent 前用 subagents。"
+      "keyDesc": "action=get 时要取的状态键。常用键：time、logical_date、agent、appearance、model、ui_context、session_files、session_folders、bridge_context、subagents。引用当前 Bridge 平台/会话用 bridge_context；续接或关闭子 Agent 前用 subagents。"
     },
     "pinnedMemory": {
       "pinLabel": "置顶记忆",

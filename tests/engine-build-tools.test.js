@@ -407,6 +407,70 @@ describe("HanaEngine.buildTools", () => {
     }), null);
   });
 
+  it("lets built-in file tools pick up newly authorized session folders without rebuilding tools", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-build-tools-authorized-folders-"));
+    const agentDir = path.join(tmpDir, "agents", "focus");
+    const workspace = path.join(tmpDir, "workspace");
+    const authorized = path.join(tmpDir, "authorized");
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.mkdirSync(authorized, { recursive: true });
+    const hanakoHome = path.join(tmpDir, "hanako-home");
+    fs.mkdirSync(hanakoHome, { recursive: true });
+    let authorizedFolders = [];
+
+    const engine = Object.create(HanaEngine.prototype);
+    engine.hanakoHome = hanakoHome;
+    engine.registerSessionFile = vi.fn((entry) => ({
+      id: "sf-authorized",
+      ...entry,
+    }));
+    engine.getAgent = vi.fn(() => ({ id: "focus", agentDir, tools: [] }));
+    engine._pluginManager = null;
+    engine._prefs = { getFileBackup: () => ({ enabled: false }) };
+    engine._readPreferences = () => ({ sandbox: true });
+    engine._confirmStore = null;
+    engine._emitEvent = vi.fn();
+    engine.getSessionPermissionMode = vi.fn(() => "operate");
+    engine._agentMgr = {
+      agent: {
+        id: "focus",
+        agentDir,
+        tools: [],
+      },
+    };
+
+    const { tools } = engine.buildTools(workspace, [], {
+      agentDir,
+      workspace,
+      getAuthorizedFolders: () => authorizedFolders,
+      getSessionPath: () => path.join(agentDir, "sessions", "authorized.jsonl"),
+      getPermissionMode: () => "operate",
+    });
+    const write = tools.find(tool => tool.name === "write");
+    const targetPath = path.join(authorized, "note.md");
+
+    const blocked = await write.execute("write-blocked", {
+      path: targetPath,
+      content: "before\n",
+    });
+    expect(blocked.content[0].text).toContain(targetPath);
+    expect(fs.existsSync(targetPath)).toBe(false);
+
+    authorizedFolders = [authorized];
+    const allowed = await write.execute("write-allowed", {
+      path: targetPath,
+      content: "after\n",
+    });
+
+    expect(fs.readFileSync(targetPath, "utf-8")).toBe("after\n");
+    expect(allowed.details.sessionFile).toMatchObject({
+      id: "sf-authorized",
+      filePath: targetPath,
+      origin: "agent_write",
+    });
+  });
+
   it("blocks direct agent config edits from built-in file tools even when sandbox is disabled", async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-build-tools-managed-config-"));
     const agentDir = path.join(tmpDir, "agents", "focus");

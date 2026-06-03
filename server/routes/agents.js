@@ -220,6 +220,9 @@ export function createAgentsRoute(engine) {
       const workspaceFolders = sessionPath
         ? (engine.getSessionWorkspaceFolders?.(sessionPath) || [])
         : [];
+      const authorizedFolders = sessionPath
+        ? (engine.getSessionAuthorizedFolders?.(sessionPath) || [])
+        : [];
       const cwdHistory = cwd
         ? mergeWorkspaceHistory(engine.config?.cwd_history, [cwd])
         : mergeWorkspaceHistory(engine.config?.cwd_history, []);
@@ -237,6 +240,7 @@ export function createAgentsRoute(engine) {
         cwd,
         homeFolder,
         workspaceFolders,
+        authorizedFolders,
         cwdHistory,
         memoryMasterEnabled,
       };
@@ -251,6 +255,7 @@ export function createAgentsRoute(engine) {
         cwd,
         homeFolder,
         workspaceFolders,
+        authorizedFolders,
         cwdHistory,
         memoryMasterEnabled,
       });

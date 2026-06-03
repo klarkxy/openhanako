@@ -1763,7 +1763,9 @@
       "title": "本次對話",
       "cwd": "工作目錄",
       "model": "模型",
-      "files": "檔案"
+      "files": "檔案",
+      "authorizedFolders": "授權目錄",
+      "addAuthorizedFolder": "新增授權目錄"
     },
     "tabs": {
       "label": "右側工作台",
@@ -2305,9 +2307,9 @@
     },
     "currentStatus": {
       "label": "當前狀態",
-      "description": "查詢當前環境的輕量狀態。可查：時間、邏輯日期、agent 身份、使用者/agent 頭像外觀、模型身份、Bridge 平台上下文、開放子 Agent 實例，以及使用者當前可見的介面視野。重要：系統提示裡的日期時間是 session 建立時的快照，可能已過時；需要精確當前時間、排程、提醒、按鐘點算日期、問候等任何在意時分的場景，用 action=get、key=time。key=logical_date 僅用於判斷 4:00 邊界下 Hana 該把哪一天當今天，不返回時分秒。key=appearance 用於使用者問「我/當前 agent 長什麼樣」。當使用者用「這個檔案、這裡、當前/開啟的/可見的/選中的項、釘住的視窗、當前 Bridge 會話/平台、當前資料夾」指代介面時，先用 action=get、key=ui_context 取當前視野再繼續。",
+      "description": "查詢當前環境的輕量狀態。可查：時間、邏輯日期、agent 身份、使用者/agent 頭像外觀、模型身份、本對話資料夾範圍、Bridge 平台上下文、開放子 Agent 實例，以及使用者當前可見的介面視野。重要：系統提示裡的日期時間是 session 建立時的快照，可能已過時；需要精確當前時間、排程、提醒、按鐘點算日期、問候等任何在意時分的場景，用 action=get、key=time。key=logical_date 僅用於判斷 4:00 邊界下 Hana 該把哪一天當今天，不返回時分秒。key=appearance 用於使用者問「我/當前 agent 長什麼樣」。需要確認當前對話能存取哪些資料夾時，用 key=session_folders。當使用者用「這個檔案、這裡、當前/開啟的/可見的/選中的項、釘住的視窗、當前 Bridge 會話/平台、當前資料夾」指代介面時，先用 action=get、key=ui_context 取當前視野再繼續。",
       "actionDesc": "list 返回所有可查詢的狀態鍵；get 取某個狀態鍵的值。",
-      "keyDesc": "action=get 時要取的狀態鍵。常用鍵：time、logical_date、agent、appearance、model、ui_context、session_files、bridge_context、subagents。引用當前 Bridge 平台/會話用 bridge_context；續接或關閉子 Agent 前用 subagents。"
+      "keyDesc": "action=get 時要取的狀態鍵。常用鍵：time、logical_date、agent、appearance、model、ui_context、session_files、session_folders、bridge_context、subagents。引用當前 Bridge 平台/會話用 bridge_context；續接或關閉子 Agent 前用 subagents。"
     },
     "pinnedMemory": {
       "pinLabel": "釘選記憶",

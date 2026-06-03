@@ -49,6 +49,16 @@ describe("session permission modes", () => {
     expect(classifySessionPermission({ mode: "operate", toolName: "terminal", params: { action: "close" } })).toEqual({ action: "allow" });
   });
 
+  it("allows session folder inspection while protecting folder authorization changes", () => {
+    expect(classifySessionPermission({ mode: "read_only", toolName: "session_folders", params: { action: "list" } })).toEqual({ action: "allow" });
+    expect(classifySessionPermission({ mode: "read_only", toolName: "session_folders", params: { action: "add" } })).toMatchObject({
+      action: "deny",
+      code: "ACTION_BLOCKED_BY_READ_ONLY",
+    });
+    expect(classifySessionPermission({ mode: "ask", toolName: "session_folders", params: { action: "add" } })).toEqual({ action: "allow" });
+    expect(classifySessionPermission({ mode: "operate", toolName: "session_folders", params: { action: "remove" } })).toEqual({ action: "allow" });
+  });
+
   it("blocks subagent tool inside a subagent (anti-recursion), independent of mode", () => {
     // subagent 上下文：subagent 工具被拦，无论什么 mode（防自递归，拦截层而非剥离）
     expect(classifySessionPermission({ mode: "operate", toolName: "subagent", context: { isSubagent: true } }))
@@ -69,7 +79,7 @@ describe("session permission modes", () => {
     const BLOCKED = [
       "subagent",         // 防自递归
       "pin_memory", "unpin_memory", "record_experience", // 长期记忆（subagent 不碰）
-      "cron", "channel", "dm", "notify", "install_skill", "update_settings", // agent 生命周期/对外
+      "cron", "channel", "dm", "notify", "install_skill", "update_settings", "session_folders", // agent 生命周期/对外
       "workflow",         // 间接扇出
     ];
     for (const name of BLOCKED) {

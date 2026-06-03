@@ -380,6 +380,41 @@ export function createSessionsRoute(engine, hub = null) {
     return c.json({ error: "agent_deleted", reason: "agent_deleted" }, 409);
   }
 
+  function sessionFolderScopeResponse(scope) {
+    return {
+      ok: true,
+      sessionPath: scope?.sessionPath || null,
+      cwd: scope?.cwd || null,
+      workspaceFolders: Array.isArray(scope?.workspaceFolders) ? scope.workspaceFolders : [],
+      authorizedFolders: Array.isArray(scope?.authorizedFolders) ? scope.authorizedFolders : [],
+      sandboxFolders: Array.isArray(scope?.sandboxFolders) ? scope.sandboxFolders : [],
+    };
+  }
+
+  async function validateAuthorizedFolder(rawFolder) {
+    if (typeof rawFolder !== "string" || !rawFolder.trim()) {
+      throw new Error("folder is required");
+    }
+    const folder = path.resolve(rawFolder.trim());
+    let stat;
+    try {
+      stat = await fs.stat(folder);
+    } catch {
+      throw new Error("folder does not exist");
+    }
+    if (!stat.isDirectory()) {
+      throw new Error("folder must be a directory");
+    }
+    return folder;
+  }
+
+  function normalizeAuthorizedFolderPath(rawFolder) {
+    if (typeof rawFolder !== "string" || !rawFolder.trim()) {
+      throw new Error("folder is required");
+    }
+    return path.resolve(rawFolder.trim());
+  }
+
   // 列出所有 agent 的历史 session
   route.get("/sessions", async (c) => {
     try {
@@ -558,6 +593,86 @@ export function createSessionsRoute(engine, hub = null) {
       return c.json({ ok: true, pinnedAt });
     } catch (err) {
       return c.json({ error: err.message }, 500);
+    }
+  });
+
+  route.get("/sessions/authorized-folders", async (c) => {
+    try {
+      const requestContext = createRequestContext(c, engine);
+      const sessionPath = c.req.query("path") || engine.currentSessionPath || null;
+      if (!sessionPath) {
+        return c.json({ error: t("error.missingParam", { param: "path" }) }, 400);
+      }
+      const auth = authorizeSessionRoute(requestContext, "sessions.read", {
+        kind: "session",
+        studioId: requestContext.studioId,
+        sessionPath,
+      });
+      if (!auth.allowed) return c.json({ error: "insufficient_scope", reason: auth.reason }, 403);
+      if (!isActiveDesktopSessionPath(sessionPath, engine.agentsDir)) {
+        return c.json({ error: "Invalid session path" }, 403);
+      }
+      if (isDeletedAgentSessionPath(sessionPath)) {
+        return rejectDeletedAgentSession(c);
+      }
+      if (!(await pathExists(sessionPath))) {
+        return c.json({ error: "session not found" }, 404);
+      }
+      return c.json(sessionFolderScopeResponse(engine.getSessionFolderScope?.(sessionPath)));
+    } catch (err) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  route.patch("/sessions/authorized-folders", async (c) => {
+    try {
+      const requestContext = createRequestContext(c, engine);
+      const body = await safeJson(c);
+      const sessionPath = body?.path || body?.sessionPath || null;
+      if (!sessionPath) {
+        return c.json({ error: t("error.missingParam", { param: "path" }) }, 400);
+      }
+      const auth = authorizeSessionRoute(requestContext, "sessions.write", {
+        kind: "session",
+        studioId: requestContext.studioId,
+        sessionPath,
+      });
+      if (!auth.allowed) return c.json({ error: "insufficient_scope", reason: auth.reason }, 403);
+      if (!isActiveDesktopSessionPath(sessionPath, engine.agentsDir)) {
+        return c.json({ error: "Invalid session path" }, 403);
+      }
+      if (isDeletedAgentSessionPath(sessionPath)) {
+        return rejectDeletedAgentSession(c);
+      }
+      if (!(await pathExists(sessionPath))) {
+        return c.json({ error: "session not found" }, 404);
+      }
+
+      const action = typeof body?.action === "string" ? body.action.trim() : "set";
+      let scope;
+      if (action === "add") {
+        const folder = await validateAuthorizedFolder(body?.folder);
+        scope = await engine.addSessionAuthorizedFolder?.(sessionPath, folder);
+      } else if (action === "remove") {
+        const folder = normalizeAuthorizedFolderPath(body?.folder);
+        scope = await engine.removeSessionAuthorizedFolder?.(sessionPath, folder);
+      } else if (action === "set") {
+        const folders = Array.isArray(body?.folders) ? body.folders : [];
+        const normalizedFolders = [];
+        for (const folder of folders) {
+          normalizedFolders.push(await validateAuthorizedFolder(folder));
+        }
+        scope = await engine.setSessionAuthorizedFolders?.(sessionPath, normalizedFolders);
+      } else {
+        return c.json({ error: "Invalid action" }, 400);
+      }
+      return c.json(sessionFolderScopeResponse(scope || engine.getSessionFolderScope?.(sessionPath)));
+    } catch (err) {
+      const message = err.message || String(err);
+      if (/folder (is required|does not exist|must be a directory)/.test(message)) {
+        return c.json({ error: message }, 400);
+      }
+      return c.json({ error: message }, 500);
     }
   });
 
@@ -958,6 +1073,7 @@ export function createSessionsRoute(engine, hub = null) {
         path: newSessionPath,
         cwd: engine.cwd,
         workspaceFolders: engine.getSessionWorkspaceFolders?.(newSessionPath) || [],
+        authorizedFolders: engine.getSessionAuthorizedFolders?.(newSessionPath) || [],
         agentId: newAgentId,
         agentName: engine.getAgent(newAgentId)?.agentName || engine.agentName,
         projectId,
@@ -1009,6 +1125,7 @@ export function createSessionsRoute(engine, hub = null) {
         path: newSessionPath,
         cwd: result.cwd || engine.cwd || null,
         workspaceFolders: result.workspaceFolders || engine.getSessionWorkspaceFolders?.(newSessionPath) || [],
+        authorizedFolders: result.authorizedFolders || engine.getSessionAuthorizedFolders?.(newSessionPath) || [],
         agentId: newAgentId,
         agentName: result.agentName || engine.getAgent?.(newAgentId)?.agentName || newAgentId,
         projectId: null,
@@ -1082,6 +1199,7 @@ export function createSessionsRoute(engine, hub = null) {
         memoryModelUnavailableReason: engine.memoryModelUnavailableReason || null,
         cwd: engine.cwd,
         workspaceFolders: engine.getSessionWorkspaceFolders?.(sessionPath) || [],
+        authorizedFolders: engine.getSessionAuthorizedFolders?.(sessionPath) || [],
         agentId: switchedAgentId,
         agentName: switchedAgent?.agentName || switchedAgentId,
         browserRunning: bm.isRunning(sessionPath),

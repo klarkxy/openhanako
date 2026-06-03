@@ -36,7 +36,7 @@ import {
   toolNamesFromObjects,
 } from "./tool-availability.js";
 import { isActiveSessionPath } from "./message-utils.js";
-import { formatWorkspaceScopePrompt, normalizeWorkspaceScope } from "../shared/workspace-scope.js";
+import { formatWorkspaceScopePrompt, normalizeSessionFolderScope, normalizeWorkspaceScope } from "../shared/workspace-scope.js";
 import { getProviderPromptPatches } from "./provider-prompt-patches.js";
 import { prepareVisionInputForTextOnlyModel } from "./vision-prepare.js";
 import { prepareModelImageInputsForPrompt } from "./model-image-preprocess.js";
@@ -494,6 +494,7 @@ export class SessionCoordinator {
     agentId: explicitAgentId = null,
     preserveAgentMemoryState = false,
     workspaceFolders = [],
+    authorizedFolders = [],
     visibleInSessionList = false,
   } = {}) {
     const t0 = Date.now();
@@ -557,14 +558,26 @@ export class SessionCoordinator {
       primaryCwd: effectiveCwd,
       workspaceFolders,
     });
+    let folderScope = normalizeSessionFolderScope({
+      primaryCwd: effectiveCwd,
+      workspaceFolders: workspaceScope.workspaceFolders,
+      authorizedFolders,
+    });
     if (restore && sessionPathForMeta) {
       try {
         const metaPath = path.join(agent.sessionDir, "session-meta.json");
         const meta = await this._readMetaCached(metaPath);
-        const restoredFolders = meta[path.basename(sessionPathForMeta)]?.workspaceFolders;
+        const metaEntry = meta[path.basename(sessionPathForMeta)];
+        const restoredFolders = metaEntry?.workspaceFolders;
+        const restoredAuthorizedFolders = metaEntry?.authorizedFolders;
         workspaceScope = normalizeWorkspaceScope({
           primaryCwd: effectiveCwd,
           workspaceFolders: restoredFolders,
+        });
+        folderScope = normalizeSessionFolderScope({
+          primaryCwd: effectiveCwd,
+          workspaceFolders: workspaceScope.workspaceFolders,
+          authorizedFolders: restoredAuthorizedFolders,
         });
       } catch {
         // session-meta 可选：读取或解析失败时沿用上面 fresh 算出的 workspaceScope。
@@ -747,7 +760,13 @@ export class SessionCoordinator {
     const { tools: sessionTools, customTools: sessionCustomTools } = this._d.buildTools(
       effectiveCwd,
       agentToolsSnapshot,
-      { workspace: effectiveCwd, workspaceFolders: workspaceScope.workspaceFolders, agentDir: agent.agentDir },
+      {
+        workspace: effectiveCwd,
+        workspaceFolders: workspaceScope.workspaceFolders,
+        authorizedFolders: folderScope.authorizedFolders,
+        getAuthorizedFolders: () => this.getSessionAuthorizedFolders(sessionPathRef.current || sessionPathForMeta),
+        agentDir: agent.agentDir,
+      },
     );
     const sessionOpts = {
       cwd: effectiveCwd,
@@ -915,7 +934,9 @@ export class SessionCoordinator {
       experienceEnabled: frozenExperienceEnabled,
       modelId: resolvedModel?.id || effectiveModel?.id || null,
       modelProvider: resolvedModel?.provider || effectiveModel?.provider || null,
+      cwd: effectiveCwd,
       workspaceFolders: workspaceScope.workspaceFolders,
+      authorizedFolders: folderScope.authorizedFolders,
       permissionMode: initialPermissionMode,
       accessMode: initialAccessMode,
       planMode: initialPlanMode,
@@ -954,6 +975,7 @@ export class SessionCoordinator {
         memoryEnabled: frozenMemoryEnabled,
         experienceEnabled: frozenExperienceEnabled,
         workspaceFolders: workspaceScope.workspaceFolders,
+        authorizedFolders: folderScope.authorizedFolders,
         permissionMode: initialPermissionMode,
         accessMode: initialAccessMode,
         planMode: initialPlanMode,
@@ -1158,8 +1180,139 @@ export class SessionCoordinator {
 
   getSessionWorkspaceFolders(sessionPath = this.currentSessionPath) {
     if (!sessionPath) return [];
-    const entry = this._sessions.get(sessionPath) || this._hibernatedSessionMeta.get(sessionPath);
-    return Array.isArray(entry?.workspaceFolders) ? [...entry.workspaceFolders] : [];
+    const entry = this._sessionFolderEntry(sessionPath);
+    const folders = Array.isArray(entry?.workspaceFolders)
+      ? entry.workspaceFolders
+      : this._readSessionMetaEntrySync(sessionPath)?.workspaceFolders;
+    return Array.isArray(folders) ? [...folders] : [];
+  }
+
+  getSessionAuthorizedFolders(sessionPath = this.currentSessionPath) {
+    if (!sessionPath) return [];
+    const entry = this._sessionFolderEntry(sessionPath);
+    const folders = Array.isArray(entry?.authorizedFolders)
+      ? entry.authorizedFolders
+      : this._readSessionMetaEntrySync(sessionPath)?.authorizedFolders;
+    return Array.isArray(folders) ? [...folders] : [];
+  }
+
+  getSessionFolderScope(sessionPath = this.currentSessionPath) {
+    const entry = sessionPath ? this._sessionFolderEntry(sessionPath) : null;
+    const metaEntry = sessionPath && !entry ? this._readSessionMetaEntrySync(sessionPath) : null;
+    const cwd = this._sessionCwdFor(sessionPath, entry) || null;
+    const scope = normalizeSessionFolderScope({
+      primaryCwd: cwd,
+      workspaceFolders: Array.isArray(entry?.workspaceFolders)
+        ? entry.workspaceFolders
+        : metaEntry?.workspaceFolders,
+      authorizedFolders: Array.isArray(entry?.authorizedFolders)
+        ? entry.authorizedFolders
+        : metaEntry?.authorizedFolders,
+    });
+    return {
+      sessionPath: sessionPath || null,
+      cwd: scope.primaryCwd,
+      workspaceFolders: scope.workspaceFolders,
+      authorizedFolders: scope.authorizedFolders,
+      sandboxFolders: scope.sandboxFolders,
+    };
+  }
+
+  async setSessionAuthorizedFolders(sessionPath, folders) {
+    this._assertActiveDesktopSessionPath(sessionPath, "setSessionAuthorizedFolders");
+    if (this._isDeletedAgentSessionPath(sessionPath)) {
+      throw new Error("setSessionAuthorizedFolders: session belongs to a deleted agent");
+    }
+    const current = this.getSessionFolderScope(sessionPath);
+    const scope = normalizeSessionFolderScope({
+      primaryCwd: current.cwd,
+      workspaceFolders: current.workspaceFolders,
+      authorizedFolders: folders,
+    });
+    this._updateSessionFolderRuntimeMeta(sessionPath, {
+      cwd: current.cwd,
+      workspaceFolders: scope.workspaceFolders,
+      authorizedFolders: scope.authorizedFolders,
+    });
+    await this.writeSessionMeta(sessionPath, {
+      workspaceFolders: scope.workspaceFolders,
+      authorizedFolders: scope.authorizedFolders,
+    });
+    this._d.emitEvent?.({
+      type: "app_event",
+      event: {
+        type: "session-authorized-folders-updated",
+        payload: {
+          sessionPath,
+          authorizedFolders: scope.authorizedFolders,
+          workspaceFolders: scope.workspaceFolders,
+          sandboxFolders: scope.sandboxFolders,
+        },
+        source: "server",
+      },
+    }, sessionPath);
+    return this.getSessionFolderScope(sessionPath);
+  }
+
+  async addSessionAuthorizedFolder(sessionPath, folder) {
+    const current = this.getSessionAuthorizedFolders(sessionPath);
+    return this.setSessionAuthorizedFolders(sessionPath, [...current, folder]);
+  }
+
+  async removeSessionAuthorizedFolder(sessionPath, folder) {
+    const target = normalizeSessionFolderScope({ authorizedFolders: [folder] }).authorizedFolders[0];
+    const current = this.getSessionAuthorizedFolders(sessionPath);
+    const next = target
+      ? current.filter((item) => item !== target)
+      : current;
+    return this.setSessionAuthorizedFolders(sessionPath, next);
+  }
+
+  _sessionFolderEntry(sessionPath) {
+    if (!sessionPath) return null;
+    return this._sessions.get(sessionPath) || this._hibernatedSessionMeta.get(sessionPath) || null;
+  }
+
+  _sessionCwdFor(sessionPath, entry = null) {
+    if (entry?.cwd) return entry.cwd;
+    const liveCwd = entry?.session?.sessionManager?.getCwd?.();
+    if (liveCwd) return liveCwd;
+    if (sessionPath && this._session?.sessionManager?.getSessionFile?.() === sessionPath) {
+      return this._session.sessionManager?.getCwd?.() || null;
+    }
+    if (!sessionPath) return null;
+    try {
+      return SessionManager.open(sessionPath, path.dirname(sessionPath)).getCwd?.() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  _readSessionMetaEntrySync(sessionPath) {
+    if (!sessionPath) return null;
+    try {
+      const metaPath = this._sessionMetaPathFor(sessionPath);
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      const entry = meta[path.basename(sessionPath)];
+      return entry && typeof entry === "object" ? entry : null;
+    } catch {
+      return null;
+    }
+  }
+
+  _updateSessionFolderRuntimeMeta(sessionPath, patch) {
+    const liveEntry = this._sessions.get(sessionPath);
+    if (liveEntry) {
+      if (patch.cwd) liveEntry.cwd = patch.cwd;
+      liveEntry.workspaceFolders = [...(patch.workspaceFolders || [])];
+      liveEntry.authorizedFolders = [...(patch.authorizedFolders || [])];
+    }
+    const hibernated = this._hibernatedSessionMeta.get(sessionPath);
+    if (hibernated) {
+      if (patch.cwd) hibernated.cwd = patch.cwd;
+      hibernated.workspaceFolders = [...(patch.workspaceFolders || [])];
+      hibernated.authorizedFolders = [...(patch.authorizedFolders || [])];
+    }
   }
 
   async switchSession(sessionPath) {
@@ -1961,7 +2114,9 @@ export class SessionCoordinator {
       experienceEnabled: entry.experienceEnabled,
       modelId: entry.modelId,
       modelProvider: entry.modelProvider,
+      cwd: entry.cwd || entry.session?.sessionManager?.getCwd?.() || null,
       workspaceFolders: Array.isArray(entry.workspaceFolders) ? [...entry.workspaceFolders] : [],
+      authorizedFolders: Array.isArray(entry.authorizedFolders) ? [...entry.authorizedFolders] : [],
       permissionMode: entry.permissionMode,
       accessMode: entry.accessMode,
       planMode: entry.planMode,
@@ -2903,9 +3058,17 @@ export class SessionCoordinator {
       const inheritedWorkspaceFolders = Array.isArray(opts.workspaceFolders)
         ? opts.workspaceFolders
         : this.getSessionWorkspaceFolders(workspaceSourceSessionPath);
+      const inheritedAuthorizedFolders = Array.isArray(opts.authorizedFolders)
+        ? opts.authorizedFolders
+        : this.getSessionAuthorizedFolders(workspaceSourceSessionPath);
       const execWorkspaceScope = normalizeWorkspaceScope({
         primaryCwd: execCwd,
         workspaceFolders: inheritedWorkspaceFolders,
+      });
+      const execFolderScope = normalizeSessionFolderScope({
+        primaryCwd: execCwd,
+        workspaceFolders: execWorkspaceScope.workspaceFolders,
+        authorizedFolders: inheritedAuthorizedFolders,
       });
       const fileReadSessionPaths = Array.isArray(opts.fileReadSessionPaths)
         ? opts.fileReadSessionPaths.filter((sp) => typeof sp === "string" && sp.trim())
@@ -2962,6 +3125,8 @@ export class SessionCoordinator {
           agentDir: targetAgent.agentDir,
           workspace: execCwd,
           workspaceFolders: execWorkspaceScope.workspaceFolders,
+          authorizedFolders: execFolderScope.authorizedFolders,
+          getAuthorizedFolders: () => execFolderScope.authorizedFolders,
           getSessionPath: () => tempSessionMgr?.getSessionFile?.() || null,
           fileReadSessionPaths,
           getPermissionMode: () => opts.permissionMode || SESSION_PERMISSION_MODES.OPERATE,
