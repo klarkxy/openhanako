@@ -145,4 +145,36 @@ describe('buildItemsFromHistory user image restoration', () => {
       ext: 'pdf',
     });
   });
+
+  it('恢复 deferred 幕间消息 block', () => {
+    const items = buildItemsFromHistory({
+      messages: [{
+        id: 'a1',
+        role: 'assistant',
+        content: '可见正文',
+      }],
+      blocks: [{
+        type: 'interlude',
+        afterIndex: 0,
+        id: 'deferred:subagent-1:success',
+        variant: 'deferred_result',
+        taskId: 'subagent-1',
+        status: 'success',
+        sourceKind: 'subagent',
+        sourceLabel: '明 · 大纲评估',
+        text: '小花收到了来自 明 · 大纲评估 的回复',
+        detailMarkdown: '完成了',
+      }],
+    });
+
+    const first = items[0];
+    expect(first.type).toBe('message');
+    if (first.type !== 'message') throw new Error('expected message');
+    expect(first.data.blocks?.map(block => block.type)).toEqual(['text', 'interlude']);
+    expect(first.data.blocks?.[1]).toMatchObject({
+      type: 'interlude',
+      taskId: 'subagent-1',
+      text: '小花收到了来自 明 · 大纲评估 的回复',
+    });
+  });
 });

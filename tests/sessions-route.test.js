@@ -974,6 +974,70 @@ describe("sessions route", () => {
     });
   });
 
+  it("restores deferred subagent result as an interlude block", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.js");
+    const msgUtils = await import("../core/message-utils.js");
+    const app = new Hono();
+    const sessionPath = "/tmp/agents/hana/sessions/subagent-result.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "parent says hi", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "parent says hi" },
+      {
+        role: "toolResult",
+        toolName: "subagent",
+        details: {
+          taskId: "subagent-1",
+          task: "评估大纲",
+          taskTitle: "大纲评估",
+          streamStatus: "done",
+        },
+      },
+      {
+        role: "custom",
+        customType: "hana-background-result",
+        content: "<hana-background-result task-id=\"subagent-1\" status=\"success\" type=\"subagent\">\n子助手完整回复\n</hana-background-result>",
+        display: false,
+      },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: sessionPath,
+      agentIdFromSessionPath: vi.fn(() => "hana"),
+      getAgent: vi.fn((id) => (id === "hana" ? { agentName: "小花" } : null)),
+      deferredResults: {
+        query: vi.fn(() => ({
+          status: "resolved",
+          result: "子助手完整回复",
+          meta: {
+            type: "subagent",
+            executorAgentNameSnapshot: "明",
+            summary: "大纲评估",
+          },
+        })),
+      },
+      subagentRuns: { query: vi.fn(() => null) },
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request(`/api/sessions/messages?path=${encodeURIComponent(sessionPath)}`);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    const interlude = data.blocks.find((b) => b.type === "interlude");
+    expect(interlude).toMatchObject({
+      afterIndex: 0,
+      taskId: "subagent-1",
+      sourceKind: "subagent",
+      sourceLabel: "明 · 大纲评估",
+      text: "小花收到了来自 明 · 大纲评估 的回复",
+      detailMarkdown: "子助手完整回复",
+    });
+  });
+
   it("reload 时从 runStore 回填 workflow inline 块终态（running→done + 补 finishedAt）", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.js");
     const msgUtils = await import("../core/message-utils.js");
@@ -1474,19 +1538,30 @@ describe("sessions route", () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.blocks).toEqual([{
-      type: "file",
-      afterIndex: 0,
-      replacesTaskId: "task-img",
-      fileId: "sf_img",
-      filePath: "/cache/generated.png",
-      label: "generated.png",
-      ext: "png",
-      mime: "image/png",
-      kind: "image",
-      storageKind: "plugin_data",
-      status: "available",
-    }]);
+    expect(data.blocks).toEqual([
+      expect.objectContaining({
+        type: "interlude",
+        afterIndex: 0,
+        taskId: "task-img",
+        sourceKind: "tool",
+        sourceLabel: "图片生成",
+        text: "Hana拿到了来自 图片生成 工具的结果",
+        detailMarkdown: expect.stringContaining("generated.png"),
+      }),
+      {
+        type: "file",
+        afterIndex: 0,
+        replacesTaskId: "task-img",
+        fileId: "sf_img",
+        filePath: "/cache/generated.png",
+        label: "generated.png",
+        ext: "png",
+        mime: "image/png",
+        kind: "image",
+        storageKind: "plugin_data",
+        status: "available",
+      },
+    ]);
   });
 
   it("restores plugin_card blocks from extension custom messages", async () => {
@@ -1595,19 +1670,30 @@ describe("sessions route", () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.blocks).toEqual([{
-      type: "file",
-      afterIndex: 0,
-      replacesTaskId: "task-img",
-      fileId: "sf_img",
-      filePath: "/cache/generated.png",
-      label: "generated.png",
-      ext: "png",
-      mime: "image/png",
-      kind: "image",
-      storageKind: "plugin_data",
-      status: "available",
-    }]);
+    expect(data.blocks).toEqual([
+      expect.objectContaining({
+        type: "interlude",
+        afterIndex: 0,
+        taskId: "task-img",
+        sourceKind: "tool",
+        sourceLabel: "图片生成",
+        text: "Hana拿到了来自 图片生成 工具的结果",
+        detailMarkdown: "生成文件：\n- generated.png (image)",
+      }),
+      {
+        type: "file",
+        afterIndex: 0,
+        replacesTaskId: "task-img",
+        fileId: "sf_img",
+        filePath: "/cache/generated.png",
+        label: "generated.png",
+        ext: "png",
+        mime: "image/png",
+        kind: "image",
+        storageKind: "plugin_data",
+        status: "available",
+      },
+    ]);
   });
 
   it("prefers explicit executor metadata over owner-path inference", async () => {

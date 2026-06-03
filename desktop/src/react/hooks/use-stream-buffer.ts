@@ -375,6 +375,15 @@ class StreamBufferManager {
           }
         }
 
+        if (isInterludeBlock(block) && block.taskId) {
+          if (this.hasTurnState(buf)) this.flush(buf);
+          const consumed = useStore.getState().insertBlockNearTaskId(buf.sessionPath, block.taskId, block);
+          if (consumed) {
+            bumpMessageLiveVersion(buf.sessionPath);
+            break;
+          }
+        }
+
         const taskId = replacementTaskId(block);
         if (taskId) {
           if (this.hasTurnState(buf)) this.flush(buf);
@@ -462,6 +471,15 @@ class StreamBufferManager {
 export const streamBufferManager = new StreamBufferManager();
 
 function mergeContentBlock(blocks: ContentBlock[], block: ContentBlock): ContentBlock[] {
+  if (isInterludeBlock(block) && block.taskId) {
+    if (hasEquivalentInterludeBlock(blocks, block)) return blocks;
+    const idx = blocks.findIndex((existing) => isTaskAnchorBlock(existing, block.taskId!));
+    if (idx < 0) return [...blocks, block];
+    const next = [...blocks];
+    const insertAt = isMediaTaskAnchorBlock(blocks[idx], block.taskId) ? idx : idx + 1;
+    next.splice(insertAt, 0, block);
+    return next;
+  }
   if (block.type === 'media_generation' && block.status === 'pending') {
     const resolved = blocks.some((existing) => isResolvedTaskBlock(existing, block.taskId));
     if (resolved) return blocks;
@@ -489,6 +507,33 @@ function isResolvedTaskBlock(block: ContentBlock, taskId: string): boolean {
   return block.type === 'media_generation' &&
     block.taskId === taskId &&
     block.status !== 'pending';
+}
+
+function isInterludeBlock(block: ContentBlock): block is Extract<ContentBlock, { type: 'interlude' }> {
+  return block.type === 'interlude';
+}
+
+function hasEquivalentInterludeBlock(blocks: ContentBlock[], block: ContentBlock): boolean {
+  if (!isInterludeBlock(block)) return false;
+  return blocks.some((existing) => (
+    isInterludeBlock(existing) &&
+    (
+      (block.id && existing.id === block.id) ||
+      (!!block.taskId && existing.taskId === block.taskId && existing.status === block.status)
+    )
+  ));
+}
+
+function isMediaTaskAnchorBlock(block: ContentBlock, taskId: string): boolean {
+  return (
+    (block.type === 'media_generation' && block.taskId === taskId) ||
+    (block.type === 'file' && block.replacesTaskId === taskId)
+  );
+}
+
+function isTaskAnchorBlock(block: ContentBlock, taskId: string): boolean {
+  if (isMediaTaskAnchorBlock(block, taskId)) return true;
+  return (block.type === 'subagent' || block.type === 'workflow') && block.taskId === taskId;
 }
 
 // 让 chat-slice / session-actions 通过桥接模块触达 manager，打破循环依赖。

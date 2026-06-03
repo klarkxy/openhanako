@@ -162,6 +162,17 @@ export type RichBlock =
   | { type: 'settings_update'; update: SettingsUpdatePayload }
   | SessionConfirmationBlock
   | {
+    type: 'interlude';
+    id: string;
+    variant: 'deferred_result' | string;
+    taskId?: string;
+    status?: 'success' | 'failed' | 'aborted' | string;
+    sourceKind?: 'subagent' | 'workflow' | 'tool' | string;
+    sourceLabel?: string;
+    text: string;
+    detailMarkdown?: string;
+  }
+  | {
     type: 'subagent';
     taskId: string;
     task: string;

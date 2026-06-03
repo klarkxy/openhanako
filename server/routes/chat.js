@@ -26,6 +26,7 @@ import { AppError } from "../../shared/errors.js";
 import { errorBus } from "../../shared/error-bus.js";
 import { createRequestContext } from "../http/boundary.js";
 import { waitTimingDetails } from "../../lib/tools/wait-contract.js";
+import { buildDeferredResultInterludeBlock, resolveDeferredReceiverName } from "../deferred-result-interlude.js";
 import { isAllowedChatImageMime, isChatImageBase64WithinLimit } from "../../shared/image-mime.js";
 import { isAllowedChatVideoMime, isChatVideoBase64WithinLimit } from "../../shared/video-mime.js";
 import { isAllowedChatAudioMime, isChatAudioBase64WithinLimit } from "../../shared/audio-mime.js";
@@ -851,6 +852,10 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
         reason: event.reason,
         meta: event.meta,
       });
+      const interlude = buildDeferredResultInterludeBlock(event, {
+        receiverName: resolveDeferredReceiverName(engine, sessionPath),
+      });
+      if (interlude) emitStreamEvent(sessionPath, ss, { type: "content_block", block: interlude });
       if (event.status === "success") {
         for (const block of enrichSessionFileBlocks(deferredResultFileBlocks(event.result, event.taskId), engine, sessionPath)) {
           emitStreamEvent(sessionPath, ss, { type: "content_block", block });

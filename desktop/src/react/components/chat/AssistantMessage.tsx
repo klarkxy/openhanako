@@ -10,6 +10,7 @@ import { ToolGroupBlock } from './ToolGroupBlock';
 import { PluginCardBlock } from './PluginCardBlock';
 import { SubagentCard } from './SubagentCard';
 import { WorkflowInlineCard } from './WorkflowInlineCard';
+import { InterludeBlock } from './InterludeBlock';
 import { SettingsConfirmCard } from './SettingsConfirmCard';
 import { SettingsUpdateCard } from './SettingsUpdateCard';
 import { MessageActions } from './MessageActions';
@@ -87,6 +88,7 @@ export const AssistantMessage = memo(function AssistantMessage({
       .filter(block => block.type !== 'session_confirmation' || block.surface !== 'input'),
     [message.blocks],
   );
+  const isInterludeOnly = blocks.length > 0 && blocks.every(block => block.type === 'interlude');
 
   const [copied, setCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -142,10 +144,10 @@ export const AssistantMessage = memo(function AssistantMessage({
   const footerActions = canShowRegenerateAction ? regenerateActions : [];
 
   return (
-    <div className={`${styles.messageGroup} ${styles.messageGroupAssistant}${isSelected ? ` ${styles.messageGroupSelected}` : ''}`}
+    <div className={`${styles.messageGroup} ${styles.messageGroupAssistant}${isInterludeOnly ? ` ${styles.messageGroupInterludeOnly}` : ''}${isSelected ? ` ${styles.messageGroupSelected}` : ''}`}
          ref={messageRef}
          data-message-id={message.id}>
-      {showAvatar && (
+      {showAvatar && !isInterludeOnly && (
         <div className={styles.avatarRow}>
           <AgentAvatar
             info={displayInfo}
@@ -155,7 +157,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           <span className={styles.avatarName}>{displayName}</span>
         </div>
       )}
-      <div className={`${styles.message} ${styles.messageAssistant}`}>
+      <div className={`${styles.message} ${styles.messageAssistant}${isInterludeOnly ? ` ${styles.messageAssistantInterludeOnly}` : ''}`}>
         {blocks.map((block, i) => (
           <ContentBlockErrorBoundary
             key={`block-${i}`}
@@ -177,7 +179,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           </ContentBlockErrorBoundary>
         ))}
       </div>
-      {!readOnly && (
+      {!readOnly && !isInterludeOnly && (
         <MessageActions
           messageId={message.id}
           sessionPath={sessionPath}
@@ -187,7 +189,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           isStreaming={isStreaming}
         />
       )}
-      {(timeText || footerActions.length > 0) && (
+      {!isInterludeOnly && (timeText || footerActions.length > 0) && (
         <MessageFooterActions
           align="left"
           timeText={timeText}
@@ -289,6 +291,8 @@ const ContentBlockView = memo(function ContentBlockView({ block, agentName, agen
       );
     case 'media_generation':
       return <MediaGenerationBlock block={block} sessionPath={sessionPath} readOnly={readOnly} />;
+    case 'interlude':
+      return <InterludeBlock block={block} />;
     default: {
       const Renderer = BLOCK_RENDERERS[block.type];
       return Renderer ? <Renderer block={block} agentId={agentId} /> : null;

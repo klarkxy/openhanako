@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { safeJson } from "../hono-helpers.js";
 import { t } from "../i18n.js";
 import { extractBlocks, resolveMediaGenerationBlocks } from "../block-extractors.js";
+import { buildDeferredResultInterludeBlock, resolveDeferredReceiverName } from "../deferred-result-interlude.js";
 import { BrowserManager } from "../../lib/browser/browser-manager.js";
 import { sessionIdFromFilename } from "../../lib/session-jsonl.js";
 import {
@@ -708,6 +709,9 @@ export function createSessionsRoute(engine, hub = null) {
       const blocks = [];
       const mediaGenerationResults = new Map();
       const standaloneMediaGenerationResults = [];
+      const deferredInterludeTaskIds = new Set();
+      const deferredStore = engine.deferredResults;
+      const receiverName = resolveDeferredReceiverName(engine, resolvedSessionPath);
       const recordMediaGenerationResult = (parsed, afterIndex) => {
         if (!parsed?.taskId || !isMediaGenerationDeferredResult(parsed)) return;
         mediaGenerationResults.set(parsed.taskId, parsed);
@@ -717,6 +721,29 @@ export function createSessionsRoute(engine, hub = null) {
             afterIndex,
           });
         }
+      };
+      const recordDeferredInterlude = (parsed, afterIndex) => {
+        if (!parsed?.taskId || afterIndex < 0 || deferredInterludeTaskIds.has(parsed.taskId)) return;
+        const task = deferredStore?.query?.(parsed.taskId) || null;
+        const run = engine.subagentRuns?.query?.(parsed.taskId) || null;
+        const runTask = taskFromSubagentRun(run);
+        const metadataTask = mergeSubagentTaskMetadata(runTask, task);
+        const metadataMeta = metadataTask?.meta || {};
+        const meta = {
+          ...metadataMeta,
+          type: parsed.type || metadataMeta.type || task?.meta?.type || "background-task",
+        };
+        const event = {
+          taskId: parsed.taskId,
+          status: parsed.status === "failed" || parsed.status === "aborted" ? parsed.status : "success",
+          result: Object.prototype.hasOwnProperty.call(parsed, "result") ? parsed.result : metadataTask?.result,
+          reason: parsed.reason || metadataTask?.reason || null,
+          meta,
+        };
+        const block = buildDeferredResultInterludeBlock(event, { receiverName });
+        if (!block) return;
+        blocks.push({ ...block, afterIndex });
+        deferredInterludeTaskIds.add(parsed.taskId);
       };
       let displayIdx = 0;
 
@@ -769,15 +796,18 @@ export function createSessionsRoute(engine, hub = null) {
               blocks.push({ ...b, afterIndex });
             }
           }
-          recordMediaGenerationResult(parseHistoryDeferredResult(m), displayIdx - 1);
+          const parsed = parseHistoryDeferredResult(m);
+          recordMediaGenerationResult(parsed, afterIndex);
+          recordDeferredInterlude(parsed, afterIndex);
         }
       }
 
-      const deferredStore = engine.deferredResults;
       if (resolvedSessionPath && typeof deferredStore?.listBySession === "function") {
         for (const task of deferredStore.listBySession(resolvedSessionPath)) {
           if (!isTerminalDeferredTask(task)) continue;
-          recordMediaGenerationResult(buildDeferredResultRecord(task.taskId, task), pageBounds.total - 1);
+          const parsed = buildDeferredResultRecord(task.taskId, task);
+          recordMediaGenerationResult(parsed, pageBounds.total - 1);
+          recordDeferredInterlude(parsed, pageBounds.total - 1);
         }
       }
       const resolvedBlocks = resolveMediaGenerationBlocks(

@@ -184,6 +184,8 @@ function normalizeHistoryBlock(raw: unknown): Record<string, any> | null {
     if (!isRecord(raw.update)) return null;
   } else if (type === 'skill') {
     if (!nonEmptyString(raw.skillName)) return null;
+  } else if (type === 'interlude') {
+    if (!nonEmptyString(raw.text)) return null;
   }
 
   return { ...raw, type, afterIndex };

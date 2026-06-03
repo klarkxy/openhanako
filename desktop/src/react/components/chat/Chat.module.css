@@ -29,6 +29,12 @@
     position: relative;
 }
 
+.messageGroupInterludeOnly {
+    align-items: stretch;
+    padding-left: 0;
+    margin-left: 0;
+}
+
 /* 头像行 */
 .avatarRow {
     display: flex;
@@ -276,14 +282,20 @@
     font-family: var(--font-serif);
 }
 
+.messageAssistantInterludeOnly {
+    width: 100%;
+    max-width: 100%;
+}
+
 /* ── Message action buttons (shared by user & assistant) ── */
 
 .msgActions {
-    --msg-actions-popover-width: 86px;
     position: absolute;
     bottom: 4px;
     right: 4px;
     opacity: 0;
+    padding: 3px;
+    margin: -3px;
     transition: opacity var(--duration-fast);
     z-index: 2;
 }
@@ -307,7 +319,7 @@
     display: flex;
     gap: 2px;
     box-sizing: border-box;
-    min-width: var(--msg-actions-popover-width);
+    width: max-content;
     background: var(--bg-card, #fff);
     border: 1px solid var(--overlay-light, rgba(0, 0, 0, 0.08));
     border-radius: 6px;
@@ -318,9 +330,8 @@
     transition: opacity var(--duration-fast);
 }
 
-.messageGroupAssistant:hover .msgActionsPopover,
-.messageGroupUser:hover .msgActionsPopover,
-.msgActions:hover .msgActionsPopover {
+.msgActions:hover .msgActionsPopover,
+.msgActions:focus-within .msgActionsPopover {
     opacity: 1;
     pointer-events: auto;
 }
@@ -461,6 +472,87 @@
     border-left: 2px solid var(--mood-accent);
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     opacity: 0.7;
+}
+
+/* ── 幕间消息 ── */
+
+.interludeRow {
+    width: 100%;
+    margin: var(--space-sm) 0;
+    display: flex;
+    justify-content: center;
+    font-family: var(--font-sans);
+}
+
+.interludeTrigger {
+    width: min(100%, 680px);
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    cursor: default;
+}
+
+.interludeTriggerInteractive {
+    transition: color var(--duration-instant) var(--ease-out);
+}
+
+.interludeTriggerInteractive:hover,
+.interludeTriggerInteractive:focus-visible {
+    color: var(--text);
+    outline: none;
+}
+
+.interludeLine {
+    flex: 0 1 44px;
+    min-width: 18px;
+    height: 1px;
+    background: color-mix(in srgb, var(--text-muted) 32%, transparent);
+}
+
+.interludeText {
+    min-width: 0;
+    max-width: min(72%, 520px);
+    overflow: hidden;
+    color: inherit;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.interludePopover {
+    position: fixed;
+    z-index: 2147482500;
+    box-sizing: border-box;
+    overflow: auto;
+    padding: 12px 14px;
+    color: var(--text);
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--overlay-light, rgba(0, 0, 0, 0.08));
+    border-radius: 8px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16), 0 4px 14px rgba(0, 0, 0, 0.08);
+    animation: hana-fade-up var(--duration-fast) var(--ease-out);
+}
+
+.interludePopoverMarkdown {
+    font-family: var(--font-serif);
+    font-size: 0.82rem;
+    line-height: 1.62;
+}
+
+.interludePopoverMarkdown :global(pre) {
+    max-height: 220px;
+}
+
+:global(.mobile-desktop-root) .interludeTrigger {
+    pointer-events: none;
 }
 
 /* ── Cron 确认卡片 ── */
