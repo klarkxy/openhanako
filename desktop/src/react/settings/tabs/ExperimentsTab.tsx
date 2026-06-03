@@ -100,10 +100,6 @@ function ObservationPanel({ observation, onClear }: {
 }) {
   return (
     <div className={styles['experiments-observation']}>
-      <div className={styles['experiments-observation-note']}>
-        {t('settings.experiments.cacheSnapshot.observationNote')}
-      </div>
-
       {!observation ? (
         <div className={styles['experiments-empty']}>
           {t('settings.experiments.cacheSnapshot.emptyPreview')}
@@ -163,7 +159,9 @@ function CacheSnapshotExperiment({ experiment, onValueChange }: {
   experiment: ExperimentDefinition;
   onValueChange: (id: string, value: ExperimentMode) => Promise<void>;
 }) {
-  const agentId = useSettingsStore(s => s.getSettingsAgentId());
+  const primaryAgentId = useSettingsStore(s => (
+    s.agents.find((agent) => agent.isPrimary)?.id || null
+  ));
   const [observation, setObservation] = useState<CacheSnapshotObservation | null>(null);
   const [observationLoaded, setObservationLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -172,9 +170,9 @@ function CacheSnapshotExperiment({ experiment, onValueChange }: {
   const observeOnly = mode === 'shadow';
 
   const observationUrl = useMemo(() => {
-    if (!agentId) return null;
-    return `/api/experiments/memory/cache-snapshot-reflection/observation?agentId=${encodeURIComponent(agentId)}`;
-  }, [agentId]);
+    if (!primaryAgentId) return null;
+    return `/api/experiments/memory/cache-snapshot-reflection/observation?agentId=${encodeURIComponent(primaryAgentId)}`;
+  }, [primaryAgentId]);
 
   const loadObservation = async () => {
     if (!observationUrl) return;

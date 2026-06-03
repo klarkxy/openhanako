@@ -78,6 +78,10 @@ vi.mock('../../settings/helpers', () => ({
 
 vi.mock('../../settings/store', () => {
   const state = {
+    agents: [
+      { id: 'hana', name: 'Hana', yuan: 'hanako', isPrimary: false },
+      { id: 'primary', name: 'Primary', yuan: 'hanako', isPrimary: true },
+    ],
     getSettingsAgentId: () => 'hana',
     showToast: showToastMock,
   };
@@ -105,7 +109,7 @@ describe('ExperimentsTab', () => {
         return response({ ok: true, value: JSON.parse(String(opts.body)).value });
       }
       if (url === '/api/experiments') return response(experimentsPayload);
-      if (url === '/api/experiments/memory/cache-snapshot-reflection/observation?agentId=hana') {
+      if (url === '/api/experiments/memory/cache-snapshot-reflection/observation?agentId=primary') {
         return response(observationPayload);
       }
       return response({ observation: null });
@@ -135,7 +139,11 @@ describe('ExperimentsTab', () => {
       );
     });
     await waitFor(() => {
-      expect(screen.getAllByText(/观察模式不会对正式记忆产生任何影响/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/观察模式不会对正式记忆产生任何影响/)).toHaveLength(1);
+      expect(hanaFetchMock).toHaveBeenCalledWith(
+        '/api/experiments/memory/cache-snapshot-reflection/observation?agentId=primary',
+        undefined,
+      );
     });
 
     const observeOnly = await screen.findByRole('switch', { name: '只观察，不写入记忆' });

@@ -5912,12 +5912,6 @@ a.about-link:hover {
     gap: var(--space-sm);
 }
 
-.experiments-observation-note {
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    line-height: 1.55;
-}
-
 .experiments-observation-meta {
     display: flex;
     flex-wrap: wrap;
