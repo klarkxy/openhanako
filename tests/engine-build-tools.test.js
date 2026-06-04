@@ -85,6 +85,135 @@ describe("HanaEngine.buildTools", () => {
     expect(result.details.executed).toBe(true);
   });
 
+  it("passes the engine approval gateway into auto-mode tool execution", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-build-tools-auto-approval-"));
+    const agentDir = path.join(tmpDir, "agents", "focus");
+    const sessionPath = path.join(tmpDir, "sessions", "auto.jsonl");
+    const execute = vi.fn(async () => ({ details: { executed: true } }));
+    const approvalGateway = {
+      review: vi.fn(async () => ({
+        action: "allow",
+        reviewer: "small_tool_model",
+        reason: "test-approved",
+        risk: "low",
+      })),
+    };
+
+    const engine = Object.create(HanaEngine.prototype);
+    engine.hanakoHome = tmpDir;
+    engine.getAgent = vi.fn(() => ({ id: "focus", agentDir, tools: [] }));
+    engine._pluginManager = null;
+    engine._prefs = { getFileBackup: () => ({ enabled: false }) };
+    engine._readPreferences = () => ({ sandbox: true });
+    engine._confirmStore = null;
+    engine._approvalGateway = approvalGateway;
+    engine._emitEvent = vi.fn();
+    engine.getSessionPermissionMode = vi.fn(() => "auto");
+    engine._agentMgr = {
+      agent: {
+        id: "focus",
+        agentDir,
+        tools: [],
+      },
+    };
+
+    const { customTools } = engine.buildTools(tmpDir, [
+      { name: "stage_files", execute },
+    ], {
+      agentDir,
+      workspace: tmpDir,
+      getPermissionMode: () => "auto",
+    });
+
+    const result = await customTools[0].execute(
+      "call-1",
+      { path: "x" },
+      { sessionManager: { getSessionFile: () => sessionPath } },
+    );
+
+    expect(approvalGateway.review).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "stage_files", sessionPath }),
+      expect.any(Object),
+    );
+    expect(execute).toHaveBeenCalledOnce();
+    expect(result.details.executed).toBe(true);
+  });
+
+  it("wires utility model reviewers into the default approval gateway", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-engine-approval-gateway-"));
+    const engine = new HanaEngine({
+      hanakoHome: tmpDir,
+      productDir: tmpDir,
+      agentId: "hana",
+    });
+    engine.resolveUtilityConfig = vi.fn(() => ({
+      utility: { id: "small-reviewer", provider: "test" },
+      utility_large: { id: "large-reviewer", provider: "test" },
+      api: "openai-completions",
+      api_key: "small-key",
+      base_url: "https://small.example.test",
+      large_api: "openai-completions",
+      large_api_key: "large-key",
+      large_base_url: "https://large.example.test",
+    }));
+    engine._callApprovalReviewerText = vi.fn(async () => JSON.stringify({
+      action: "allow",
+      reason: "workspace edit is in scope",
+      risk: "low",
+    }));
+
+    const decision = await engine._approvalGateway.review({
+      id: "approval-1",
+      kind: "tool_action",
+      sessionPath: path.join(tmpDir, "sessions", "approval.jsonl"),
+      agentId: "hana",
+      toolName: "write",
+      actionName: "execute",
+      params: { path: "notes.md" },
+      target: { type: "file", label: "notes.md", path: "notes.md" },
+      blastRadius: "workspace",
+      reversibility: "moderate",
+    });
+
+    expect(engine.resolveUtilityConfig).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: "hana",
+    }));
+    expect(engine._callApprovalReviewerText).toHaveBeenCalledWith(expect.objectContaining({
+      model: { id: "small-reviewer", provider: "test" },
+      apiKey: "small-key",
+      baseUrl: "https://small.example.test",
+    }));
+    expect(decision).toMatchObject({
+      action: "allow",
+      reviewer: "small_tool_model",
+      reason: "workspace edit is in scope",
+    });
+  });
+
+  it("resolves utility config through the session owner when only sessionPath is known", () => {
+    const sessionPath = "/tmp/agents/target/sessions/s1.jsonl";
+    const engine = Object.create(HanaEngine.prototype);
+    engine._agentMgr = { activeAgentId: "focus" };
+    engine.agentIdFromSessionPath = vi.fn(() => "target");
+    engine._configCoord = {
+      resolveUtilityConfig: vi.fn(() => ({ utility: { id: "target-utility" } })),
+    };
+    engine._usageLedger = { id: "ledger" };
+
+    const result = engine.resolveUtilityConfig({ sessionPath });
+
+    expect(engine.agentIdFromSessionPath).toHaveBeenCalledWith(sessionPath);
+    expect(engine._configCoord.resolveUtilityConfig).toHaveBeenCalledWith({
+      sessionPath,
+      agentId: "target",
+    });
+    expect(result).toMatchObject({
+      utility: { id: "target-utility" },
+      usageAgentId: "target",
+      usageSessionPath: sessionPath,
+    });
+  });
+
   it("hides stable availability-disabled tools before building the model schema", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-build-tools-availability-"));
     const agentDir = path.join(tmpDir, "agents", "focus");

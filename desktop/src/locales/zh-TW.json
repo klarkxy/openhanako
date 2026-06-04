@@ -1,6 +1,6 @@
 {
   "cover": {
-    "make": "製作 cover",
+    "make": "新增封面",
     "agentGenerate": {
       "beautifyDisabled": "需要先在主 Agent 的工具設定裡開啟小花美术。",
       "defaultModelMissing": "需要先在設定裡設定預設圖片模型。",
@@ -284,7 +284,8 @@
     "addExternalFolder": "加入工作台以外的資料夾",
     "planMode": "權限模式",
     "accessMode": "會話權限模式",
-    "operateMode": "自動操作",
+    "autoMode": "自動審核",
+    "operateMode": "完整權限",
     "askMode": "操作前詢問",
     "readOnlyMode": "唯讀模式",
     "accessModeLocked": "目前無法更改權限模式",
@@ -311,12 +312,14 @@
     "thinkingLevel": {
       "off": "關閉",
       "auto": "自動",
+      "medium": "中等",
       "high": "深度",
       "xhigh": "極限"
     },
     "thinkingDesc": {
       "off": "不推理",
       "auto": "模型決定深度",
+      "medium": "平衡推理",
       "high": "深度推理",
       "xhigh": "最強推理"
     },
@@ -1125,6 +1128,9 @@
       "watermark": "浮水印",
       "aspectRatio": "長寬比",
       "speechRecognition": "語音辨識",
+      "speechRecognitionEnabled": "傳送語音條時轉錄",
+      "defaultSpeechModel": "語音條轉錄模型",
+      "speechModels": "轉錄模型",
       "speechSynthesis": "語音合成",
       "comingSoon": "即將推出",
       "noProvider": "請選擇一個供應商查看詳情",
@@ -1336,7 +1342,13 @@
       "homeFolderDesc": "新建對話預設使用的工作目錄，巡檢和定時任務也在這裡執行",
       "homeFolderPlaceholder": "未設定（每次手動選擇）",
       "homeFolderClear": "清除",
-      "homeFolderBrowse": "選擇資料夾"
+      "homeFolderBrowse": "選擇資料夾",
+      "contextFilesTitle": "工作區說明注入",
+      "contextFilesDesc": "把目前工作台專案裡的 AGENTS.md / CLAUDE.md 注入到新建會話的系統提示詞中，位置在記憶之前。",
+      "injectAgentsMd": "注入 AGENTS.md",
+      "injectAgentsMdDesc": "開啟後，新會話會讀取目前工作目錄到 Git 根目錄之間的 AGENTS.md。",
+      "injectClaudeMd": "注入 CLAUDE.md",
+      "injectClaudeMdDesc": "開啟後，新會話會讀取目前工作目錄到 Git 根目錄之間的 CLAUDE.md。"
     },
     "toolCaps": {
       "title": "技能安裝權限"

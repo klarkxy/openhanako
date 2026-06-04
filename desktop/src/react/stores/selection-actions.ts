@@ -46,7 +46,7 @@ export function initQuotedSelectionLifecycle(target: Document = document): () =>
       suppressNextSelectionCommit = false;
       return;
     }
-    captureDocumentChatSelection(target, eventAnchorRect(event));
+    scheduleDocumentChatSelectionCapture(target, eventAnchorRect(event));
   };
   target.addEventListener('selectionchange', handleSelectionChange);
   target.addEventListener('pointerdown', handleSelectionBoundaryInteraction, true);
@@ -92,6 +92,10 @@ export function captureSelection(previewItem: PreviewItem, cmView?: EditorView):
   }
 }
 
+export function scheduleCaptureSelection(previewItem: PreviewItem, cmView?: EditorView): void {
+  captureSelection(previewItem, cmView);
+}
+
 function captureCMSelection(previewItem: PreviewItem, view: EditorView): void {
   const { from, to } = view.state.selection.main;
   if (from === to) {
@@ -118,6 +122,7 @@ function captureCMSelection(previewItem: PreviewItem, view: EditorView): void {
     sourceFilePath: previewItem.filePath,
     lineStart,
     lineEnd,
+    selectionAnchorKind: 'codemirror',
     charCount: text.length,
     anchorRect: getCMSelectionAnchorRect(view, textStart, textEnd) ?? getElementAnchorRect((view as EditorView & { dom?: Element }).dom ?? null),
     updatedAt: Date.now(),
@@ -138,6 +143,7 @@ function captureDOMSelection(previewItem: PreviewItem): void {
     sourceTitle: previewItem.title,
     sourceKind: 'preview',
     sourceFilePath: previewItem.filePath,
+    selectionAnchorKind: 'native',
     charCount: text.length,
     anchorRect: sel && sel.rangeCount > 0
       ? getRangeAnchorRect(sel.getRangeAt(0)) ?? getElementAnchorRect(nodeElement(sel.anchorNode))
@@ -176,11 +182,16 @@ export function captureChatSelection(sessionPath: string, fallbackAnchorRect?: F
     sourceSessionPath: sessionPath,
     sourceMessageId: message.id,
     sourceRole: message.role,
+    selectionAnchorKind: 'native',
     charCount: text.length,
     anchorRect: getRangeAnchorRect(sel.getRangeAt(0)) ?? getElementAnchorRect(anchorMessage) ?? fallbackAnchorRect,
     updatedAt: Date.now(),
   };
   useStore.getState().setQuoteCandidate(quotedSelection);
+}
+
+export function scheduleCaptureChatSelection(sessionPath: string, fallbackAnchorRect?: FloatingAnchorRect): void {
+  captureChatSelection(sessionPath, fallbackAnchorRect);
 }
 
 function captureDocumentChatSelection(target: Document, fallbackAnchorRect?: FloatingAnchorRect): void {
@@ -200,6 +211,10 @@ function captureDocumentChatSelection(target: Document, fallbackAnchorRect?: Flo
   const sessionPath = anchorRoot.dataset.sessionPath;
   if (!sessionPath) return;
   captureChatSelection(sessionPath, fallbackAnchorRect);
+}
+
+function scheduleDocumentChatSelectionCapture(target: Document, fallbackAnchorRect?: FloatingAnchorRect): void {
+  captureDocumentChatSelection(target, fallbackAnchorRect);
 }
 
 function clipQuotedText(text: string): string {
@@ -329,12 +344,13 @@ export function clearSelection(scope?: QuoteClearScope): void {
 }
 
 function clearSelectionIfNativeSelectionIsEmpty(target: Document): void {
-  const current = useStore.getState().quoteCandidate;
-  if (!current) return;
   const sel = getNativeSelection(target);
   const text = sel?.toString().trim();
   if (sel && text && sel.rangeCount > 0) return;
-  clearSelection();
+  const current = useStore.getState().quoteCandidate;
+  if (!current) return;
+  if (current.selectionAnchorKind === 'codemirror') return;
+  useStore.getState().clearQuoteCandidate();
 }
 
 function getNativeSelection(target: Document): Selection | null {

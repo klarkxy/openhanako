@@ -48,6 +48,7 @@ import {
   createPromptSnapshotResourceLoader,
   normalizeSessionPromptSnapshot,
 } from "./session-prompt-snapshot.js";
+import { normalizeSessionThinkingLevel } from "./session-thinking-level.js";
 
 const log = createModuleLogger("bridge-session");
 
@@ -657,7 +658,7 @@ export class BridgeSessionManager {
       experienceEnabled: agent.experienceEnabled === true,
       memoryMasterEnabled: agent.memoryMasterEnabled !== false,
       model: agent.config?.models?.chat || null,
-      thinkingLevel: prefs?.thinking_level || "auto",
+      thinkingLevel: normalizeSessionThinkingLevel(prefs?.thinking_level),
     };
     return {
       promptSnapshot,
@@ -929,7 +930,12 @@ export class BridgeSessionManager {
         assertVideoInputSupported(session.model, opts?.videos);
         assertAudioInputSupported(session.model, opts?.audios);
         const promptOpts = buildPromptMediaOptions(opts);
-        await session.prompt(promptText, promptOpts);
+        const nativeMediaTurn = this._deps.beginCurrentTurnNativeMedia?.(activeSessionPath, opts);
+        try {
+          await session.prompt(promptText, promptOpts);
+        } finally {
+          this._deps.endCurrentTurnNativeMedia?.(nativeMediaTurn);
+        }
       } finally {
         this._prePromptAbortControllers.delete(sessionKey);
         try {
@@ -1178,7 +1184,7 @@ export class BridgeSessionManager {
 
     return {
       model: ownerModel,
-      thinkingLevel: mm.resolveThinkingLevel(prefs?.thinking_level || "auto"),
+      thinkingLevel: mm.resolveThinkingLevel(normalizeSessionThinkingLevel(prefs?.thinking_level)),
       resourceLoader: visionResourceLoader,
       tools: baseTools,
       customTools: baseCustomTools,

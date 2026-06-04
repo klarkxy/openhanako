@@ -1,6 +1,6 @@
 {
   "cover": {
-    "make": "cover 만들기",
+    "make": "커버 추가",
     "agentGenerate": {
       "beautifyDisabled": "먼저 메인 에이전트의 도구 설정에서 '小花美术'를 활성화하세요.",
       "defaultModelMissing": "먼저 설정에서 기본 이미지 모델을 구성하세요.",
@@ -284,7 +284,8 @@
     "addExternalFolder": "작업 공간 외부 폴더 추가",
     "planMode": "접근 모드",
     "accessMode": "세션 접근 모드",
-    "operateMode": "자동 작업",
+    "autoMode": "자동 승인",
+    "operateMode": "전체 권한",
     "askMode": "작업 전 묻기",
     "readOnlyMode": "읽기 전용 모드",
     "accessModeLocked": "지금은 접근 모드를 변경할 수 없습니다",
@@ -311,12 +312,14 @@
     "thinkingLevel": {
       "off": "끔",
       "auto": "자동",
+      "medium": "중간",
       "high": "깊은",
       "xhigh": "최대"
     },
     "thinkingDesc": {
       "off": "추론 없음",
       "auto": "모델이 깊이를 결정",
+      "medium": "균형 추론",
       "high": "깊은 추론",
       "xhigh": "전체 추론"
     },
@@ -1133,6 +1136,9 @@
       "watermark": "워터마크",
       "aspectRatio": "가로세로 비율",
       "speechRecognition": "음성 인식",
+      "speechRecognitionEnabled": "음성 메시지를 보낼 때 전사",
+      "defaultSpeechModel": "음성 메시지 전사 모델",
+      "speechModels": "전사 모델",
       "speechSynthesis": "음성 합성",
       "comingSoon": "곧 제공 예정",
       "noProvider": "제공자를 선택해 자세히 보기",
@@ -1344,7 +1350,13 @@
       "homeFolderDesc": "새 대화, 순찰, 예약 작업의 기본 작업 디렉토리",
       "homeFolderPlaceholder": "미설정 (매번 수동 선택)",
       "homeFolderClear": "지우기",
-      "homeFolderBrowse": "찾아보기"
+      "homeFolderBrowse": "찾아보기",
+      "contextFilesTitle": "워크스페이스 지침 주입",
+      "contextFilesDesc": "현재 워크스페이스 프로젝트의 AGENTS.md / CLAUDE.md를 새 세션 시스템 프롬프트에 기억보다 앞서 주입합니다.",
+      "injectAgentsMd": "AGENTS.md 주입",
+      "injectAgentsMdDesc": "켜면 새 세션이 현재 작업 디렉토리에서 Git 루트까지의 AGENTS.md를 읽습니다.",
+      "injectClaudeMd": "CLAUDE.md 주입",
+      "injectClaudeMdDesc": "켜면 새 세션이 현재 작업 디렉토리에서 Git 루트까지의 CLAUDE.md를 읽습니다."
     },
     "toolCaps": {
       "title": "스킬 설치 권한"

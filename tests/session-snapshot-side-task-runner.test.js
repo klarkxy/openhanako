@@ -51,6 +51,38 @@ describe("session snapshot side-task runner", () => {
     expect(options).toMatchObject({ reasoning: "medium", toolChoice: "none" });
   });
 
+  it("canonicalizes legacy auto in side-task cache params and request options", async () => {
+    const streamFn = vi.fn(async () => ({
+      result: vi.fn(async () => ({
+        stopReason: "stop",
+        content: [{ type: "text", text: "side result" }],
+      })),
+    }));
+    const snap = buildSessionCacheSnapshot({
+      sessionPath: "/sessions/a.jsonl",
+      reason: "memory.reflection",
+      model: { id: "gpt-5.1", provider: "openai", api: "openai-responses" },
+      cacheKeyParams: { thinkingLevel: "auto" },
+      systemPrompt: "stable system",
+      tools: [],
+      messages: [{ role: "user", content: "hello" }],
+    });
+
+    await runSessionSnapshotSideTask({
+      snapshot: snap,
+      model: { id: "gpt-5.1", provider: "openai", api: "openai-responses" },
+      cacheKeyParams: { thinkingLevel: "auto" },
+      suffixMessage: { role: "user", content: "internal task" },
+      streamFn,
+      options: { reasoning: "auto", toolChoice: "none" },
+      cacheGroup: "memory.reflection",
+      templateVersion: "v1",
+    });
+
+    const [, , options] = streamFn.mock.calls[0];
+    expect(options).toEqual({ reasoning: "medium", toolChoice: "none" });
+  });
+
   it("throws before provider call when strict request contract is broken", async () => {
     const streamFn = vi.fn();
     await expect(runSessionSnapshotSideTask({

@@ -7,6 +7,7 @@ import {
 describe("session permission modes", () => {
   it("normalizes missing and legacy fields", () => {
     expect(normalizeSessionPermissionMode({})).toBe("ask");
+    expect(normalizeSessionPermissionMode({ permissionMode: "auto" })).toBe("auto");
     expect(normalizeSessionPermissionMode({ accessMode: "operate" })).toBe("operate");
     expect(normalizeSessionPermissionMode({ accessMode: "read_only" })).toBe("read_only");
     expect(normalizeSessionPermissionMode({ planMode: true })).toBe("read_only");
@@ -22,6 +23,10 @@ describe("session permission modes", () => {
       action: "prompt",
       kind: "tool_action_approval",
     });
+    expect(classifySessionPermission({ mode: "auto", toolName: "write" })).toMatchObject({
+      action: "review",
+      kind: "tool_action_approval",
+    });
     expect(classifySessionPermission({ mode: "operate", toolName: "write" })).toEqual({ action: "allow" });
   });
 
@@ -32,6 +37,9 @@ describe("session permission modes", () => {
     });
     expect(classifySessionPermission({ mode: "ask", toolName: "browser", params: { action: "type" } })).toMatchObject({
       action: "prompt",
+    });
+    expect(classifySessionPermission({ mode: "auto", toolName: "browser", params: { action: "type" } })).toMatchObject({
+      action: "review",
     });
   });
 
@@ -44,6 +52,10 @@ describe("session permission modes", () => {
     });
     expect(classifySessionPermission({ mode: "ask", toolName: "terminal", params: { action: "write" } })).toMatchObject({
       action: "prompt",
+      kind: "tool_action_approval",
+    });
+    expect(classifySessionPermission({ mode: "auto", toolName: "terminal", params: { action: "start" } })).toMatchObject({
+      action: "review",
       kind: "tool_action_approval",
     });
     expect(classifySessionPermission({ mode: "operate", toolName: "terminal", params: { action: "close" } })).toEqual({ action: "allow" });
@@ -98,7 +110,7 @@ describe("session permission modes", () => {
       .toEqual({ action: "allow" });
   });
 
-  it("subagent 没有 ask 模式：ask 在 subagent 上下文坍缩为 operate（永不挂在确认上）", () => {
+  it("subagent 没有确认模式：ask/auto 在 subagent 上下文坍缩为 operate（永不挂在确认上）", () => {
     // subagent 上下文 + ask：write 不 prompt，直接放行（坍缩 operate）
     expect(classifySessionPermission({ mode: "ask", toolName: "write", context: { isSubagent: true } }))
       .toEqual({ action: "allow" });
@@ -108,6 +120,12 @@ describe("session permission modes", () => {
     expect(classifySessionPermission({ mode: "ask", toolName: "browser", params: { action: "click" }, context: { isSubagent: true } }))
       .toEqual({ action: "allow" });
     expect(classifySessionPermission({ mode: "ask", toolName: "terminal", params: { action: "start" }, context: { isSubagent: true } }))
+      .toEqual({ action: "allow" });
+    expect(classifySessionPermission({ mode: "auto", toolName: "write", context: { isSubagent: true } }))
+      .toEqual({ action: "allow" });
+    expect(classifySessionPermission({ mode: "auto", toolName: "bash", context: { isSubagent: true } }))
+      .toEqual({ action: "allow" });
+    expect(classifySessionPermission({ mode: "auto", toolName: "browser", params: { action: "click" }, context: { isSubagent: true } }))
       .toEqual({ action: "allow" });
     // 非 subagent 上下文：ask 照常 prompt（不受影响）
     expect(classifySessionPermission({ mode: "ask", toolName: "write" }))

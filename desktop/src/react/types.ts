@@ -25,7 +25,7 @@ export interface AutoLaunchStatus {
 
 // ── 核心数据结构 ──
 
-export type SessionPermissionMode = 'operate' | 'ask' | 'read_only';
+export type SessionPermissionMode = 'auto' | 'operate' | 'ask' | 'read_only';
 
 export interface Session {
   path: string;

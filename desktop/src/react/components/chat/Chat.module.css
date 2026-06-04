@@ -224,8 +224,47 @@
     margin-bottom: 0.3rem;
 }
 
+.messageGroupUser .userAttachments {
+    align-self: flex-end;
+    justify-content: flex-end;
+    max-width: 92%;
+}
+
 .userAttachments:last-child {
     margin-bottom: 0;
+}
+
+.voiceInputCard {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.42rem;
+    max-width: min(18rem, 100%);
+    padding: 0.72rem 0.72rem 0.52rem;
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-card) 88%, rgba(var(--accent-rgb), 0.08));
+    border-radius: var(--radius-md);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
+}
+
+.voiceInputTranscript {
+    max-width: 100%;
+    padding: 0 0.08rem;
+    color: var(--text);
+    font-size: 0.98rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.voiceInputCard .voiceInputAudioStrip {
+    height: 2rem;
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 .attachCard {

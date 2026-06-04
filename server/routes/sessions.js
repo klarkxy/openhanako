@@ -45,7 +45,7 @@ import {
 } from "../../lib/session-files/session-file-registry.js";
 import { serializeSessionFile } from "../../lib/session-files/session-file-response.js";
 import { browserScreenshotPath } from "../../lib/session-files/browser-screenshot-file.js";
-import { modelSupportsXhigh } from "../../core/session-thinking-level.js";
+import { normalizeSessionThinkingLevel, modelSupportsXhigh } from "../../core/session-thinking-level.js";
 import {
   modelSupportsDirectAudioInput,
   modelSupportsDirectVideoInput,
@@ -1113,7 +1113,7 @@ export function createSessionsRoute(engine, hub = null) {
         planMode: engine.planMode,
         permissionMode: engine.permissionMode,
         accessMode: engine.accessMode,
-        thinkingLevel: engine.getSessionThinkingLevel?.(newSessionPath) || engine.getThinkingLevel?.() || "auto",
+        thinkingLevel: normalizeSessionThinkingLevel(engine.getSessionThinkingLevel?.(newSessionPath) || engine.getThinkingLevel?.()),
         memoryModelUnavailableReason: engine.memoryModelUnavailableReason || null,
       };
       hub?.eventBus?.emit?.({
@@ -1165,7 +1165,7 @@ export function createSessionsRoute(engine, hub = null) {
         planMode: engine.planMode,
         permissionMode: engine.permissionMode,
         accessMode: engine.accessMode,
-        thinkingLevel: engine.getSessionThinkingLevel?.(newSessionPath) || engine.getThinkingLevel?.() || "auto",
+        thinkingLevel: normalizeSessionThinkingLevel(engine.getSessionThinkingLevel?.(newSessionPath) || engine.getThinkingLevel?.()),
         memoryModelUnavailableReason: engine.memoryModelUnavailableReason || null,
         compacted: result.compacted === true,
       };
@@ -1228,7 +1228,7 @@ export function createSessionsRoute(engine, hub = null) {
         planMode: engine.planMode,
         permissionMode: engine.permissionMode,
         accessMode: engine.accessMode,
-        thinkingLevel: engine.getSessionThinkingLevel?.(sessionPath) || engine.getThinkingLevel?.() || "auto",
+        thinkingLevel: normalizeSessionThinkingLevel(engine.getSessionThinkingLevel?.(sessionPath) || engine.getThinkingLevel?.()),
         memoryModelUnavailableReason: engine.memoryModelUnavailableReason || null,
         cwd: engine.cwd,
         workspaceFolders: engine.getSessionWorkspaceFolders?.(sessionPath) || [],

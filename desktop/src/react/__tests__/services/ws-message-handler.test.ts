@@ -181,6 +181,46 @@ describe('ws-message-handler session-scoped desktop events', () => {
     expect(first.data.attachments).toEqual([{ path: '/tmp/voice.wav', name: 'voice.wav', isDir: false, mimeType: 'audio/wav' }]);
   });
 
+  it('voice_transcription_update 按 fileId 回填现有用户语音附件', () => {
+    handleServerMessage({
+      type: 'session_user_message',
+      sessionPath: '/session/a.jsonl',
+      message: {
+        text: '',
+        attachments: [{
+          fileId: 'sf_voice',
+          path: '/tmp/voice.wav',
+          name: '录音 1.wav',
+          isDir: false,
+          mimeType: 'audio/wav',
+          presentation: 'voice-input',
+        }],
+      },
+    });
+
+    handleServerMessage({
+      type: 'voice_transcription_update',
+      sessionPath: '/session/a.jsonl',
+      fileId: 'sf_voice',
+      transcription: {
+        status: 'ready',
+        text: '今晚我们先把语音输入跑通。',
+      },
+    });
+
+    const items = useStore.getState().chatSessions['/session/a.jsonl']?.items || [];
+    expect(items).toHaveLength(1);
+    const first = items[0];
+    if (!first || first.type !== 'message') throw new Error('expected message item');
+    expect(first.data.attachments?.[0]).toMatchObject({
+      fileId: 'sf_voice',
+      transcription: {
+        status: 'ready',
+        text: '今晚我们先把语音输入跑通。',
+      },
+    });
+  });
+
   it('session_created 乐观插入后延迟刷新 session 列表，避免同一波事件重复全量拉取', async () => {
     vi.useFakeTimers();
 
@@ -436,6 +476,50 @@ describe('ws-message-handler session-scoped desktop events', () => {
     });
 
     expect(useStore.getState().sessions[0]?.rcAttachment).toBeNull();
+  });
+});
+
+describe('ws-message-handler permission mode events', () => {
+  let windowTarget: EventTarget;
+
+  beforeEach(() => {
+    windowTarget = new EventTarget();
+    vi.stubGlobal('window', windowTarget);
+    useStore.setState({
+      currentSessionPath: '/session/a.jsonl',
+      pendingNewSession: false,
+    } as never);
+  });
+
+  it('keeps explicit auto mode from legacy plan_mode messages instead of collapsing to operate', () => {
+    const details: unknown[] = [];
+    windowTarget.addEventListener('hana-plan-mode', (event) => {
+      details.push((event as CustomEvent).detail);
+    });
+
+    handleServerMessage({
+      type: 'plan_mode',
+      sessionPath: '/session/a.jsonl',
+      enabled: false,
+      mode: 'auto',
+    });
+
+    expect(details).toEqual([{ enabled: false, mode: 'auto' }]);
+  });
+
+  it('syncs explicit permission_mode messages for the focused session', () => {
+    const details: unknown[] = [];
+    windowTarget.addEventListener('hana-plan-mode', (event) => {
+      details.push((event as CustomEvent).detail);
+    });
+
+    handleServerMessage({
+      type: 'permission_mode',
+      sessionPath: '/session/a.jsonl',
+      mode: 'ask',
+    });
+
+    expect(details).toEqual([{ enabled: false, mode: 'ask' }]);
   });
 });
 

@@ -930,6 +930,7 @@ export class AgentManager {
     ag.setCallbacks({
       emitDevLog:           (text, level) => getEngine()?.emitDevLog?.(text, level),
       getConfirmStore:      () => getEngine()?.confirmStore ?? null,
+      getApprovalGateway:   () => getEngine()?.approvalGateway ?? null,
       getCurrentSessionPath:() => getEngine()?.currentSessionPath ?? null,
       getSessionPermissionMode: (sp) => getEngine()?.getSessionPermissionMode?.(sp) ?? null,
       getSessionCwd:        (sp) => getEngine()?.getSessionByPath?.(sp)?.sessionManager?.getCwd?.() ?? null,

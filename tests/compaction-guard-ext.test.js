@@ -343,6 +343,79 @@ describe("CompactionGuardExtension", () => {
       }));
     });
 
+    it("uses the session snapshot cache params for the side-task request contract", async () => {
+      estimatePreparationTokens.mockReturnValue(50_000);
+      buildSessionCacheSnapshot.mockImplementationOnce((sessionPath, { reason, messages } = {}) => ({
+        strategy: "session_snapshot",
+        strict: true,
+        sessionPath,
+        reason,
+        cachePrefixHash: "b".repeat(64),
+        cacheKeyParams: { thinkingLevel: "medium" },
+        tools: [],
+        messages,
+        messageCount: Array.isArray(messages) ? messages.length : 0,
+      }));
+
+      await pi.trigger(
+        "session_before_compact",
+        { preparation, signal: { aborted: false } },
+        ctx,
+      );
+
+      expect(cacheCompactor).toHaveBeenCalledWith(expect.objectContaining({
+        sessionSnapshot: expect.objectContaining({
+          cacheKeyParams: { thinkingLevel: "medium" },
+        }),
+        cacheKeyParams: { thinkingLevel: "medium" },
+      }));
+    });
+
+    it("canonicalizes legacy auto thinking before compaction side-task requests", async () => {
+      estimatePreparationTokens.mockReturnValue(50_000);
+      buildSessionCacheSnapshot.mockImplementationOnce((sessionPath, { reason, messages } = {}) => ({
+        strategy: "session_snapshot",
+        strict: true,
+        sessionPath,
+        reason,
+        cachePrefixHash: "b".repeat(64),
+        cacheKeyParams: { thinkingLevel: "auto" },
+        tools: [],
+        messages,
+        messageCount: Array.isArray(messages) ? messages.length : 0,
+      }));
+
+      await pi.trigger(
+        "session_before_compact",
+        { preparation, signal: { aborted: false } },
+        {
+          ...ctx,
+          sessionManager: {
+            ...ctx.sessionManager,
+            buildSessionContext: () => ({ thinkingLevel: "auto" }),
+          },
+        },
+      );
+
+      const call = cacheCompactor.mock.calls[0][0];
+      expect(call.cacheKeyParams).toEqual({ thinkingLevel: "medium" });
+      expect(call.thinkingLevel).toBe("medium");
+      expect(call.streamOptions.onPayload({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: "hello" }],
+        reasoning_effort: "auto",
+        max_tokens: 32000,
+      }, {
+        id: "deepseek-v4-pro",
+        provider: "deepseek",
+        api: "openai-completions",
+        reasoning: true,
+        contextWindow: 128_000,
+      })).toMatchObject({
+        reasoning_effort: "high",
+      });
+    });
+
     it("uses explicit cache recovery when GLM thinking tool-call history cannot replay reasoning_content", async () => {
       estimatePreparationTokens.mockReturnValue(50_000);
       const glmModel = {

@@ -98,6 +98,7 @@ function sessionFileToContentBlock(file, extra = undefined) {
     ...(file.mtimeMs !== undefined ? { mtimeMs: file.mtimeMs } : {}),
     ...(file.size !== undefined ? { size: file.size } : {}),
     ...(file.version ? { version: file.version } : {}),
+    ...(file.waveform ? { waveform: file.waveform } : {}),
     ...(file.resource ? { resource: file.resource } : {}),
   };
 }
@@ -723,6 +724,13 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
     } else if (event.type === "session_user_message") {
       if (!ss) return;
       emitStreamEvent(sessionPath, ss, { type: "session_user_message", message: event.message });
+    } else if (event.type === "voice_transcription_update") {
+      broadcast({
+        type: "voice_transcription_update",
+        sessionPath: event.sessionPath || sessionPath,
+        fileId: event.fileId || null,
+        transcription: event.transcription || null,
+      });
     } else if (event.type === "session_created") {
       broadcast({
         type: "session_created",
@@ -772,8 +780,18 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
         sessionKey: event.sessionKey,
         sessionPath,
       });
+    } else if (event.type === "permission_mode") {
+      broadcast({ type: "permission_mode", mode: event.mode, readOnly: event.readOnly === true, sessionPath });
+    } else if (event.type === "access_mode") {
+      broadcast({
+        type: "access_mode",
+        mode: event.mode,
+        permissionMode: event.permissionMode,
+        readOnly: event.readOnly === true,
+        sessionPath,
+      });
     } else if (event.type === "plan_mode") {
-      broadcast({ type: "plan_mode", enabled: event.enabled, sessionPath });
+      broadcast({ type: "plan_mode", enabled: event.enabled, mode: event.mode, sessionPath });
     } else if (event.type === "notification") {
       broadcast(toNotificationWsMessage(event));
     } else if (event.type === "channel_new_message") {
@@ -1215,6 +1233,7 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
                   audios: msg.audios,
                   uiContext: msg.uiContext ?? null,
                   displayMessage: msg.displayMessage,
+                  sessionFileRefs: msg.sessionFileRefs,
                 });
               } catch (err) {
                 const isUserAbort = err.name === 'AbortError'

@@ -47,6 +47,15 @@ function makeTicker(tmpDir, mode, summaryManager, memoryReflectionRunner) {
   const agentDir = path.join(tmpDir, "agents", "hana");
   const sessionDir = path.join(agentDir, "sessions");
   const memoryDir = path.join(agentDir, "memory");
+  const requestModel = {
+    id: "memory-model",
+    provider: "deepseek",
+    api: "openai-completions",
+    baseUrl: "http://localhost:1234",
+    quirks: ["enable_thinking"],
+    reasoning: true,
+  };
+  const usageLedger = { marker: "usage-ledger" };
   fs.mkdirSync(sessionDir, { recursive: true });
   fs.mkdirSync(memoryDir, { recursive: true });
   fs.writeFileSync(path.join(memoryDir, "memory.md"), "# Memory\n\n现有正式记忆。\n", "utf-8");
@@ -63,6 +72,7 @@ function makeTicker(tmpDir, mode, summaryManager, memoryReflectionRunner) {
       api: "openai-completions",
       api_key: "test-key",
       base_url: "http://localhost:1234",
+      usageLedger,
     }),
     getMemoryMasterEnabled: () => true,
     isSessionMemoryEnabled: () => true,
@@ -73,6 +83,13 @@ function makeTicker(tmpDir, mode, summaryManager, memoryReflectionRunner) {
       strict: true,
       sessionPath,
       reason,
+      model: {
+        id: "memory-model",
+        provider: "deepseek",
+        api: "openai-completions",
+        baseUrl: "http://localhost:1234",
+      },
+      requestModel,
       cachePrefixHash: "a".repeat(64),
       parentCachePrefixHash: "",
       cacheKeyParams: { thinkingLevel: "medium" },
@@ -90,7 +107,7 @@ function makeTicker(tmpDir, mode, summaryManager, memoryReflectionRunner) {
     factsMdPath: path.join(memoryDir, "facts.md"),
   });
 
-  return { ticker, agentDir, sessionPath: path.join(sessionDir, "2026-06-03T10-00-00-000Z_cache.jsonl") };
+  return { ticker, agentDir, requestModel, sessionPath: path.join(sessionDir, "2026-06-03T10-00-00-000Z_cache.jsonl"), usageLedger };
 }
 
 describe("cache snapshot reflection runtime", () => {
@@ -235,5 +252,88 @@ describe("cache snapshot reflection runtime", () => {
       strict: false,
       degradeReason: "session_snapshot_contract_mismatch",
     });
+  });
+
+  it("passes the runtime session model and usage context to the reflection runner", async () => {
+    const summaryManager = {
+      rollingSummary: vi.fn().mockResolvedValue("official summary"),
+      createRollingSummaryDraft: vi.fn(),
+      saveSummary: vi.fn(),
+      getSummary: vi.fn().mockReturnValue(null),
+    };
+    const memoryReflectionRunner = {
+      runMemoryReflection: vi.fn().mockResolvedValue({
+        summary: "shadow summary",
+        changed: true,
+        data: { summary: "shadow summary" },
+        usage: { cache: { readTokens: 512, missTokens: 8 } },
+        metadata: {
+          cacheStrategy: "session_snapshot",
+          strict: true,
+          cachePrefixHash: "b".repeat(64),
+          parentCachePrefixHash: "a".repeat(64),
+        },
+      }),
+    };
+    const { ticker, requestModel, sessionPath, usageLedger } = makeTicker(tmpDir, "shadow", summaryManager, memoryReflectionRunner);
+    writeSession(sessionPath);
+
+    await ticker.flushSession(sessionPath);
+
+    expect(memoryReflectionRunner.runMemoryReflection).toHaveBeenCalledOnce();
+    const args = memoryReflectionRunner.runMemoryReflection.mock.calls[0][0];
+    expect(args.model).toBe(requestModel);
+    expect(args.snapshot.model).not.toHaveProperty("quirks");
+    expect(args.cacheKeyParams).toEqual({ thinkingLevel: "medium" });
+    expect(args.usageLedger).toBe(usageLedger);
+    expect(args.usageContext).toMatchObject({
+      subsystem: "memory",
+      operation: "cache_snapshot_reflection",
+      trigger: "manual",
+    });
+  });
+
+  it("writes bounded failure diagnostics for shadow reflection errors", async () => {
+    const summaryManager = {
+      rollingSummary: vi.fn().mockResolvedValue("official summary"),
+      createRollingSummaryDraft: vi.fn(),
+      saveSummary: vi.fn(),
+      getSummary: vi.fn().mockReturnValue(null),
+    };
+    const error = new TypeError("Cannot read properties of undefined (reading 'includes')");
+    error.stack = [
+      "TypeError: Cannot read properties of undefined (reading 'includes')",
+      "    at providerMatches (core/provider-compat/qwen.js:46:23)",
+      "    at runProvider (core/llm-client.js:100:1)",
+      "    at extraFrame (core/llm-client.js:101:1)",
+      "    at extraFrame2 (core/llm-client.js:102:1)",
+      "    at extraFrame3 (core/llm-client.js:103:1)",
+    ].join("\n");
+    const memoryReflectionRunner = {
+      runMemoryReflection: vi.fn().mockRejectedValue(error),
+    };
+    const { ticker, agentDir, sessionPath } = makeTicker(tmpDir, "shadow", summaryManager, memoryReflectionRunner);
+    writeSession(sessionPath);
+
+    await ticker.flushSession(sessionPath);
+
+    expect(summaryManager.rollingSummary).toHaveBeenCalledOnce();
+    const observation = readCacheSnapshotObservation(agentDir);
+    expect(observation).toMatchObject({
+      mode: "shadow",
+      status: "failed",
+      reason: "Cannot read properties of undefined (reading 'includes')",
+      diagnostics: {
+        errorName: "TypeError",
+        requestModel: {
+          id: "memory-model",
+          provider: "deepseek",
+          api: "openai-completions",
+          hasQuirks: true,
+        },
+      },
+    });
+    expect(observation.diagnostics.stack).toHaveLength(4);
+    expect(observation.diagnostics.stack[1]).toContain("providerMatches");
   });
 });

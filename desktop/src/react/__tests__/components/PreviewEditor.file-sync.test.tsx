@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { Transaction } from '@codemirror/state';
 import { createRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -122,6 +122,37 @@ describe('PreviewEditor file sync', () => {
 
     expect(codeRef.current?.getView()).toBeTruthy();
     expect(codeContainer.querySelector('.cm-selectionLayer')).toBeTruthy();
+  });
+
+  it('emits selection commit only after a user commit event', () => {
+    const ref = createRef<PreviewEditorHandle>();
+    const onSelectionChange = vi.fn();
+    const onSelectionCommit = vi.fn();
+
+    render(
+      <PreviewEditor
+        ref={ref}
+        content="alpha\nbeta"
+        filePath="/tmp/hana-note.md"
+        mode="markdown"
+        onSelectionChange={onSelectionChange}
+        onSelectionCommit={onSelectionCommit}
+      />,
+    );
+
+    const view = ref.current?.getView();
+    expect(view).toBeTruthy();
+
+    act(() => {
+      view?.dispatch({ selection: { anchor: 0, head: 5 } });
+    });
+
+    expect(onSelectionChange).toHaveBeenCalledWith(view);
+    expect(onSelectionCommit).not.toHaveBeenCalled();
+
+    fireEvent.mouseUp(view!.dom);
+
+    expect(onSelectionCommit).toHaveBeenCalledWith(view);
   });
 
   it('saves user edits with the file version that was last loaded from disk', async () => {

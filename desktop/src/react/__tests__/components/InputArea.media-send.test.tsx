@@ -481,6 +481,13 @@ describe('InputArea media send', () => {
       }));
       expect(mocks.wsSend).toHaveBeenCalledTimes(1);
     });
+    const uploadBody = JSON.parse(String(mocks.hanaFetch.mock.calls[0][1]?.body));
+    expect(uploadBody.waveform).toMatchObject({
+      version: 1,
+      durationMs: expect.any(Number),
+      source: 'computed',
+    });
+    expect(uploadBody.waveform.peaks.length).toBeGreaterThan(0);
     const payload = JSON.parse(String(mocks.wsSend.mock.calls[0][0]));
     expect(payload.text).toBe('');
     expect(payload.audios).toEqual([{
@@ -498,6 +505,11 @@ describe('InputArea media send', () => {
         mimeType: 'audio/wav',
         presentation: 'voice-input',
         listed: false,
+        waveform: expect.objectContaining({
+          version: 1,
+          peaks: expect.any(Array),
+          source: 'computed',
+        }),
       }],
     });
     expect(useStore.getState().attachedFiles).toEqual([]);
@@ -595,8 +607,55 @@ describe('InputArea media send', () => {
     });
     const payload = JSON.parse(String(mocks.wsSend.mock.calls[0][0]));
     expect(payload.audios).toBeUndefined();
-    expect(payload.text).toBe('[附件] /tmp/hana/session-files/voice.wav');
+    expect(payload.text).toBe('[附件] voice.wav');
+    expect(payload.sessionFileRefs).toEqual([{
+      fileId: 'sf_voice',
+      sessionPath: '/session/media.jsonl',
+      label: 'voice.wav',
+      kind: 'attachment',
+    }]);
     expect(window.platform.readFileBase64).not.toHaveBeenCalled();
+  });
+
+  it('sends ordinary attachments by fileId instead of using visible path text as the machine contract', async () => {
+    useStore.setState({
+      attachedFiles: [{
+        fileId: 'sf_cjk_digits',
+        path: '/Users/testuser/Desktop/测试123/报告2026.txt',
+        name: '报告2026.txt',
+        isDirectory: false,
+      }],
+      attachedFilesBySession: {
+        '/session/media.jsonl': [{
+          fileId: 'sf_cjk_digits',
+          path: '/Users/testuser/Desktop/测试123/报告2026.txt',
+          name: '报告2026.txt',
+          isDirectory: false,
+        }],
+      },
+    } as never);
+
+    render(React.createElement(InputArea));
+
+    fireEvent.click(screen.getByTestId('send'));
+
+    await waitFor(() => {
+      expect(mocks.wsSend).toHaveBeenCalledTimes(1);
+    });
+    const payload = JSON.parse(String(mocks.wsSend.mock.calls[0][0]));
+    expect(payload.text).toBe('[附件] 报告2026.txt');
+    expect(payload.text).not.toContain('/Users/testuser/Desktop/测试123');
+    expect(payload.sessionFileRefs).toEqual([{
+      fileId: 'sf_cjk_digits',
+      sessionPath: '/session/media.jsonl',
+      label: '报告2026.txt',
+      kind: 'attachment',
+    }]);
+    expect(payload.displayMessage.attachments[0]).toMatchObject({
+      fileId: 'sf_cjk_digits',
+      path: '/Users/testuser/Desktop/测试123/报告2026.txt',
+      name: '报告2026.txt',
+    });
   });
 
   it('does not send while an agent switch session is still pending', async () => {

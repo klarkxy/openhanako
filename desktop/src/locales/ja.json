@@ -1,6 +1,6 @@
 {
   "cover": {
-    "make": "cover を作成",
+    "make": "カバーを追加",
     "agentGenerate": {
       "beautifyDisabled": "先にメインエージェントのツール設定で「小花美术」を有効にしてください。",
       "defaultModelMissing": "先に設定でデフォルト画像モデルを設定してください。",
@@ -284,7 +284,8 @@
     "addExternalFolder": "ワークスペース外のフォルダを追加",
     "planMode": "アクセスモード",
     "accessMode": "セッションのアクセスモード",
-    "operateMode": "自動操作",
+    "autoMode": "自動承認",
+    "operateMode": "フルアクセス",
     "askMode": "操作前に確認",
     "readOnlyMode": "読み取り専用モード",
     "accessModeLocked": "現在アクセスモードを変更できません",
@@ -311,12 +312,14 @@
     "thinkingLevel": {
       "off": "オフ",
       "auto": "自動",
+      "medium": "中",
       "high": "深い",
       "xhigh": "最大"
     },
     "thinkingDesc": {
       "off": "推論なし",
       "auto": "モデルが深さを判断",
+      "medium": "バランス推論",
       "high": "深い推論",
       "xhigh": "フル推論"
     },
@@ -1133,6 +1136,9 @@
       "watermark": "ウォーターマーク",
       "aspectRatio": "アスペクト比",
       "speechRecognition": "音声認識",
+      "speechRecognitionEnabled": "音声メッセージ送信時に文字起こし",
+      "defaultSpeechModel": "音声メッセージ文字起こしモデル",
+      "speechModels": "文字起こしモデル",
       "speechSynthesis": "音声合成",
       "comingSoon": "近日公開",
       "noProvider": "プロバイダーを選択して詳細を表示",
@@ -1344,7 +1350,13 @@
       "homeFolderDesc": "新しいチャット、巡回、cron タスクのデフォルト作業ディレクトリ",
       "homeFolderPlaceholder": "未設定（毎回手動で選択）",
       "homeFolderClear": "クリア",
-      "homeFolderBrowse": "参照"
+      "homeFolderBrowse": "参照",
+      "contextFilesTitle": "ワークスペース指示の注入",
+      "contextFilesDesc": "現在のワークスペースプロジェクトの AGENTS.md / CLAUDE.md を、新規セッションのシステムプロンプトへ記憶より前に注入します。",
+      "injectAgentsMd": "AGENTS.md を注入",
+      "injectAgentsMdDesc": "オンにすると、新規セッションは現在の作業ディレクトリから Git ルートまでの AGENTS.md を読み込みます。",
+      "injectClaudeMd": "CLAUDE.md を注入",
+      "injectClaudeMdDesc": "オンにすると、新規セッションは現在の作業ディレクトリから Git ルートまでの CLAUDE.md を読み込みます。"
     },
     "toolCaps": {
       "title": "スキルインストール権限"

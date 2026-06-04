@@ -16,6 +16,10 @@ import {
   clearCompiledSummarySources,
 } from "../../lib/memory/compiled-memory-state.js";
 import {
+  readPinnedMemoryItems,
+  replacePinnedMemoryItems,
+} from "../../lib/memory/pinned-memory-store.js";
+import {
   ensureDefaultWorkspace,
   resolveDefaultWorkspacePath,
 } from "../../shared/default-workspace.js";
@@ -502,19 +506,8 @@ export function createConfigRoute(engine) {
   // 读取 pinned.md，解析为逐条数组
   route.get("/pinned", async (c) => {
     try {
-      const pinnedPath = path.join(resolveAgent(engine, c).agentDir, "pinned.md");
-      let content = "";
-      try {
-        content = await fs.readFile(pinnedPath, "utf-8");
-      } catch (err) {
-        if (err.code === "ENOENT") return c.json({ pins: [] });
-        throw err;
-      }
-      const pins = content
-        .split("\n")
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
-        .map(line => line.replace(/^-\s*/, ""));
+      const pins = readPinnedMemoryItems(resolveAgent(engine, c).agentDir)
+        .map(item => item.content);
       return c.json({ pins });
     } catch (err) {
       return c.json({ error: err.message }, 500);
@@ -529,15 +522,8 @@ export function createConfigRoute(engine) {
       if (!Array.isArray(pins)) {
         return c.json({ error: "pins must be an array" }, 400);
       }
-      const content = pins
-        .map(p => (typeof p === "string" ? p.trim() : ""))
-        .filter(p => p.length > 0)
-        .map(p => `- ${p}`)
-        .join("\n")
-        + "\n";
       const agent = resolveAgentStrict(engine, c);
-      const pinnedPath = path.join(agent.agentDir, "pinned.md");
-      await fs.writeFile(pinnedPath, content, "utf-8");
+      replacePinnedMemoryItems(agent.agentDir, pins.filter(p => typeof p === "string"));
       debugLog()?.log("api", `PUT /api/pinned (${pins.length} items)`);
       // 触发 system prompt 重建（updateConfig 内部会重新读取 pinned.md）
       await engine.updateConfig({}, { agentId: agent.id });

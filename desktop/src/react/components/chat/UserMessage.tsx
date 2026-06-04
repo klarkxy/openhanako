@@ -267,6 +267,29 @@ const UserAttachmentsView = memo(function UserAttachmentsView({ attachments, des
         const imageSrc = !expired && isImage(att) ? getUserAttachmentImageSrc(att) : null;
         const kind = att.isDir ? 'directory' : kindOfFileName(att.name || att.path, att.mimeType);
         if (!expired && kind === 'audio') {
+          const isVoiceInput = att.presentation === 'voice-input';
+          const transcriptText = isVoiceInput && att.transcription?.status === 'ready'
+            ? att.transcription.text?.trim()
+            : '';
+          if (isVoiceInput) {
+            return (
+              <div key={att.fileId || att.path || att.name || `att-${i}`} className={styles.voiceInputCard}>
+                {transcriptText && <div className={styles.voiceInputTranscript}>{transcriptText}</div>}
+                <AudioAttachmentChip
+                  file={{
+                    path: att.path,
+                    name: att.name,
+                    base64Data: att.base64Data,
+                    mimeType: att.mimeType,
+                    waveform: att.waveform,
+                  }}
+                  showName={false}
+                  className={styles.voiceInputAudioStrip}
+                  waveform={att.waveform}
+                />
+              </div>
+            );
+          }
           return (
             <AudioAttachmentChip
               key={att.fileId || att.path || att.name || `att-${i}`}
@@ -275,8 +298,10 @@ const UserAttachmentsView = memo(function UserAttachmentsView({ attachments, des
                 name: att.name,
                 base64Data: att.base64Data,
                 mimeType: att.mimeType,
+                waveform: att.waveform,
               }}
               showName={att.presentation !== 'voice-input'}
+              waveform={att.waveform}
             />
           );
         }

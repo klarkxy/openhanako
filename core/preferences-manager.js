@@ -29,6 +29,7 @@ import {
 import { normalizeWorkspacePath } from "../shared/workspace-history.js";
 import { normalizeNetworkProxyConfig } from "../shared/network-proxy.js";
 import { createModuleLogger } from "../lib/debug-log.js";
+import { normalizeSessionThinkingLevel } from "./session-thinking-level.js";
 
 const log = createModuleLogger("preferences");
 
@@ -434,13 +435,13 @@ export class PreferencesManager {
 
   /** 读取 thinking level 偏好（用户全局，跨 agent / session） */
   getThinkingLevel() {
-    return this._cache.thinking_level || "auto";
+    return normalizeSessionThinkingLevel(this._cache.thinking_level);
   }
 
   /** 保存 thinking level 偏好 */
   setThinkingLevel(level) {
     const prefs = this._mutableCopy();
-    prefs.thinking_level = level;
+    prefs.thinking_level = normalizeSessionThinkingLevel(level);
     this.savePreferences(prefs);
   }
 
@@ -542,6 +543,36 @@ export class PreferencesManager {
     prefs.plugin_ui = merged;
     this.savePreferences(prefs);
     return this.getPluginUiPrefs();
+  }
+
+  getSpeechRecognitionConfig() {
+    const raw = this._cache.speechRecognition;
+    const defaultModel = raw?.defaultModel && typeof raw.defaultModel === "object" && !Array.isArray(raw.defaultModel)
+      ? {
+        provider: typeof raw.defaultModel.provider === "string" ? raw.defaultModel.provider : "",
+        id: typeof raw.defaultModel.id === "string" ? raw.defaultModel.id : "",
+      }
+      : null;
+    return {
+      enabled: raw?.enabled === true,
+      ...(defaultModel?.provider && defaultModel.id ? { defaultModel } : {}),
+    };
+  }
+
+  setSpeechRecognitionConfig(config) {
+    const prefs = this._mutableCopy();
+    const next = {
+      enabled: config?.enabled === true,
+      ...(config?.defaultModel?.provider && config?.defaultModel?.id ? {
+        defaultModel: {
+          provider: config.defaultModel.provider,
+          id: config.defaultModel.id,
+        },
+      } : {}),
+    };
+    prefs.speechRecognition = next;
+    this.savePreferences(prefs);
+    return this.getSpeechRecognitionConfig();
   }
 
   /** 读取实验功能值（global scope）。未知 id 的语义由实验 registry 判断。 */

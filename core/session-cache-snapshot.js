@@ -6,6 +6,7 @@ import {
   CACHE_STRATEGIES,
   buildCacheStrategyMetadata,
 } from "../lib/llm/cache-strategy-contract.js";
+import { normalizeRequestThinkingLevel } from "./session-thinking-level.js";
 
 export const SESSION_CACHE_SNAPSHOT_VERSION = 1;
 
@@ -25,6 +26,10 @@ export function normalizeCacheKeyParams(params = {}) {
     const value = params[key];
     if (value === undefined || value === null || value === "") continue;
     if (typeof value === "function" || typeof value === "symbol") continue;
+    if (key === "thinkingLevel" || key === "reasoning") {
+      out[key] = normalizeRequestThinkingLevel(value, "off");
+      continue;
+    }
     out[key] = value;
   }
   return out;
@@ -93,6 +98,9 @@ export function buildSessionCacheSnapshot({
   createdAt = new Date().toISOString(),
 } = {}) {
   const normalizedModel = normalizeModel(model);
+  const requestModel = model && typeof model === "object" && !Array.isArray(model)
+    ? model
+    : normalizedModel;
   const normalizedParams = normalizeCacheKeyParams(cacheKeyParams);
   const normalizedSystemPrompt = String(systemPrompt || "");
   const normalizedTools = normalizeProviderVisibleTools(tools);
@@ -112,6 +120,7 @@ export function buildSessionCacheSnapshot({
     reason: String(reason || "unknown"),
     createdAt,
     model: normalizedModel,
+    requestModel,
     cacheKeyParams: normalizedParams,
     systemPrompt: normalizedSystemPrompt,
     tools: normalizedTools,

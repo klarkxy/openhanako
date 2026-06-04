@@ -33,6 +33,10 @@ import {
   normalizeExperienceCategory,
   syncExperienceCategories,
 } from "../../lib/tools/experience.js";
+import {
+  readPinnedMemoryItems,
+  replacePinnedMemoryItems,
+} from "../../lib/memory/pinned-memory-store.js";
 import { splitByScope, injectGlobalFields } from '../../shared/config-scope.js';
 import { validateId, agentExists } from "../utils/validation.js";
 import {
@@ -723,15 +727,9 @@ export function createAgentsRoute(engine) {
       return c.json({ error: "agent not found" }, 404);
     }
     try {
-      const content = await fs.readFile(path.join(agentDir(engine, id), "pinned.md"), "utf-8");
-      const pins = content
-        .split("\n")
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
-        .map(line => line.replace(/^-\s*/, ""));
+      const pins = readPinnedMemoryItems(agentDir(engine, id)).map(item => item.content);
       return c.json({ pins });
     } catch (err) {
-      if (err.code === "ENOENT") return c.json({ pins: [] });
       return c.json({ error: err.message }, 500);
     }
   });
@@ -747,13 +745,7 @@ export function createAgentsRoute(engine) {
       if (!Array.isArray(pins)) {
         return c.json({ error: "pins must be an array" }, 400);
       }
-      const content = pins
-        .map(p => (typeof p === "string" ? p.trim() : ""))
-        .filter(p => p.length > 0)
-        .map(p => `- ${p}`)
-        .join("\n")
-        + "\n";
-      await fs.writeFile(path.join(agentDir(engine, id), "pinned.md"), content, "utf-8");
+      replacePinnedMemoryItems(agentDir(engine, id), pins.filter(p => typeof p === "string"));
       await engine.updateConfig({}, { agentId: id });
       emitAppEvent(engine, "agent-updated", { agentId: id });
       return c.json({ ok: true });

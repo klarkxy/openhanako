@@ -67,6 +67,7 @@ function isOpenRouterEndpoint(model, context = {}) {
 
 const OFFICIAL_MIMO_PROVIDERS = new Set([
   "mimo",
+  "mimo-token-plan",
   "xiaomi",
   "xiaomi-token",
   "xiaomi-token-plan-cn",

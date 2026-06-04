@@ -1,6 +1,6 @@
 {
   "cover": {
-    "make": "Make cover",
+    "make": "Add cover",
     "agentGenerate": {
       "beautifyDisabled": "Enable 小花美术 in the main agent's tool settings first.",
       "defaultModelMissing": "Configure a default image model in settings first.",
@@ -284,7 +284,8 @@
     "addExternalFolder": "Add folder outside workspace",
     "planMode": "Access mode",
     "accessMode": "Session access mode",
-    "operateMode": "Auto operation",
+    "autoMode": "Auto approval",
+    "operateMode": "Full access",
     "askMode": "Ask before acting",
     "readOnlyMode": "Read-only mode",
     "accessModeLocked": "Access mode cannot be changed right now",
@@ -311,12 +312,14 @@
     "thinkingLevel": {
       "off": "off",
       "auto": "auto",
+      "medium": "medium",
       "high": "high",
       "xhigh": "max"
     },
     "thinkingDesc": {
       "off": "no reasoning",
       "auto": "model decides depth",
+      "medium": "balanced reasoning",
       "high": "deep reasoning",
       "xhigh": "full reasoning"
     },
@@ -1174,6 +1177,9 @@
       "watermark": "Watermark",
       "aspectRatio": "Aspect Ratio",
       "speechRecognition": "Speech Recognition",
+      "speechRecognitionEnabled": "Transcribe voice strips on send",
+      "defaultSpeechModel": "Voice strip transcription model",
+      "speechModels": "Transcription Models",
       "speechSynthesis": "Speech Synthesis",
       "comingSoon": "Coming Soon",
       "noProvider": "Select a provider to view details",
@@ -1385,7 +1391,13 @@
       "homeFolderDesc": "Default working directory for new chats, patrol and cron tasks",
       "homeFolderPlaceholder": "Not set (choose manually each time)",
       "homeFolderClear": "Clear",
-      "homeFolderBrowse": "Browse"
+      "homeFolderBrowse": "Browse",
+      "contextFilesTitle": "Workspace instruction injection",
+      "contextFilesDesc": "Inject AGENTS.md / CLAUDE.md from the current workspace project into new session system prompts before memory.",
+      "injectAgentsMd": "Inject AGENTS.md",
+      "injectAgentsMdDesc": "When enabled, new sessions read AGENTS.md from the current working directory up to the Git root.",
+      "injectClaudeMd": "Inject CLAUDE.md",
+      "injectClaudeMdDesc": "When enabled, new sessions read CLAUDE.md from the current working directory up to the Git root."
     },
     "toolCaps": {
       "title": "Skill Installation Permissions"

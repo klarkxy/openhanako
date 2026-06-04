@@ -36,6 +36,7 @@ import {
   getReasoningProfile as getDeclaredReasoningProfile,
   getThinkingFormat as getDeclaredThinkingFormat,
 } from "../shared/model-capabilities.js";
+import { normalizeRequestThinkingLevel } from "./session-thinking-level.js";
 
 /**
  * 子模块注册表。顺序敏感：first-match-wins。
@@ -111,6 +112,20 @@ function stripDisabledReasoningEffort(payload) {
   if (!isDisabledReasoningEffort(payload.reasoning_effort)) return payload;
   const { reasoning_effort, ...rest } = payload;
   return rest;
+}
+
+function normalizeAutoReasoningEffort(payload) {
+  if (!Object.prototype.hasOwnProperty.call(payload, "reasoning_effort")) return payload;
+  if (lower(payload.reasoning_effort) !== "auto") return payload;
+  return { ...payload, reasoning_effort: "medium" };
+}
+
+function normalizeProviderOptions(options = {}) {
+  if (!Object.prototype.hasOwnProperty.call(options, "reasoningLevel")) return options;
+  return {
+    ...options,
+    reasoningLevel: normalizeRequestThinkingLevel(options.reasoningLevel, "off"),
+  };
 }
 
 /**
@@ -217,23 +232,25 @@ function normalizeAudioTransportPayload(payload, model) {
 export function normalizeProviderPayload(payload, model, options = {}) {
   if (!payload || typeof payload !== "object") return payload;
 
+  const normalizedOptions = normalizeProviderOptions(options);
   let result = payload;
 
   // 1. 通用补丁（与 provider 无关）
   result = stripEmptyTools(result);
   result = stripIncompatibleThinking(result, model);
   result = stripDisabledReasoningEffort(result);
+  result = normalizeAutoReasoningEffort(result);
   // 孤儿 toolResult 配对兜底先于 provider 子模块：保证子模块（如 deepseek 的
   // reasoning_content 校验）拿到的是已配对的 messages，不会被孤儿干扰。
   result = stripOrphanToolMessages(result);
-  result = normalizeImplicitOutputBudget(result, model, options);
+  result = normalizeImplicitOutputBudget(result, model, normalizedOptions);
   result = stripNativeMediaAttachmentMarkers(result);
   result = normalizeAudioTransportPayload(result, model);
 
   // 2. Provider-specific 补丁（按 matches 分发，first-match-wins）
   for (const mod of PROVIDER_MODULES) {
     if (mod.matches(model)) {
-      result = mod.apply(result, model, options);
+      result = mod.apply(result, model, normalizedOptions);
       break;
     }
   }
@@ -253,10 +270,11 @@ export function normalizeProviderPayload(payload, model, options = {}) {
 export function normalizeProviderContextMessages(messages, model, options = {}) {
   if (!Array.isArray(messages)) return messages;
 
+  const normalizedOptions = normalizeProviderOptions(options);
   for (const mod of PROVIDER_MODULES) {
     if (mod.matches(model)) {
       if (typeof mod.normalizeContextMessages === "function") {
-        return mod.normalizeContextMessages(messages, model, options);
+        return mod.normalizeContextMessages(messages, model, normalizedOptions);
       }
       break;
     }

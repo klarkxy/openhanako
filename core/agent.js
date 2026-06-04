@@ -50,6 +50,10 @@ import { createWorkflowTool } from "../lib/tools/workflow-tool.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
 import { assertAgentConfigPatchYuan, getAgentConfigRepairState } from "./yuan-registry.js";
+import {
+  collectWorkspaceInstructionFiles,
+  formatWorkspaceInstructionFiles,
+} from "./workspace-instruction-files.js";
 import { createModuleLogger } from "../lib/debug-log.js";
 import {
   CACHE_SNAPSHOT_EXPERIMENT_ID,
@@ -457,6 +461,7 @@ export class Agent {
     this._sessionFoldersTool = createSessionFoldersTool({
       getEngine: () => this._cb?.getEngine?.(),
       getConfirmStore: () => this._cb?.getConfirmStore?.(),
+      getApprovalGateway: () => this._cb?.getApprovalGateway?.(),
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
       emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
     });
@@ -784,6 +789,8 @@ export class Agent {
         },
         getAgentId: () => this.id,
         getConfirmStore: () => this._cb?.getConfirmStore?.(),
+        getApprovalGateway: () => this._cb?.getApprovalGateway?.(),
+        getPermissionMode: (sessionPath) => this._cb?.getSessionPermissionMode?.(sessionPath),
         approveComputerUseApp: (approval) => this._cb?.getEngine?.()?.approveComputerUseApp?.(approval),
         emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
         isAgentToolEnabled: () => this._isComputerUseAvailableForThisAgent(),
@@ -1071,7 +1078,7 @@ export class Agent {
     // cache 命中率（KV cache / Anthropic prompt cache 都按严格前缀匹配）。
     // 顺序：平台 → 环境 → 行为指南（任务/经验/工具/安全/网页/设置/技能/团队）
     //      ── cache 分界线 ──
-    //      用户档案 → ishiki（依赖 userName）→ 工作台 → 记忆规则/置顶/记忆 → 当前时间
+    //      用户档案 → ishiki（依赖 userName）→ 工作台 → 工作区说明文件 → 记忆规则/置顶/记忆 → 当前时间
     //
     // ishiki 放在用户档案之后：模板里有「你和{userName}是认识很久的人」这类引用，
     // 叙事顺序上先告诉模型"用户是谁"，再告诉它"你是谁、你和用户什么关系"。
@@ -1154,6 +1161,7 @@ export class Agent {
     parts.push(isZh
       ? "\n## Session 文件与交付\n\n" +
         "SessionFile 表示和当前 session 相关的本地文件：用户上传、你用 write/edit 产生的、插件产物、浏览器截图、安装产物，都会进入同一套 session 文件记录。\n\n" +
+        "当用户本轮附加文件时，消息里可能出现 [SessionFile] JSON 上下文。这里的 fileId 是机器契约，label 只是展示名；读取时优先用 read 的 fileId 参数，不要从 label 或可见文本重建真实路径。\n\n" +
         "当你需要使用本轮会话已经产生或登记过的文件时，先调用 current_status 获取 session_files。它会返回当前 session 的文件清单、fileId、来源、状态和本机路径。不要猜测 session-files 缓存路径。\n\n" +
         "write/edit 成功后会由工具层自动记录为 session 相关文件；这只表示文件和本次会话有关，不等于已经交付给用户。\n\n" +
         "当用户要求你把文件发给他、呈现给他、交付给他，或者你创建/修改了一个明确需要用户查看或拿走的文件时，使用 stage_files 标记为已交付。stage 表示把这个 session 相关文件提升为消费端可展示/可发送的文件。\n\n" +
@@ -1163,6 +1171,7 @@ export class Agent {
         "- 不要在 Agent 层判断具体平台怎么展示或发送，消费端会处理"
       : "\n## Session Files and Delivery\n\n" +
         "SessionFile means a local file related to the current session: files uploaded by the user, files you produce with write/edit, plugin outputs, browser screenshots, and install outputs all enter the same session file record.\n\n" +
+        "When the user attaches files in the current turn, the message may include [SessionFile] JSON context. fileId is the machine contract and label is display-only; prefer the read tool's fileId argument instead of reconstructing a real path from label or visible text.\n\n" +
         "When you need to use a file that has already been produced or registered in this conversation, call current_status with the session_files key first. It returns the current session file list, fileId, origin, status, and local path. Do not guess session-files cache paths.\n\n" +
         "After write/edit succeeds, the tool layer records the file as session-related automatically; this only means the file belongs to this session, not that it has been delivered to the user.\n\n" +
         "When the user asks you to send, present, or hand over a file, or when you create/modify a file the user clearly needs to see or take away, use stage_files to mark it as delivered. Staging promotes this session-related file to something consumers can display/send.\n\n" +
@@ -1305,6 +1314,17 @@ export class Agent {
         `\nFiles and directories mentioned by the user should be searched in the current working directory first.`
     );
 
+    const workspaceInstructionBlock = formatWorkspaceInstructionFiles(
+      collectWorkspaceInstructionFiles({
+        cwd: cwdPath,
+        workspaceContext: this._config?.workspace_context,
+      }),
+      { locale: this._config.locale || "" },
+    );
+    if (workspaceInstructionBlock) {
+      parts.push(workspaceInstructionBlock);
+    }
+
     parts.push(isZh
       ? "\n## 文件与命令工具使用\n\n" +
         "查看文件和目录时优先用 read/grep/find/ls。\n" +
@@ -1327,13 +1347,14 @@ export class Agent {
     const fmtOpts = {
       weekday: "long", year: "numeric", month: "long", day: "numeric",
       hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+      hourCycle: "h23",
       ...(tz ? { timeZone: tz } : {}),
     };
-    const dateTime = now.toLocaleString("en-US", fmtOpts);
+    const dateTime = new Intl.DateTimeFormat("en-US", fmtOpts).format(now);
     parts.push(`\nCurrent date and time: ${dateTime}`);
     parts.push(isZh
-      ? "你的一天从凌晨 4:00 开始。4:00 之前的对话属于前一天。"
-      : "Your day starts at 4:00 AM. Conversations before 4:00 AM belong to the previous day.");
+      ? "你的一天从 04:00 开始。04:00 之前的对话属于前一天。"
+      : "Your day starts at 04:00. Conversations before 04:00 belong to the previous day.");
 
     return parts.join("\n");
   }

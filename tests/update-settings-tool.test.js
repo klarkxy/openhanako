@@ -24,7 +24,7 @@ function makeMockPrefs(initial = {}) {
     setBridgeMediaPublicBaseUrl(v) {
       store.bridge = { ...(store.bridge || {}), mediaPublicBaseUrl: v };
     },
-    getThinkingLevel: () => store.thinking_level || "auto",
+    getThinkingLevel: () => store.thinking_level || "medium",
     setThinkingLevel(v) { store.thinking_level = v; },
     getFileBackup: () => store.file_backup || { enabled: false, retention_days: 1, max_file_size_kb: 1024 },
     setFileBackup(v) { store.file_backup = { ...(store.file_backup || {}), ...v }; },

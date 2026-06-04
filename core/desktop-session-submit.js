@@ -17,6 +17,7 @@
  * @param {Array<{type:string, filename?:string, mimeType?:string, buffer:Buffer|Uint8Array|string}>} [opts.inboundFiles]
  * @param {(delta: string, accumulated: string) => void} [opts.onDelta]
  * @param {object} [opts.displayMessage]
+ * @param {Array<{fileId?:string, sessionPath?:string, label?:string, kind?:string}>} [opts.sessionFileRefs]
  * @param {object|null|undefined} [opts.uiContext]
  * @returns {Promise<{ text: string | null, toolMedia: string[] }>}
  */
@@ -42,6 +43,7 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
     inboundFiles,
     onDelta,
     displayMessage,
+    sessionFileRefs,
     uiContext,
   } = opts;
 
@@ -71,6 +73,7 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
     let promptAudioAttachmentPaths = audioAttachmentPaths || [];
     let displayAttachments = displayMessage?.attachments;
     let promptText = text || "";
+    let promptSessionFileRefs = normalizeSessionFileRefs(sessionFileRefs, sessionPath);
 
     if (displayAttachments?.length) {
       const registeredDisplay = registerDisplayAttachments({
@@ -94,6 +97,10 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
           ...registeredDisplay.audioAttachmentPaths,
         ]);
       }
+      promptSessionFileRefs = mergeSessionFileRefs(
+        promptSessionFileRefs,
+        sessionFileRefsFromAttachments(displayAttachments, sessionPath),
+      );
     }
 
     if (inboundFiles?.length) {
@@ -112,6 +119,10 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
         ...(displayAttachments || []),
         ...materialized.displayAttachments,
       ];
+      promptSessionFileRefs = mergeSessionFileRefs(
+        promptSessionFileRefs,
+        sessionFileRefsFromAttachments(materialized.displayAttachments, sessionPath),
+      );
     }
 
     engine.emitEvent?.({ type: "session_status", isStreaming: true }, sessionPath);
@@ -128,10 +139,16 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
         bridgeSessionKey: displayMessage?.bridgeSessionKey || null,
       },
     }, sessionPath);
+    queueVoiceInputTranscriptions({
+      speechRecognition: engine.speechRecognition,
+      sessionPath,
+      attachments: displayAttachments,
+    });
 
     promptText = addAttachedImageMarkers(promptText, promptImageAttachmentPaths);
     promptText = addAttachedVideoMarkers(promptText, promptVideoAttachmentPaths);
     promptText = addAttachedAudioMarkers(promptText, promptAudioAttachmentPaths);
+    promptText = addSessionFileRefMarkers(promptText, promptSessionFileRefs);
 
     let captured = "";
     const toolMedia = [];
@@ -182,6 +199,17 @@ export async function submitDesktopSessionMessage(engine, opts = {}) {
   }
 }
 
+function queueVoiceInputTranscriptions({ speechRecognition, sessionPath, attachments }) {
+  if (!speechRecognition || typeof speechRecognition.queueVoiceTranscription !== "function") return;
+  for (const attachment of attachments || []) {
+    if (attachment?.presentation !== "voice-input" || !attachment.fileId) continue;
+    speechRecognition.queueVoiceTranscription({
+      sessionPath,
+      fileId: attachment.fileId,
+    });
+  }
+}
+
 function registerDisplayAttachments({ hanakoHome, sessionPath, attachments, registerSessionFile }) {
   const nextAttachments = [];
   const imageAttachmentPaths = [];
@@ -201,6 +229,7 @@ function registerDisplayAttachments({ hanakoHome, sessionPath, attachments, regi
         storageKind: displayAttachmentStorageKind(hanakoHome, next.path),
         presentation: displayAttachmentPresentation(next),
         listed: listedForDisplayAttachment(next),
+        waveform: next.waveform,
       }));
       if (sessionFile) {
         next = {
@@ -213,6 +242,7 @@ function registerDisplayAttachments({ hanakoHome, sessionPath, attachments, regi
           listed: sessionFile.listed !== undefined ? sessionFile.listed !== false : listedForDisplayAttachment(next),
           status: sessionFile.status,
           missingAt: sessionFile.missingAt,
+          waveform: sessionFile.waveform || next.waveform,
         };
       }
     }
@@ -297,4 +327,58 @@ function addAttachedAudioMarkers(text, audioAttachmentPaths) {
 
 function uniquePaths(paths) {
   return Array.from(new Set((paths || []).filter(Boolean)));
+}
+
+function normalizeSessionFileRefs(refs, fallbackSessionPath) {
+  if (!Array.isArray(refs)) return [];
+  const normalized = [];
+  for (const ref of refs) {
+    if (!ref || typeof ref !== "object") continue;
+    const fileId = typeof ref.fileId === "string" && ref.fileId.trim() ? ref.fileId.trim() : null;
+    if (!fileId) continue;
+    normalized.push({
+      fileId,
+      sessionPath: typeof ref.sessionPath === "string" && ref.sessionPath ? ref.sessionPath : fallbackSessionPath,
+      label: typeof ref.label === "string" && ref.label ? ref.label : fileId,
+      kind: typeof ref.kind === "string" && ref.kind ? ref.kind : "attachment",
+    });
+  }
+  return normalized;
+}
+
+function sessionFileRefsFromAttachments(attachments, sessionPath) {
+  return normalizeSessionFileRefs((attachments || []).map((attachment) => ({
+    fileId: attachment?.fileId,
+    sessionPath,
+    label: attachment?.name || attachment?.label || attachment?.path,
+    kind: attachment?.isDir ? "directory" : "attachment",
+  })), sessionPath);
+}
+
+function mergeSessionFileRefs(primary, secondary) {
+  const out = [];
+  const seen = new Set();
+  for (const ref of [...(primary || []), ...(secondary || [])]) {
+    if (!ref?.fileId) continue;
+    const key = `${ref.sessionPath || ""}:${ref.fileId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ref);
+  }
+  return out;
+}
+
+function addSessionFileRefMarkers(text, refs) {
+  const items = normalizeSessionFileRefs(refs, null);
+  if (!items.length) return text || "";
+  const markerText = items
+    .map((ref) => `[SessionFile] ${JSON.stringify({
+      fileId: ref.fileId,
+      sessionPath: ref.sessionPath || null,
+      label: ref.label,
+      kind: ref.kind,
+    })}`)
+    .join("\n");
+  const promptText = text || "";
+  return promptText ? `${markerText}\n${promptText}` : markerText;
 }
