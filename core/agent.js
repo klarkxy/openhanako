@@ -38,6 +38,7 @@ import {
 } from "../lib/tools/subagent-tool.js";
 import { writeSubagentSessionMeta } from "../lib/subagent-executor-metadata.js";
 import { createCheckDeferredTool } from "../lib/tools/check-deferred-tool.js";
+import { createAskUserTool } from "../lib/tools/ask-user-tool.js";
 import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
@@ -138,7 +139,8 @@ export class Agent {
     this._terminalTool = null;
     this._textFileTool = null;
     this._applyPatchTool = null
-    this._llmRequestTool = null;;
+    this._llmRequestTool = null;
+    this._askUserTool = null;;
     this._jsonQueryTool = null;
 
     /**
@@ -428,7 +430,14 @@ export class Agent {
       resolveUtilityConfig: () => this._cb?.resolveUtilityConfig?.(),
       getAvailableModels: () => this._cb?.getEngine?.()?.availableModels || [],
       resolveModelWithCredentials: (ref) => this._cb?.getEngine?.()?.resolveModelWithCredentials?.(ref) || null,
-      getAgentConfig: () => this._cb?.getEngine?.()?.getAgentConfig?.() || null,
+      g
+
+    // 用户问题（多选/单选 + 编号协议 + ConfirmStore 阻塞）
+    this._askUserTool = createAskUserTool({
+      getConfirmStore: () => this._cb?.getConfirmStore?.(),
+      getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+      emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
+    });etAgentConfig: () => this._cb?.getEngine?.()?.getAgentConfig?.() || null,
     });etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
     this._applyPatchTool = createApplyPatchTool();etCwd: () => this._cb?.getCwd?.() || this.agentDir,
@@ -739,7 +748,8 @@ export class Agent {
       this._channelTool,
       this._dmTool,
       this._browserTool,
-      ...computerUseTools,
+      ...comaskUserTool,
+      this._puterUseTools,
       this._installSkillTool,
       this._notifyTool,
       this._stopTaskTool,
