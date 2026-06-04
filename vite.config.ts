@@ -121,26 +121,6 @@ function restoreLegacyCss(): Plugin {
   };
 }
 
-/**
- * Vite dev server 直接服务 source HTML 时，theme helper 不能再依赖 dist-renderer/lib/theme.js。
- * 开发模式把旧 script 标签重写到 source theme.ts，保持和 build:theme 同一份实现。
- */
-function useSourceThemeInDev(): Plugin {
-  return {
-    name: 'hana-use-source-theme-in-dev',
-    apply: 'serve',
-    transformIndexHtml: {
-      order: 'pre',
-      handler(html) {
-        return html.replace(
-          /<script\s+src="lib\/theme\.js"><\/script>/g,
-          '<script type="module" src="/shared/theme.ts"></script>',
-        );
-      },
-    },
-  };
-}
-
 function readDevWebClientConfig(): DevWebClientConfig | null {
   if (process.env.HANA_DEV_WEB !== '1') return null;
   const apiBaseUrl = process.env.HANA_DEV_WEB_API_BASE_URL?.trim();
@@ -265,7 +245,6 @@ export default defineConfig({
     react(),
     injectCsp(),
     injectDevWebConfig(),
-    useSourceThemeInDev(),
     restoreLegacyCss(),
     copyLegacyFiles(),
   ],

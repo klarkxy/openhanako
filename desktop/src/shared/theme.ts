@@ -1,9 +1,9 @@
 /**
- * theme.ts — 共享主题系统（IIFE 打包入口）
+ * theme.ts — 共享主题系统（ESM 入口）
  *
- * 由 vite.config.theme.js 打包成 desktop/dist-renderer/lib/theme.js，
- * 被 4 个 HTML（index / onboarding / settings / browser-viewer）通过
- * <script src="lib/theme.js"> 引入。执行时序与原 lib/theme.js 一致。
+ * 被 desktop/src/lib/theme.js 以 `import "../shared/theme.ts"` 形式
+ * 重新导出，HTML 入口 <script type="module" src="lib/theme.js"> 由
+ * Vite 一次性 bundle 进主模块图（取代旧的 IIFE bundle + build:theme 步骤）。
  *
  * 所有主题元信息来自 theme-registry ESM adapter，这里不再镜像任何常量表。
  */

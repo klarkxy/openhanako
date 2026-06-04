@@ -57,5 +57,11 @@
     .map(function (key) { return key + " " + directives[key].join(" "); })
     .join("; ");
 
-  document.write('<meta http-equiv="Content-Security-Policy" content="' + content.replace(/"/g, "&quot;") + '">');
+  // Insert CSP meta into <head>. Use appendChild (not document.write) so this
+  // script can be loaded as type="module" — document.write would no-op or
+  // warn once the document is past the initial parse state.
+  var meta = document.createElement("meta");
+  meta.setAttribute("http-equiv", "Content-Security-Policy");
+  meta.setAttribute("content", content);
+  (document.head || document.documentElement).appendChild(meta);
 })();

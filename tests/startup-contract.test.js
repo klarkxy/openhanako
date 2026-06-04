@@ -10,10 +10,10 @@ const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
 
 describe("local startup contract", () => {
-  it("start scripts build theme bundle before launching Electron", () => {
+  it("start scripts build renderer (which now bundles lib/theme.js) before launching Electron", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8"));
-    expect(pkg.scripts.start).toContain("build:theme");
-    expect(pkg.scripts["start:dev"]).toContain("build:theme");
+    expect(pkg.scripts.start).toContain("build:renderer");
+    expect(pkg.scripts["start:dev"]).toContain("build:renderer");
   });
 
   it("dev Electron launcher passes a dedicated Node runtime to main process", () => {

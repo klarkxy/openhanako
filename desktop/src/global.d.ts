@@ -24,7 +24,7 @@ declare global {
       apiBaseUrl?: string;
     };
 
-    // ── 主题（由 lib/theme.js IIFE bundle 注入） ──
+    // ── 主题（由 lib/theme.js ESM 入口导入 shared/theme.ts 注入） ──
     setTheme: (name: string) => void;
     // applyTheme 为 optional：ws-message-handler 运行在所有窗口中，包括不加载
     // lib/theme.js 的 viewer-window 等，这些窗口里该方法确实不存在。
