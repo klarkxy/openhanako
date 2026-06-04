@@ -2367,7 +2367,6 @@ async function handleBrowserCommand(cmd, params) {
       if (!params.expression || params.expression.length > 10000) {
         throw new Error("Expression too long (max 10000 chars)");
       }
-      console.log(`[browser:evaluate] expressionLength=${params.expression.length}`);
       return await _withLiveWebContents(params.sessionPath, async (wc) => {
         const result = await wc.executeJavaScript(params.expression);
         const serialized = typeof result === "string" ? result : JSON.stringify(result, null, 2);
