@@ -32,10 +32,17 @@ export function __resetPreviewFileRefreshStateForTests(): void {
 export async function refreshPreviewItemsFromFile(filePath: string): Promise<void> {
   const generation = beginRefresh(filePath);
   const state = useStore.getState();
+  const DIAG = (typeof window !== 'undefined' && (window as any).__HANA_DIAG__ === true);
+  const t0 = performance.now();
+  let matchCount = 0;
   for (const item of state.previewItems || []) {
     if (item.filePath !== filePath) continue;
+    matchCount += 1;
     const read = await readFileForPreviewType(filePath, item.type);
-    if (!isLatestRefresh(filePath, generation)) return;
+    if (!isLatestRefresh(filePath, generation)) {
+      if (DIAG) console.log(`[preview-refresh] stale after read, abort path=${filePath}`);
+      return;
+    }
     if (!read) {
       showMissingFileNotice(item, filePath);
       upsertPreviewItem({
@@ -45,6 +52,7 @@ export async function refreshPreviewItemsFromFile(filePath: string): Promise<voi
       });
       continue;
     }
+    const upsertT0 = performance.now();
     upsertPreviewItem({
       ...item,
       content: read.content,
@@ -52,5 +60,7 @@ export async function refreshPreviewItemsFromFile(filePath: string): Promise<voi
       status: 'available',
       missingAt: null,
     });
+    if (DIAG) console.log(`[preview-refresh] upsert item=${item.id} elapsed=${(performance.now() - upsertT0).toFixed(2)}ms contentLen=${read.content.length}`);
   }
+  if (DIAG) console.log(`[preview-refresh] done path=${filePath} matched=${matchCount} totalElapsed=${(performance.now() - t0).toFixed(1)}ms`);
 }

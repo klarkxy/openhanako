@@ -445,8 +445,14 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
       const view = viewRef.current;
       if (!view) return;
       const current = view.state.doc.toString();
+      const DIAG = (typeof window !== 'undefined' && (window as any).__HANA_DIAG__ === true);
+      const t0 = performance.now();
+      const incomingLen = nextContent.length;
+      const sameString = current === nextContent;
+      if (DIAG) console.log(`[preview] applyIncomingContent start len=${incomingLen} sameString=${sameString} readOnly=${readOnly}`);
       if (current === nextContent) {
         if (options.publish) lastSavedContentRef.current = nextContent;
+        if (DIAG) console.log(`[preview] applyIncomingContent skip (string equal) elapsed=${(performance.now() - t0).toFixed(1)}ms`);
         return;
       }
 
@@ -483,10 +489,13 @@ export const PreviewEditor = forwardRef<PreviewEditorHandle, PreviewEditorProps>
         saveTimerRef.current = null;
       }
       lastSavedContentRef.current = nextContent;
+      const replaceT0 = performance.now();
       replaceDocumentPreservingSelection(view, nextContent);
+      if (DIAG) console.log(`[preview] replaceDocumentPreservingSelection elapsed=${(performance.now() - replaceT0).toFixed(1)}ms len=${incomingLen}`);
       if (options.publish) {
         contentCbRef.current?.(nextContent, diskVersionRef.current);
       }
+      if (DIAG) console.log(`[preview] applyIncomingContent end total elapsed=${(performance.now() - t0).toFixed(1)}ms`);
     }, [mode, readOnly, saveToFile]);
 
     // Create editor

@@ -16,6 +16,20 @@ function ensureBridgeAttached(): void {
 
   attachedApi = api;
   api.onFileChanged((filePath: string) => {
+    const DIAG = (typeof window !== 'undefined' && (window as any).__HANA_DIAG__ === true);
+    if (DIAG) {
+      const t0 = performance.now();
+      console.log(`[file-change] received path=${filePath} subscribers=${handlers.size}`);
+      for (const handler of [...handlers]) {
+        try {
+          handler(filePath);
+        } catch (err) {
+          console.warn('[file-change] handler threw', err);
+        }
+      }
+      console.log(`[file-change] dispatch done elapsed=${(performance.now() - t0).toFixed(1)}ms`);
+      return;
+    }
     for (const handler of [...handlers]) {
       handler(filePath);
     }

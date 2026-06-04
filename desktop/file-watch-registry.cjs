@@ -39,6 +39,11 @@ function createFileWatchRegistry({ watch, notifySubscriber, debounceMs = 50 } = 
 
   function closeEntry(fileKey, entry) {
     if (entry.debounceTimer) clearTimeout(entry.debounceTimer);
+    // 顺手清掉 adapter 挂的兜底 poll 定时器
+    if (entry.watcher?._hanaPollTimer) {
+      try { clearInterval(entry.watcher._hanaPollTimer); } catch {}
+      entry.watcher._hanaPollTimer = null;
+    }
     try { entry.watcher?.close?.(); } catch {}
     entries.delete(fileKey);
   }

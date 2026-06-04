@@ -442,15 +442,21 @@ export async function callText({
     }));
   }, SLOW_THRESHOLD_MS);
 
+  const DIAG = process.env.HANA_DIAG === "1";
+  const t0 = Date.now();
+  if (DIAG) console.log(`[llm] request start provider=${provider} model=${modelId} api=${api} endpoint=${endpoint} messages=${normalizedMessages.length}`);
+
   const res = await fetch(endpoint, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
     signal: combinedSignal,
   }).catch(err => {
+    if (DIAG) console.log(`[llm] request FAIL elapsed=${Date.now() - t0}ms err=${err?.message || err}`);
     clearTimeout(slowTimer);
     throwAbortOrTimeout(err, signal, modelId);
   });
+  if (DIAG) console.log(`[llm] request headers received elapsed=${Date.now() - t0}ms status=${res.status} contentType=${res.headers.get('content-type') || '?'}`);
 
   // ── 5. 解析响应 ──
   let rawText;
@@ -475,6 +481,7 @@ export async function callText({
     }
   }
   observedUsagePayload = data?.usage ?? null;
+  if (DIAG) console.log(`[llm] response parsed elapsed=${Date.now() - t0}ms usageTokens=${observedUsagePayload ? (observedUsagePayload.total_tokens ?? '?') : '?'}`);
 
   if (!res.ok) {
     const message = data?.error?.message || data?.message || rawText || `HTTP ${res.status}`;

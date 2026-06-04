@@ -126,11 +126,14 @@ export function PreviewPanel() {
 
   const handleEditorContentChange = useCallback((content: string, fileVersion?: PreviewItem['fileVersion']) => {
     if (!previewItem) return;
+    const DIAG = (typeof window !== 'undefined' && (window as any).__HANA_DIAG__ === true);
+    const t0 = performance.now();
     upsertPreviewItem({
       ...previewItem,
       content,
       fileVersion: fileVersion === undefined ? previewItem.fileVersion : fileVersion,
     });
+    if (DIAG) console.log(`[preview] upsertPreviewItem elapsed=${(performance.now() - t0).toFixed(2)}ms len=${content.length}`);
   }, [previewItem]);
 
   const handleEditorStatsChange = useCallback((stats: PreviewEditorStats) => {
