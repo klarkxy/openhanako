@@ -42,6 +42,7 @@ import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
 import { createTextFileTool } from "../lib/tools/text-file-tool.js";
+import { createApplyPatchTool } from "../lib/tools/apply-patch.js";
 import { createWorkflowTool } from "../lib/tools/workflow-tool.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
@@ -134,6 +135,7 @@ export class Agent {
     this._currentStatusTool = null;
     this._terminalTool = null;
     this._textFileTool = null;
+    this._applyPatchTool = null;
 
     /**
      * 外部回调注入（由 AgentManager._createAgentInstance 填充）。
@@ -409,7 +411,10 @@ export class Agent {
 
     // 文本文件主工具（read/write/replace/insert/delete/batch 等）
     this._textFileTool = createTextFileTool({
-      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
+      g
+
+    // unified diff 补丁应用工具
+    this._applyPatchTool = createApplyPatchTool();etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
 
@@ -726,6 +731,7 @@ export class Agent {
       this._subagentTool,
       this._subagentReplyTool,
       this._textFileTool,
+      this._applyPatchTool,
       this._subagentCloseTool,
       this._workflowTool,
       this._checkDeferredTool,
