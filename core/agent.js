@@ -44,6 +44,7 @@ import { createTerminalTool } from "../lib/tools/terminal-tool.js";
 import { createTextFileTool } from "../lib/tools/text-file-tool.js";
 import { createApplyPatchTool } from "../lib/tools/apply-patch.js";
 import { createJsonQueryTool } from "../lib/tools/json-query-tool.js";
+import { createLlmRequestTool } from "../lib/tools/llm-request-tool.js";
 import { createWorkflowTool } from "../lib/tools/workflow-tool.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
@@ -136,7 +137,8 @@ export class Agent {
     this._currentStatusTool = null;
     this._terminalTool = null;
     this._textFileTool = null;
-    this._applyPatchTool = null;
+    this._applyPatchTool = null
+    this._llmRequestTool = null;;
     this._jsonQueryTool = null;
 
     /**
@@ -419,7 +421,15 @@ export class Agent {
 
     // JSON / YAML 点路径查询
     this._jsonQueryTool = createJsonQueryTool({
-      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
+      g
+
+    // 独立 LLM 请求（无 tools/skills）
+    this._llmRequestTool = createLlmRequestTool({
+      resolveUtilityConfig: () => this._cb?.resolveUtilityConfig?.(),
+      getAvailableModels: () => this._cb?.getEngine?.()?.availableModels || [],
+      resolveModelWithCredentials: (ref) => this._cb?.getEngine?.()?.resolveModelWithCredentials?.(ref) || null,
+      getAgentConfig: () => this._cb?.getEngine?.()?.getAgentConfig?.() || null,
+    });etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
     this._applyPatchTool = createApplyPatchTool();etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });etCwd: () => this._cb?.getCwd?.() || this.agentDir,
@@ -735,6 +745,7 @@ export class Agent {
       this._stopTaskTool,
       this._updateSettingsTool,
       this._jsonQueryTool,
+      this._llmRequestTool,
       this._sessionFoldersTool,
       this._subagentTool,
       this._subagentReplyTool,

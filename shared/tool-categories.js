@@ -34,6 +34,7 @@ export const STANDARD_TOOL_NAMES = [
   "text_file",
   "apply_patch",
   "json_query",
+  "llm_request",
   "subagent",
   "subagent_reply",
   "subagent_close",
