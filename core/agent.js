@@ -41,6 +41,7 @@ import { createCheckDeferredTool } from "../lib/tools/check-deferred-tool.js";
 import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
+import { createTextFileTool } from "../lib/tools/text-file-tool.js";
 import { createWorkflowTool } from "../lib/tools/workflow-tool.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
@@ -132,6 +133,7 @@ export class Agent {
     this._workflowTool = null;
     this._currentStatusTool = null;
     this._terminalTool = null;
+    this._textFileTool = null;
 
     /**
      * 外部回调注入（由 AgentManager._createAgentInstance 填充）。
@@ -403,7 +405,12 @@ export class Agent {
     this._terminalTool = createTerminalTool({
       getTerminalSessionManager: () => this._cb?.getTerminalSessionManager?.(),
       getAgentId: () => this.id,
+      g
+
+    // 文本文件主工具（read/write/replace/insert/delete/batch 等）
+    this._textFileTool = createTextFileTool({
       getCwd: () => this._cb?.getCwd?.() || this.agentDir,
+    });etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
 
     // 10. 设置修改工具
@@ -718,6 +725,7 @@ export class Agent {
       this._sessionFoldersTool,
       this._subagentTool,
       this._subagentReplyTool,
+      this._textFileTool,
       this._subagentCloseTool,
       this._workflowTool,
       this._checkDeferredTool,
