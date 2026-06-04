@@ -43,6 +43,7 @@ import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
 import { createTerminalTool } from "../lib/tools/terminal-tool.js";
 import { createTextFileTool } from "../lib/tools/text-file-tool.js";
 import { createApplyPatchTool } from "../lib/tools/apply-patch.js";
+import { createJsonQueryTool } from "../lib/tools/json-query-tool.js";
 import { createWorkflowTool } from "../lib/tools/workflow-tool.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
@@ -136,6 +137,7 @@ export class Agent {
     this._terminalTool = null;
     this._textFileTool = null;
     this._applyPatchTool = null;
+    this._jsonQueryTool = null;
 
     /**
      * 外部回调注入（由 AgentManager._createAgentInstance 填充）。
@@ -414,6 +416,11 @@ export class Agent {
       g
 
     // unified diff 补丁应用工具
+
+    // JSON / YAML 点路径查询
+    this._jsonQueryTool = createJsonQueryTool({
+      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
+    });
     this._applyPatchTool = createApplyPatchTool();etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
@@ -727,6 +734,7 @@ export class Agent {
       this._notifyTool,
       this._stopTaskTool,
       this._updateSettingsTool,
+      this._jsonQueryTool,
       this._sessionFoldersTool,
       this._subagentTool,
       this._subagentReplyTool,
