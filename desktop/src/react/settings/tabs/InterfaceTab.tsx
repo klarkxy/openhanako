@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSettingsStore } from '../store';
 import { t, VALID_THEMES, autoSaveConfig } from '../helpers';
 import { SelectWidget } from '@/ui';
@@ -24,6 +24,8 @@ import {
   normalizeFontSelectionId,
   serifFromFontPresetId,
 } from '../../utils/font-presets';
+import { CUSTOM_FONT_STORAGE_KEY } from '../../../shared/theme';
+import type { SystemFontInfo } from '../../types';
 import styles from '../Settings.module.css';
 import registry from '../../../shared/theme-registry';
 
@@ -51,16 +53,36 @@ interface AppearancePrefs {
   paperTextureEnabled: boolean;
   paperTextureBlocked: boolean;
   leavesOverlayEnabled: boolean;
+  customFontFamily: string;
+  customUiFontFamily: string;
+}
+
+function readCustomFontFamilies(): { serifFamily: string; uiFamily: string } {
+  try {
+    const raw = localStorage.getItem(CUSTOM_FONT_STORAGE_KEY);
+    if (!raw) return { serifFamily: '', uiFamily: '' };
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return { serifFamily: '', uiFamily: '' };
+    return {
+      serifFamily: typeof obj.serifFamily === 'string' ? obj.serifFamily : '',
+      uiFamily: typeof obj.uiFamily === 'string' ? obj.uiFamily : '',
+    };
+  } catch {
+    return { serifFamily: '', uiFamily: '' };
+  }
 }
 
 function readAppearancePrefs(): AppearancePrefs {
   const concreteTheme = document.documentElement.getAttribute('data-theme');
+  const customFonts = readCustomFontFamilies();
   return {
     currentTheme: registry.migrateSavedTheme(localStorage.getItem(registry.STORAGE_KEY)),
     serifEnabled: localStorage.getItem('hana-font-serif') !== '0',
     paperTextureEnabled: isPaperTextureEnabled(localStorage),
     paperTextureBlocked: isPaperTextureBlockedTheme(concreteTheme),
     leavesOverlayEnabled: localStorage.getItem('hana-leaves-overlay') === '1',
+    customFontFamily: customFonts.serifFamily,
+    customUiFontFamily: customFonts.uiFamily,
   };
 }
 
@@ -95,6 +117,8 @@ export function InterfaceTab() {
     paperTextureEnabled,
     paperTextureBlocked,
     leavesOverlayEnabled,
+    customFontFamily,
+    customUiFontFamily,
   } = appearancePrefs;
   const readingFontPresetId = fontPresetIdFromSerif(serifEnabled);
   const editorTypography = useMemo(
@@ -146,6 +170,60 @@ export function InterfaceTab() {
 
     useSettingsStore.setState({ settingsConfig: previousConfig });
   };
+
+  const saveCustomFont = useCallback(async (patch: { serifFamily?: string | null; uiFamily?: string | null }) => {
+    const previous = readCustomFontFamilies();
+    const nextSerif = patch.serifFamily === undefined ? previous.serifFamily : (patch.serifFamily || '');
+    const nextUi = patch.uiFamily === undefined ? previous.uiFamily : (patch.uiFamily || '');
+    window.setCustomFont?.({ serifFamily: nextSerif || null, uiFamily: nextUi || null });
+    refreshAppearancePrefs();
+    try {
+      await persistAppearancePreferences({
+        customFontFamily: nextSerif,
+        customUiFontFamily: nextUi,
+      });
+      useSettingsStore.getState().showToast(t('settings.autoSaved'), 'success');
+    } catch (err) {
+      console.warn('[settings] custom font sync failed:', err);
+    }
+  }, [refreshAppearancePrefs]);
+
+  // 系统字体列表：首次进入设置页时按需加载；user 可点刷新按钮重扫（新增/卸载字体后用）。
+  const [systemFonts, setSystemFonts] = useState<SystemFontInfo[]>([]);
+  const [systemFontsLoading, setSystemFontsLoading] = useState(false);
+  const [systemFontsError, setSystemFontsError] = useState<string | null>(null);
+  const loadSystemFonts = useCallback(async (force = false) => {
+    if (!platform?.listSystemFonts) return;
+    setSystemFontsLoading(true);
+    setSystemFontsError(null);
+    try {
+      if (force) await platform.clearSystemFontCache?.();
+      const fonts = await platform.listSystemFonts();
+      setSystemFonts(Array.isArray(fonts) ? fonts : []);
+    } catch (err: any) {
+      setSystemFontsError(err?.message || String(err));
+      setSystemFonts([]);
+    } finally {
+      setSystemFontsLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void loadSystemFonts();
+  }, [loadSystemFonts]);
+  const systemFontOptions = useMemo(() => {
+    const opts = systemFonts.map((f) => ({ value: f.name, label: f.name }));
+    return [
+      { value: '__placeholder__', label: t('settings.fonts.systemPickerPlaceholder'), disabled: true },
+      ...opts,
+    ];
+  }, [systemFonts]);
+  const handleSystemFontPick = useCallback((value: string) => {
+    if (!value || value === '__placeholder__') return;
+    void saveCustomFont({ serifFamily: value, uiFamily: value });
+  }, [saveCustomFont]);
+  const handleClearCustomFont = useCallback(() => {
+    void saveCustomFont({ serifFamily: '', uiFamily: '' });
+  }, [saveCustomFont]);
 
   const locale = settingsConfig?.locale || 'zh-CN';
   const localeVal = ['zh-CN', 'zh-TW', 'ja', 'ko', 'en'].includes(locale) ? locale
@@ -225,6 +303,111 @@ export function InterfaceTab() {
             </button>
           ))}
         </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title={t('settings.appearance.customFont')}
+        description={t('settings.appearance.customFontHint')}
+      >
+        <SettingsRow
+          label={t('settings.appearance.customFontSerif')}
+          hint={t('settings.appearance.customFontSerifHint')}
+          control={
+            <input
+              type="text"
+              className={styles['cml-edit-panel-input']}
+              value={customFontFamily}
+              placeholder={t('settings.appearance.customFontPlaceholder')}
+              onChange={(e) => {
+                const value = e.target.value;
+                window.setCustomFont?.({ serifFamily: value || null });
+                setAppearancePrefs((prev) => ({ ...prev, customFontFamily: value }));
+              }}
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                void saveCustomFont({ serifFamily: value || null });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                else if (e.key === 'Escape') {
+                  (e.target as HTMLInputElement).value = customFontFamily;
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.appearance.customFontUi')}
+          hint={t('settings.appearance.customFontUiHint')}
+          control={
+            <input
+              type="text"
+              className={styles['cml-edit-panel-input']}
+              value={customUiFontFamily}
+              placeholder={t('settings.appearance.customFontPlaceholder')}
+              onChange={(e) => {
+                const value = e.target.value;
+                window.setCustomFont?.({ uiFamily: value || null });
+                setAppearancePrefs((prev) => ({ ...prev, customUiFontFamily: value }));
+              }}
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                void saveCustomFont({ uiFamily: value || null });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                else if (e.key === 'Escape') {
+                  (e.target as HTMLInputElement).value = customUiFontFamily;
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.fonts.systemPicker')}
+          hint={
+            systemFontsError
+              ? t('settings.fonts.systemPickerError', { error: systemFontsError })
+              : systemFontsLoading
+                ? t('settings.fonts.systemPickerLoading')
+                : t('settings.fonts.systemPickerHint', { count: systemFonts.length })
+          }
+          control={
+            <div className={styles['cml-combo']}>
+              <SelectWidget
+                options={systemFontOptions}
+                value="__placeholder__"
+                onChange={handleSystemFontPick}
+                disabled={systemFontsLoading || systemFonts.length === 0}
+              />
+              <button
+                type="button"
+                className={styles['cml-combo-toggle']}
+                onClick={() => void loadSystemFonts(true)}
+                disabled={systemFontsLoading}
+                title={t('settings.fonts.systemPickerRefresh')}
+              >
+                ↻
+              </button>
+            </div>
+          }
+        />
+        <SettingsRow
+          label={t('settings.fonts.customFontReset')}
+          hint={t('settings.fonts.customFontResetHint')}
+          control={
+            <button
+              type="button"
+              className={styles['cml-combo-toggle']}
+              onClick={handleClearCustomFont}
+              disabled={!customFontFamily && !customUiFontFamily}
+            >
+              {t('settings.fonts.customFontResetAction')}
+            </button>
+          }
+        />
       </SettingsSection>
 
       <SettingsSection title={t('settings.appearance.title')}>

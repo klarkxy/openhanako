@@ -419,6 +419,15 @@ function emitAppearanceEvents(engine, before, appearance) {
   if (typeof appearance.serif === "boolean" && appearance.serif !== before.serif) {
     emitAppEvent(engine, "font-changed", { serif: appearance.serif });
   }
+  if (
+    (typeof appearance.customFontFamily === "string" && appearance.customFontFamily !== before.customFontFamily)
+    || (typeof appearance.customUiFontFamily === "string" && appearance.customUiFontFamily !== before.customUiFontFamily)
+  ) {
+    emitAppEvent(engine, "font-custom-changed", {
+      customFontFamily: appearance.customFontFamily ?? null,
+      customUiFontFamily: appearance.customUiFontFamily ?? null,
+    });
+  }
   if (typeof appearance.paperTexture === "boolean" && appearance.paperTexture !== before.paperTexture) {
     emitAppEvent(engine, "paper-texture-changed", { enabled: appearance.paperTexture });
   }

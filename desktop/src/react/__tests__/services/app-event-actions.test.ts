@@ -86,6 +86,7 @@ describe('handleAppEvent', () => {
     (globalThis as Record<string, unknown>).window = {
       setTheme: vi.fn(),
       setSerifFont: vi.fn(),
+      setCustomFont: vi.fn(),
       setPaperTexture: vi.fn(),
       dispatchEvent: vi.fn(),
     };
@@ -258,6 +259,20 @@ describe('handleAppEvent', () => {
     handleAppEvent('theme-changed', { theme: 'moon' });
 
     expect((globalThis as any).window.setTheme).toHaveBeenCalledWith('moon');
+  });
+
+  it('font-custom-changed applies the custom font to the renderer', async () => {
+    const { handleAppEvent } = await import('../../services/app-event-actions');
+
+    handleAppEvent('font-custom-changed', {
+      customFontFamily: 'Microsoft YaHei',
+      customUiFontFamily: null,
+    });
+
+    expect((globalThis as any).window.setCustomFont).toHaveBeenCalledWith({
+      serifFamily: 'Microsoft YaHei',
+      uiFamily: undefined,
+    });
   });
 
   it('editor-typography-changed applies editor typography settings', async () => {

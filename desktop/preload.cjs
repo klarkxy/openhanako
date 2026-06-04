@@ -67,6 +67,9 @@ contextBridge.exposeInMainWorld("hana", {
   getFileUrl: (filePath) => pathToFileUrl(filePath),
   readDocxHtml: (path) => ipcRenderer.invoke("read-docx-html", path),
   readXlsxHtml: (path) => ipcRenderer.invoke("read-xlsx-html", path),
+  // 系统字体库枚举（仅返回 {name, path, extension}，不读文件内容）
+  listSystemFonts: () => ipcRenderer.invoke("list-system-fonts"),
+  clearSystemFontCache: () => ipcRenderer.invoke("clear-system-font-cache"),
   getFilePath: (file) => webUtils.getPathForFile(file),
   getAvatarPath: (role) => ipcRenderer.invoke("get-avatar-path", role),
   getSplashInfo: () => ipcRenderer.invoke("get-splash-info"),

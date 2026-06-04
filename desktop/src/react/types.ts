@@ -104,6 +104,13 @@ export interface ChannelMessage {
   body: string;
 }
 
+/** 系统字体枚举项（Electron IPC 返回）。 */
+export interface SystemFontInfo {
+  name: string;
+  path: string;
+  extension: 'ttf' | 'otf' | 'ttc' | 'otc' | 'woff' | 'woff2';
+}
+
 export interface AgentPhoneActivity {
   conversationId: string;
   conversationType: 'channel' | 'dm';
@@ -306,6 +313,10 @@ export interface PlatformApi {
   getFileUrl?(path: string): string;
   readDocxHtml(path: string): Promise<string | null>;
   readXlsxHtml(path: string): Promise<string | null>;
+  /** 列出系统已安装字体（仅返回 {name, path, extension}，不读文件内容）。 */
+  listSystemFonts?(): Promise<SystemFontInfo[]>;
+  /** 强制清空主进程内系统字体缓存，下次 listSystemFonts 重新扫描。 */
+  clearSystemFontCache?(): Promise<boolean>;
   /** 派生一个只读 Viewer 窗口展示指定文件。返回 windowId（主进程 BrowserWindow.id）。 */
   spawnViewer(data: { filePath: string; title: string; type: string; language?: string | null }): Promise<number | null>;
   /** Viewer 窗口接收文件元信息（viewer-window-entry 调用）。 */

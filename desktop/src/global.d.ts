@@ -33,6 +33,12 @@ declare global {
     loadSavedTheme: () => void;
     setSerifFont: (enabled: boolean) => void;
     loadSavedFont: () => void;
+    /**
+     * 应用用户自定义字体：传入空字符串清除并回退到主题默认。
+     * 阅读体（serif）与界面体（sans）独立；任一为空字符串表示该项回退。
+     */
+    setCustomFont: (input: { serifFamily?: string | null; uiFamily?: string | null }) => void;
+    loadSavedCustomFont: () => void;
     setPaperTexture: (enabled: boolean) => void;
     loadSavedPaperTexture: () => void;
 
@@ -57,9 +63,11 @@ declare global {
   // 覆盖 bootstrap.ts 里所有 6 个有裸调用点的函数（applyTheme 无裸调用点，不在此列）
   function loadSavedTheme(): void;
   function loadSavedFont(): void;
+  function loadSavedCustomFont(): void;
   function loadSavedPaperTexture(): void;
   function setTheme(theme: string): void;
   function setSerifFont(enabled: boolean): void;
+  function setCustomFont(input: { serifFamily?: string | null; uiFamily?: string | null }): void;
   function setPaperTexture(enabled: boolean): void;
 }
 

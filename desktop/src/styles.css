@@ -51,9 +51,13 @@
     --ease-in:       cubic-bezier(0.7, 0, 0.84, 0);
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
-    /* 字体默认值：主题 CSS 可 override */
-    --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-    --font-serif: 'EB Garamond', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', serif;
+    /* 字体默认值：主题 CSS 可 override。
+       --font-user-serif / --font-user-ui 由 setCustomFont 在 :root 上设置；
+       主题默认字体在前，回退栈里靠后；空字符串时整个变量塌缩到主题默认。 */
+    --font-user-serif: ;
+    --font-user-ui: ;
+    --font-ui: var(--font-user-ui, 'Inter'), -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-serif: var(--font-user-serif, 'EB Garamond'), 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong', serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
     /* 编辑器默认排版：用户设置写入同名变量，主题仍可覆盖初始值 */

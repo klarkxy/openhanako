@@ -78,4 +78,32 @@ describe('PreferencesManager editor typography preferences', () => {
       paperTexture: false,
     });
   });
+
+  it('stores user-provided custom font family strings after sanitization', () => {
+    const prefs = makePrefs();
+
+    prefs.setAppearance({
+      customFontFamily: '  Microsoft YaHei  ',
+      customUiFontFamily: 'Inter, "Helvetica Neue", sans-serif',
+    });
+
+    expect(prefs.getAppearance()).toEqual({
+      customFontFamily: 'Microsoft YaHei',
+      customUiFontFamily: 'Inter, "Helvetica Neue", sans-serif',
+    });
+  });
+
+  it('rejects custom font family values that contain CSS-injection characters', () => {
+    const prefs = makePrefs();
+
+    prefs.setAppearance({
+      customFontFamily: 'Inter; body { display: none }',
+      customUiFontFamily: 'Comic Sans\n@font-face { src: url("evil.ttf") }',
+    });
+
+    // 注入部分被剥离或整体被拒，落在安全子集里
+    const { customFontFamily, customUiFontFamily } = prefs.getAppearance();
+    expect(customFontFamily ?? '').not.toMatch(/[{;<>\n\\]/);
+    expect(customUiFontFamily ?? '').not.toMatch(/[{;<>\n\\]/);
+  });
 });

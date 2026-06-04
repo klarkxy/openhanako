@@ -3673,6 +3673,177 @@ wrapIpcHandler("read-file-base64", (_event, filePath) => {
   } catch { return null; }
 });
 
+// ── 系统字体库枚举 ──
+//
+// 渲染端通过 window.hana.listSystemFonts() 拿到 [{ name, path }, ...]，
+// 供"自定义字体"下拉选择使用。文件本身不读取，只扫描文件名 → 推断 family。
+// 结果在主进程内短期缓存，避免每次打开设置页都重扫全盘。
+
+const FONT_EXTENSIONS = new Set([".ttf", ".otf", ".ttc", ".otc", ".woff", ".woff2"]);
+
+// 已知 Windows 字体文件名 → 人类可读 family 名称。
+// 完整映射见 Windows 10/11 默认安装集。TTC 多 family 文件按索引列出常见名称。
+const WINDOWS_FONT_NAME_HINTS = new Map([
+  ["msyh", "Microsoft YaHei"],
+  ["msyhbd", "Microsoft YaHei Bold"],
+  ["msyhl", "Microsoft YaHei Light"],
+  ["simsun", "SimSun"],
+  ["simsunb", "SimSun-ExtB"],
+  ["simkai", "KaiTi"],
+  ["simhei", "SimHei"],
+  ["simfang", "FangSong"],
+  ["msjh", "Microsoft JhengHei"],
+  ["msjhbd", "Microsoft JhengHei Bold"],
+  ["arial", "Arial"],
+  ["arialbd", "Arial Bold"],
+  ["arialbi", "Arial Bold Italic"],
+  ["ariali", "Arial Italic"],
+  ["ariblk", "Arial Black"],
+  ["calibri", "Calibri"],
+  ["calibrib", "Calibri Bold"],
+  ["calibrii", "Calibri Italic"],
+  ["calibril", "Calibri Light"],
+  ["consola", "Consolas"],
+  ["consolab", "Consolas Bold"],
+  ["cour", "Courier New"],
+  ["georgia", "Georgia"],
+  ["georgiab", "Georgia Bold"],
+  ["impact", "Impact"],
+  ["seguisb", "Segoe UI Semibold"],
+  ["seguibl", "Segoe UI Black"],
+  ["seguiemj", "Segoe UI Emoji"],
+  ["segoeui", "Segoe UI"],
+  ["segoeuib", "Segoe UI Bold"],
+  ["segoeuii", "Segoe UI Italic"],
+  ["tahoma", "Tahoma"],
+  ["times", "Times New Roman"],
+  ["timesbd", "Times New Roman Bold"],
+  ["trebuc", "Trebuchet MS"],
+  ["verdana", "Verdana"],
+  ["verdanab", "Verdana Bold"],
+  ["yumin", "Yu Mincho"],
+  ["msmincho", "MS Mincho"],
+  ["msgothic", "MS Gothic"],
+  ["malgun", "Malgun Gothic"],
+  ["malgunbd", "Malgun Gothic Bold"],
+]);
+
+// TTC 多 family 文件 → family 列表（按常见 ttc 内字体顺序）。
+// 真要 100% 准确需要解析 ttc 偏移表；这里只覆盖 Windows 字体面板里"最显眼"的若干组合。
+const WINDOWS_TTC_FAMILIES = new Map([
+  ["msyh", ["Microsoft YaHei", "Microsoft YaHei UI"]],
+  ["msjh", ["Microsoft JhengHei", "Microsoft JhengHei UI"]],
+  ["simsun", ["SimSun", "NSimSun", "SimSun-ExtB"]],
+]);
+
+function humanizeFontFileName(fileName) {
+  // 1) 精确表里命中 → 优先
+  const stem = fileName.toLowerCase().replace(/\.[a-z0-9]+$/i, "");
+  if (WINDOWS_FONT_NAME_HINTS.has(stem)) return WINDOWS_FONT_NAME_HINTS.get(stem);
+
+  // 2) TTC 多 family 文件
+  for (const [prefix, families] of WINDOWS_TTC_FAMILIES.entries()) {
+    if (stem.startsWith(prefix)) return families[0];
+  }
+
+  // 3) 通用启发式：NotoSansSC-Regular → Noto Sans SC
+  const dash = stem
+    .replace(/[-_]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+  // 去掉多余的后缀词（regular, bold, italic, light, medium, semibold, black, extralight, thin）
+  const cleaned = dash.replace(
+    /\b(regular|bold|italic|oblique|light|medium|semibold|black|extralight|thin|variable)\b/gi,
+    "",
+  ).replace(/\s+/g, " ").trim();
+
+  if (cleaned) return cleaned
+    .split(" ")
+    .map((word) => word.length === 0 ? "" : word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+  return fileName;
+}
+
+function listSystemFontDirs() {
+  const home = os.homedir();
+  switch (process.platform) {
+    case "win32": {
+      const dirs = [path.join(process.env.WINDIR || "C:\\Windows", "Fonts")];
+      const localApp = process.env.LOCALAPPDATA;
+      if (localApp) dirs.push(path.join(localApp, "Microsoft", "Windows", "Fonts"));
+      return dirs;
+    }
+    case "darwin":
+      return [
+        path.join(home, "Library", "Fonts"),
+        "/Library/Fonts",
+        "/System/Library/Fonts",
+      ];
+    default: {
+      // linux + 其他 unix
+      const homeDirs = [path.join(home, ".fonts"), path.join(home, ".local", "share", "fonts")];
+      const dataHome = process.env.XDG_DATA_HOME;
+      if (dataHome) homeDirs.push(path.join(dataHome, "fonts"));
+      return [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        "/usr/share/fonts/truetype",
+        ...homeDirs,
+      ];
+    }
+  }
+}
+
+let _systemFontCache = null;
+let _systemFontCacheAt = 0;
+const SYSTEM_FONT_CACHE_TTL_MS = 60_000;
+
+function scanSystemFonts() {
+  const now = Date.now();
+  if (_systemFontCache && now - _systemFontCacheAt < SYSTEM_FONT_CACHE_TTL_MS) {
+    return _systemFontCache;
+  }
+  const seen = new Set();
+  const out = [];
+  for (const dir of listSystemFontDirs()) {
+    let entries = null;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch { continue; }
+    for (const entry of entries) {
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!FONT_EXTENSIONS.has(ext)) continue;
+      const full = path.join(dir, entry.name);
+      const name = humanizeFontFileName(entry.name);
+      const key = `${name}::${ext}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name, path: full, extension: ext.slice(1) });
+    }
+  }
+  // 按 family 名称排序
+  out.sort((a, b) => a.name.localeCompare(b.name, "en"));
+  _systemFontCache = out;
+  _systemFontCacheAt = now;
+  return out;
+}
+
+wrapIpcHandler("list-system-fonts", () => {
+  try {
+    return scanSystemFonts();
+  } catch (err) {
+    return [];
+  }
+});
+
+wrapIpcHandler("clear-system-font-cache", () => {
+  _systemFontCache = null;
+  _systemFontCacheAt = 0;
+  return true;
+});
+
 // 读取 docx 文件并转为 HTML（mammoth）
 wrapIpcHandler("read-docx-html", async (_event, filePath) => {
   if (!filePath || !path.isAbsolute(filePath)) return null;

@@ -246,6 +246,19 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
     case 'font-changed':
       window.setSerifFont(data.serif);
       break;
+    case 'font-custom-changed':
+      if (data && typeof data === 'object') {
+        const payload = data as { customFontFamily?: unknown; customUiFontFamily?: unknown };
+        const serifFamily = typeof payload.customFontFamily === 'string' ? payload.customFontFamily : null;
+        const uiFamily = typeof payload.customUiFontFamily === 'string' ? payload.customUiFontFamily : null;
+        if (serifFamily !== null || uiFamily !== null) {
+          window.setCustomFont?.({
+            serifFamily: serifFamily ?? undefined,
+            uiFamily: uiFamily ?? undefined,
+          });
+        }
+      }
+      break;
     case 'editor-typography-changed':
       applyEditorTypography(data.editor ?? data);
       break;

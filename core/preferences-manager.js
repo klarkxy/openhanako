@@ -664,6 +664,21 @@ function normalizeBridgeMediaPublicBaseUrl(value) {
   return raw.replace(/\/+$/, "");
 }
 
+// CSS font-family 值允许的字符：字母、数字、空格、常见标点。
+// 拒绝 `;` `{}` `<>` `\\` 等会逃逸出 CSS 声明或注入规则的内容。
+const FONT_FAMILY_ALLOWED = /^[A-Za-z0-9\s,.'"!?_\-\u00A0-\uFFFF/&:()]+$/;
+
+function sanitizeFontFamily(value) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > 200) return undefined;
+  // 多行 / 控制字符一律拒绝
+  if (/[\r\n\u0000-\u001F\u007F]/.test(trimmed)) return undefined;
+  if (!FONT_FAMILY_ALLOWED.test(trimmed)) return undefined;
+  return trimmed;
+}
+
 function normalizeAppearance(value) {
   const src = value && typeof value === "object" ? value : {};
   const out = {};
@@ -671,5 +686,9 @@ function normalizeAppearance(value) {
   if (typeof src.serif === "boolean") out.serif = src.serif;
   if (typeof src.paperTexture === "boolean") out.paperTexture = src.paperTexture;
   if (typeof src.leavesOverlay === "boolean") out.leavesOverlay = src.leavesOverlay;
+  const customFontFamily = sanitizeFontFamily(src.customFontFamily);
+  if (customFontFamily) out.customFontFamily = customFontFamily;
+  const customUiFontFamily = sanitizeFontFamily(src.customUiFontFamily);
+  if (customUiFontFamily) out.customUiFontFamily = customUiFontFamily;
   return out;
 }
