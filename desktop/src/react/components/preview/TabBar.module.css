@@ -102,3 +102,30 @@
     opacity: 1;
     background: var(--overlay-light);
 }
+
+.refreshButton {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    color: var(--text-muted);
+    cursor: default;
+    flex-shrink: 0;
+    border: none;
+    background: none;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+    transition: opacity var(--duration-instant), background var(--duration-instant);
+}
+
+.refreshButton:hover {
+    opacity: 1;
+    background: var(--overlay-light);
+}
+
+.refreshButton:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}

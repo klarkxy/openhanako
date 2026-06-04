@@ -1,6 +1,7 @@
 import { useStore } from '../../stores';
 import { selectPreviewItems, selectOpenTabs, selectActiveTabId } from '../../stores/preview-slice';
 import { closeTab, closePreview, setActiveTab } from '../../stores/preview-actions';
+import { useI18n } from '../../hooks/use-i18n';
 import type { PreviewItem } from '../../types';
 import styles from './TabBar.module.css';
 
@@ -11,10 +12,16 @@ function wheelDeltaToPixels(event: React.WheelEvent<HTMLElement>): number {
   return dominantDelta;
 }
 
-export function TabBar() {
+interface TabBarProps {
+  onRefresh?: () => void;
+  refreshDisabled?: boolean;
+}
+
+export function TabBar({ onRefresh, refreshDisabled = false }: TabBarProps = {}) {
   const openTabs = useStore(selectOpenTabs);
   const activeTabId = useStore(selectActiveTabId);
   const previewItems = useStore(selectPreviewItems);
+  const { t } = useI18n();
 
   const getPreviewItem = (id: string): PreviewItem | undefined =>
     previewItems.find((item: PreviewItem) => item.id === id);
@@ -77,6 +84,20 @@ export function TabBar() {
           </div>
         ))}
       </div>
+      <button
+        className={styles.refreshButton}
+        title={t('preview.refreshFromDisk') || 'Refresh from disk'}
+        aria-label={t('preview.refreshFromDisk') || 'Refresh from disk'}
+        onClick={onRefresh}
+        disabled={refreshDisabled || !onRefresh}
+        data-testid="preview-refresh-button"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="23 4 23 10 17 10" />
+          <polyline points="1 20 1 14 7 14" />
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+        </svg>
+      </button>
       <button className={styles.closePanel} title="Collapse" onClick={closePreview}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="9 18 15 12 9 6" />

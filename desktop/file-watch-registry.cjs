@@ -67,6 +67,9 @@ function createFileWatchRegistry({ watch, notifySubscriber, debounceMs = 50 } = 
         current.debounceTimer = null;
         const latest = entries.get(fileKey);
         if (!latest) return;
+        if (process.env.HANA_FILEWATCH_TRACE === '1') {
+          console.log(`[filewatch-trace] notify ${latest.subscribers.size} subscriber(s) for ${latest.filePath}`);
+        }
         for (const subscriberId of [...latest.subscribers]) {
           notifySubscriber(subscriberId, latest.filePath);
         }

@@ -2601,5 +2601,6 @@
   "preview.markdownPreview": "Preview",
   "preview.exitMarkdownPreview": "Back to editing",
   "preview.markdownEditorStatus": "Selected {selected} chars · Total {total} chars",
-  "preview.markdownAttachmentInsertFailed": "Failed to insert attachment"
+  "preview.markdownAttachmentInsertFailed": "Failed to insert attachment",
+  "preview.refreshFromDisk": "Reload from disk"
 }

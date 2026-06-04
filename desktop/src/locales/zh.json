@@ -2601,5 +2601,6 @@
   "preview.markdownPreview": "预览",
   "preview.exitMarkdownPreview": "回到编辑",
   "preview.markdownEditorStatus": "选中 {selected} 字 · 共 {total} 字",
-  "preview.markdownAttachmentInsertFailed": "插入附件失败"
+  "preview.markdownAttachmentInsertFailed": "插入附件失败",
+  "preview.refreshFromDisk": "从磁盘重新加载"
 }

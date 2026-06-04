@@ -143,6 +143,16 @@ export function PreviewPanel() {
     scheduleCaptureSelection(previewItem);
   }, [previewItem, editable]);
 
+  // 手动刷新：跳过 remote-content/无可用 filePath 的 tab
+  const canRefreshFromDisk = !!previewItem
+    && !previewItem.remoteContentRef
+    && previewItem.storageKind !== 'remote-content'
+    && !!previewItem.filePath;
+  const handleManualRefresh = useCallback(() => {
+    if (!previewItem?.filePath) return;
+    void refreshPreviewItemsFromFile(previewItem.filePath);
+  }, [previewItem?.filePath]);
+
   // 切换 tab 时清除选区
   useEffect(() => {
     clearSelection({ sourceKind: 'preview' });
@@ -161,7 +171,7 @@ export function PreviewPanel() {
       <PreviewFileWatchBridge previewItems={previewItems} openTabs={openTabs} />
       <div className="resize-handle resize-handle-left" id="previewResizeHandle"></div>
       <div className={previewStyles.previewPanelInner} data-preview-panel-inner="">
-        <TabBar />
+        <TabBar onRefresh={handleManualRefresh} refreshDisabled={!canRefreshFromDisk} />
         <div className={previewStyles.previewBodyShell} data-preview-body-shell="">
           {previewOpen && previewItem && (
             <FloatingActions

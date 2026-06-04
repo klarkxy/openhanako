@@ -2551,5 +2551,6 @@
   "preview.markdownPreview": "プレビュー",
   "preview.exitMarkdownPreview": "編集に戻る",
   "preview.markdownEditorStatus": "選択 {selected} 文字 · 合計 {total} 文字",
-  "preview.markdownAttachmentInsertFailed": "添付ファイルの挿入に失敗しました"
+  "preview.markdownAttachmentInsertFailed": "添付ファイルの挿入に失敗しました",
+  "preview.refreshFromDisk": "ディスクから再読み込み"
 }

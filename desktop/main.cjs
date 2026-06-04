@@ -3599,12 +3599,18 @@ const _fileWatchRegistry = createFileWatchRegistry({
       _fileWatchRegistry.unwatchAllForSubscriber(subscriberId);
       return;
     }
+    if (process.env.HANA_FILEWATCH_TRACE === '1') {
+      console.log(`[filewatch-trace] send file-changed → wc=${subscriberId} path=${filePath}`);
+    }
     wc.send("file-changed", filePath);
   },
 });
 wrapIpcBestEffortHandler("watch-file", (event, filePath) => {
   if (!filePath || !path.isAbsolute(filePath)) return false;
   const subscriberId = event.sender.id;
+  if (process.env.HANA_FILEWATCH_TRACE === '1') {
+    console.log(`[filewatch-trace] ipc watch-file from wc=${subscriberId} path=${filePath}`);
+  }
   if (!_watchedRendererIds.has(subscriberId)) {
     _watchedRendererIds.add(subscriberId);
     event.sender.once("destroyed", () => {

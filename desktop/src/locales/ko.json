@@ -2551,5 +2551,6 @@
   "preview.markdownPreview": "미리보기",
   "preview.exitMarkdownPreview": "편집으로 돌아가기",
   "preview.markdownEditorStatus": "선택 {selected}자 · 총 {total}자",
-  "preview.markdownAttachmentInsertFailed": "첨부 파일 삽입에 실패했습니다"
+  "preview.markdownAttachmentInsertFailed": "첨부 파일 삽입에 실패했습니다",
+  "preview.refreshFromDisk": "디스크에서 새로 고침"
 }
