@@ -220,7 +220,9 @@
     "screenshotFailed": "截图保存失败",
     "selectedCount": "已选 {count} 条",
     "allDone": "全部完成",
-    "markAllComplete": "全部标记为已完成"
+    "markAllComplete": "全部标记为已完成",
+    "timeout": "已超时",
+    "other": "其他"
   },
   "chat": {
     "send": "发送",
@@ -236,6 +238,14 @@
       "copyPath": "复制文件路径",
       "downloadToDevice": "下载到本机"
     }
+  },
+  "askUser": {
+    "otherLabel": "其他",
+    "otherHint": "（自由输入）",
+    "otherPlaceholder": "请输入你的回答…",
+    "submitted": "已提交",
+    "minHint": "至少 {n} 项",
+    "maxHint": "最多 {n} 项"
   },
   "time": {
     "justNow": "刚刚",

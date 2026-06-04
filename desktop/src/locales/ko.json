@@ -220,7 +220,9 @@
     "screenshotFailed": "스크린샷 저장 실패",
     "selectedCount": "{count}개 선택됨",
     "allDone": "모두 완료",
-    "markAllComplete": "모두 완료로 표시"
+    "markAllComplete": "모두 완료로 표시",
+    "timeout": "시간 초과",
+    "other": "기타"
   },
   "chat": {
     "send": "보내기",
@@ -236,6 +238,14 @@
       "copyPath": "파일 경로 복사",
       "downloadToDevice": "이 기기에 다운로드"
     }
+  },
+  "askUser": {
+    "otherLabel": "기타",
+    "otherHint": "(자유 입력)",
+    "otherPlaceholder": "답변을 입력하세요…",
+    "submitted": "제출됨",
+    "minHint": "최소 {n}개",
+    "maxHint": "최대 {n}개"
   },
   "time": {
     "justNow": "방금",

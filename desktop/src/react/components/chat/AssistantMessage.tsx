@@ -759,6 +759,125 @@ const SettingsUpdateBlock = memo(function SettingsUpdateBlock({ block }: { block
   return <SettingsUpdateCard update={block.update} />;
 });
 
+// ask_user_confirm block — ask_user 工具通过 ConfirmStore 阻塞期间，
+// 由 server emit content_block 推到桌面，前端渲染成单选/多选卡片。
+// 用户点选 → POST /api/confirm/:id value = { mode, selected, custom }
+// → ConfirmStore.resolve() → ask_user tool 的 promise 解除 → LLM 继续。
+const AskUserConfirmBlock = memo(function AskUserConfirmBlock({ block }: { block: any }) {
+  const [status, setStatus] = useState(block.status);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [otherText, setOtherText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const options = Array.isArray(block.options) ? block.options : [];
+  const mode = block.mode === 'multi' ? 'multi' : 'single';
+  const confirmId = block.confirmId;
+  const isPending = status === 'pending';
+
+  const toggle = (label: string) => {
+    if (!isPending || busy) return;
+    if (mode === 'single') {
+      setSelected([label]);
+    } else {
+      setSelected((prev) => prev.includes(label) ? prev.filter(l => l !== label) : [...prev, label]);
+    }
+  };
+
+  const submit = async (action: 'confirmed' | 'rejected', value?: unknown) => {
+    if (!confirmId || busy) return;
+    setBusy(true);
+    try {
+      await hanaFetch(`/api/confirm/${confirmId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, value }),
+      });
+      setStatus(action === 'confirmed' ? 'confirmed' : 'rejected');
+    } catch { /* silent */ }
+    setBusy(false);
+  };
+
+  const handleConfirm = () => {
+    const realLabels = selected.filter(l => l !== '__other__');
+    const value = {
+      mode,
+      selected: mode === 'single' ? (realLabels[0] ?? null) : realLabels,
+      custom: otherText.trim() || null,
+    };
+    submit('confirmed', value);
+  };
+
+  const handleReject = () => submit('rejected');
+
+  // 完成后只显示一行状态摘要
+  if (status !== 'pending') {
+    return (
+      <div className={`${styles.askUserCard} ${styles.askUserCardDone}`}>
+        <div className={styles.askUserQuestion}>{block.question}</div>
+        <div className={`${styles.askUserSummary} ${status === 'confirmed' ? styles.askUserSummaryConfirmed : styles.askUserSummaryRejected}`}>
+          {status === 'confirmed' ? window.t('common.confirm') : window.t('common.rejected')}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.askUserCard}>
+      {block.header ? <div className={styles.askUserHeader}>{block.header}</div> : null}
+      <div className={styles.askUserQuestion}>{block.question}</div>
+      <div className={styles.askUserOptions}>
+        {options.map((opt: any, idx: number) => {
+          const label = String(opt?.label || '');
+          const isSelected = selected.includes(label);
+          return (
+            <button
+              key={`${label}-${idx}`}
+              type="button"
+              className={`${styles.askUserOption} ${isSelected ? styles.askUserOptionSelected : ''}`}
+              onClick={() => toggle(label)}
+              disabled={busy}
+            >
+              <span className={styles.askUserOptionMark}>{isSelected ? '✓' : ''}</span>
+              <span className={styles.askUserOptionBody}>
+                <span className={styles.askUserOptionLabel}>{label}</span>
+                {opt?.description ? <span className={styles.askUserOptionDesc}>{String(opt.description)}</span> : null}
+              </span>
+            </button>
+          );
+        })}
+        <div className={styles.askUserOther}>
+          <input
+            type="text"
+            className={styles.askUserOtherInput}
+            placeholder={window.t('common.other') || 'Other'}
+            value={otherText}
+            onChange={(e) => setOtherText(e.target.value)}
+            disabled={busy}
+          />
+        </div>
+      </div>
+      <div className={styles.askUserActions}>
+        <button
+          type="button"
+          className={`${styles.askUserBtn} ${styles.askUserBtnConfirm}`}
+          onClick={handleConfirm}
+          disabled={busy}
+        >
+          {window.t('common.confirm')}
+        </button>
+        <button
+          type="button"
+          className={`${styles.askUserBtn} ${styles.askUserBtnCancel}`}
+          onClick={handleReject}
+          disabled={busy}
+        >
+          {window.t('common.cancel')}
+        </button>
+      </div>
+    </div>
+  );
+});
+
 // ── 注册所有物种 B 渲染器 ──
 // 注：`file` 与 `screenshot` 需 session 上下文（sessionPath/messageId/blockIdx），
 // 统一走 ContentBlockView 的 switch 内联分发，不注册到全局表中。
@@ -770,3 +889,4 @@ BLOCK_RENDERERS['skill'] = SkillBlock;
 BLOCK_RENDERERS['cron_confirm'] = CronConfirmBlock;
 BLOCK_RENDERERS['settings_confirm'] = SettingsConfirmBlock;
 BLOCK_RENDERERS['settings_update'] = SettingsUpdateBlock;
+BLOCK_RENDERERS['ask_user_confirm'] = AskUserConfirmBlock;

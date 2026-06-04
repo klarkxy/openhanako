@@ -690,7 +690,8 @@ export function handleServerMessage(msg: any): void {
             const blocks = item.data.blocks.map((b: any) => {
               const matchesType = b.type === 'settings_confirm'
                 || b.type === 'cron_confirm'
-                || b.type === 'session_confirmation';
+                || b.type === 'session_confirmation'
+                || b.type === 'ask_user_confirm';
               if (!matchesType || b.confirmId !== msg.confirmId) return b;
               messageChanged = true;
               return { ...b, status: nextStatusFor(b.type) };

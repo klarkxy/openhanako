@@ -642,6 +642,194 @@
 .cronConfirmStatusApproved { color: var(--green); }
 .cronConfirmStatusRejected { color: var(--text-muted); }
 
+/* ── ask_user 确认卡片（单选/多选 + Other 自由输入） ── */
+
+.askUserCard {
+    margin: var(--space-sm) 0;
+    padding: var(--space-md);
+    background: var(--bg-card, #fff);
+    border-radius: var(--radius-chat-card);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    font-size: 0.82rem;
+    width: fit-content;
+    max-width: 420px;
+}
+
+.askUserCardDone {
+    opacity: 0.7;
+}
+
+.askUserHeader {
+    display: inline-block;
+    padding: 2px 8px;
+    margin-bottom: var(--space-xs);
+    background: var(--overlay-light, rgba(0, 0, 0, 0.04));
+    color: var(--text-light);
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.askUserTag {
+    display: inline-block;
+    padding: 2px 8px;
+    margin-bottom: var(--space-xs);
+    background: var(--accent-light, rgba(80, 120, 255, 0.1));
+    color: var(--accent, #4a6bff);
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+}
+
+.askUserQuestion {
+    color: var(--text);
+    font-weight: 500;
+    line-height: 1.45;
+    margin-bottom: var(--space-sm);
+    white-space: pre-wrap;
+}
+
+.askUserOptions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-sm);
+}
+
+.askUserOption {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    padding: 8px 10px;
+    background: var(--overlay-light, rgba(0, 0, 0, 0.02));
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: default;
+    transition: background var(--duration-fast), border-color var(--duration-fast);
+}
+
+.askUserOption:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.askUserOptionSelected {
+    background: var(--accent-light, rgba(80, 120, 255, 0.1));
+    border-color: var(--accent, #4a6bff);
+}
+
+.askUserOptionMark {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    color: var(--accent, #4a6bff);
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.askUserOptionBody {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.askUserOptionLabel {
+    font-weight: 500;
+    color: var(--text);
+}
+
+.askUserOptionDesc {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.askUserOther {
+    margin-top: var(--space-xs);
+}
+
+.askUserOtherInput {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--bg-input, var(--bg-card, #fff));
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.8rem;
+}
+
+.askUserOtherInput:focus {
+    outline: none;
+    border-color: var(--accent, #4a6bff);
+}
+
+.askUserMeta {
+    margin-top: var(--space-xs);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.askUserActions {
+    display: flex;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+}
+
+.askUserBtn {
+    flex: 1;
+    padding: 5px 12px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    font-family: inherit;
+    cursor: default;
+    transition: opacity var(--duration-fast);
+}
+
+.askUserBtn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.askUserBtnConfirm {
+    background: var(--accent, #4a6bff);
+    color: #fff;
+}
+
+.askUserBtnCancel {
+    background: var(--overlay-medium);
+    color: var(--text-light);
+}
+
+.askUserSummary {
+    margin-top: var(--space-xs);
+    font-size: 0.75rem;
+    font-style: italic;
+}
+
+.askUserSummaryConfirmed { color: var(--green); }
+.askUserSummaryRejected { color: var(--text-muted); }
+
+.askUserIcon {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    font-size: 0.85rem;
+}
+
 /* ── 设置确认卡片 ── */
 
 .settingsConfirmCard {

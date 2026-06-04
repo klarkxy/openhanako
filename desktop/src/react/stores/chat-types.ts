@@ -163,6 +163,18 @@ export type RichBlock =
   | { type: 'skill'; skillName: string; skillFilePath: string; fileId?: string; installedFile?: Record<string, unknown>; installedSkillSource?: Record<string, unknown> }
   | { type: 'cron_confirm'; confirmId?: string; jobData: Record<string, unknown>; status: 'pending' | 'approved' | 'rejected' }
   | { type: 'settings_confirm'; confirmId?: string; settingKey: string; cardType: 'toggle' | 'list' | 'text'; currentValue: string; proposedValue: string; options?: string[]; optionLabels?: Record<string, string>; label: string; description?: string; frontend?: boolean; status: 'pending' | 'confirmed' | 'rejected' | 'timeout' }
+  | {
+    type: 'ask_user_confirm';
+    confirmId?: string;
+    question: string;
+    header?: string;
+    mode: 'single' | 'multi';
+    options: Array<{ label: string; description?: string; preview?: string }>;
+    multiMin?: number;
+    multiMax?: number;
+    status: 'pending' | 'confirmed' | 'rejected' | 'timeout';
+    result?: { values: string[]; freeText?: string };
+  }
   | { type: 'settings_update'; update: SettingsUpdatePayload }
   | SessionConfirmationBlock
   | {

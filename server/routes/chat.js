@@ -647,6 +647,23 @@ export function createChatRoute(engine, hub, { upgradeWebSocket }) {
         type: "content_block",
         block: { type: "cron_confirm", confirmId: event.confirmId, jobData: event.jobData, status: "pending" },
       });
+    } else if (event.type === "ask_user_confirmation" && event.confirmId) {
+      // ask_user 工具通过 ConfirmStore 阻塞后，把确认问题推给桌面渲染结构化卡片
+      if (!ss) return;
+      emitStreamEvent(sessionPath, ss, {
+        type: "content_block",
+        block: {
+          type: "ask_user_confirm",
+          confirmId: event.confirmId,
+          question: event.question || "",
+          header: event.header || null,
+          mode: event.mode === "multi" ? "multi" : "single",
+          options: Array.isArray(event.options) ? event.options : [],
+          multiMin: event.multiMin ?? null,
+          multiMax: event.multiMax ?? null,
+          status: "pending",
+        },
+      });
     } else if (event.type === "settings_confirmation") {
       if (!ss) return;
       emitStreamEvent(sessionPath, ss, {
