@@ -413,35 +413,37 @@ export class Agent {
     this._terminalTool = createTerminalTool({
       getTerminalSessionManager: () => this._cb?.getTerminalSessionManager?.(),
       getAgentId: () => this.id,
-      g
+      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
+    });
 
     // 文本文件主工具（read/write/replace/insert/delete/batch 等）
     this._textFileTool = createTextFileTool({
-      g
+      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
+      getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+      registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
+    });
 
     // unified diff 补丁应用工具
+    this._applyPatchTool = createApplyPatchTool();
 
     // JSON / YAML 点路径查询
     this._jsonQueryTool = createJsonQueryTool({
-      g
+      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
+    });
 
     // 独立 LLM 请求（无 tools/skills）
     this._llmRequestTool = createLlmRequestTool({
       resolveUtilityConfig: () => this._cb?.resolveUtilityConfig?.(),
       getAvailableModels: () => this._cb?.getEngine?.()?.availableModels || [],
       resolveModelWithCredentials: (ref) => this._cb?.getEngine?.()?.resolveModelWithCredentials?.(ref) || null,
-      g
+      getAgentConfig: () => this._cb?.getEngine?.()?.getAgentConfig?.() || null,
+    });
 
     // 用户问题（多选/单选 + 编号协议 + ConfirmStore 阻塞）
     this._askUserTool = createAskUserTool({
       getConfirmStore: () => this._cb?.getConfirmStore?.(),
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
       emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
-    });etAgentConfig: () => this._cb?.getEngine?.()?.getAgentConfig?.() || null,
-    });etCwd: () => this._cb?.getCwd?.() || this.agentDir,
-    });
-    this._applyPatchTool = createApplyPatchTool();etCwd: () => this._cb?.getCwd?.() || this.agentDir,
-    });etCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
 
     // 10. 设置修改工具
@@ -748,7 +750,7 @@ export class Agent {
       this._channelTool,
       this._dmTool,
       this._browserTool,
-      ...comaskUserTool,
+      this._askUserTool,
       this._puterUseTools,
       this._installSkillTool,
       this._notifyTool,
