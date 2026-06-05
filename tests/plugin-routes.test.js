@@ -424,6 +424,48 @@ describe("plugin management API", () => {
         { pluginId: "demo", hostCapabilities: ["external.open"] },
       ]);
     });
+
+    it("issues route-bound iframe tickets and strips them before plugin proxying", async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-plugin-iframe-ticket-"));
+      try {
+        const engine = mockEngine({ hanakoHome: tmpDir });
+        const pluginApp = new Hono();
+        pluginApp.get("/page", (c) => c.json({ search: new URL(c.req.url).search }));
+        engine.pluginManager.routeRegistry.set("demo", pluginApp);
+        const app = createApp(engine);
+
+        const ticketRes = await app.request("/api/plugins/iframe-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ routeUrl: "/api/plugins/demo/page?view=compact" }),
+        });
+        expect(ticketRes.status).toBe(200);
+        const ticketBody = await ticketRes.json();
+        expect(ticketBody).toMatchObject({
+          pluginId: "demo",
+          surfacePath: "/page?view=compact",
+          ticket: expect.any(String),
+        });
+
+        const pageRes = await app.request(
+          `/api/plugins/demo/page?view=compact&agentId=butter&pluginIframeTicket=${encodeURIComponent(ticketBody.ticket)}`,
+        );
+        expect(pageRes.status).toBe(200);
+        expect(await pageRes.json()).toEqual({
+          search: "?view=compact&agentId=butter",
+        });
+
+        const wrongRouteRes = await app.request(
+          `/api/plugins/demo/other?view=compact&pluginIframeTicket=${encodeURIComponent(ticketBody.ticket)}`,
+        );
+        expect(wrongRouteRes.status).toBe(403);
+        expect(await wrongRouteRes.json()).toMatchObject({
+          error: "plugin_iframe_ticket_invalid",
+        });
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe("GET /plugins/event-bus/capabilities", () => {

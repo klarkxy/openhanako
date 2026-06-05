@@ -19,10 +19,22 @@ import {
 } from "../../lib/plugin-install-backups.js";
 import { detectIncompatiblePluginFormat } from "../../lib/plugin-format-guard.js";
 import { createModuleLogger } from "../../lib/debug-log.js";
+import {
+  PluginIframeTicketError,
+  issuePluginIframeTicket,
+  verifyPluginIframeTicket,
+} from "../../core/plugin-iframe-ticket-service.js";
 
 const log = createModuleLogger("plugin-install");
 
 const MAX_PLUGIN_RELEASE_PACKAGE_SIZE = 50 * 1024 * 1024;
+const PLUGIN_IFRAME_TICKET_QUERY = "pluginIframeTicket";
+const PLUGIN_IFRAME_HOST_QUERY_PARAMS = new Set([
+  PLUGIN_IFRAME_TICKET_QUERY,
+  "agentId",
+  "hana-theme",
+  "hana-css",
+]);
 
 /**
  * 代理分发：将 /plugins/:pluginId/* 的请求转发到对应 plugin 子 app。
@@ -39,6 +51,7 @@ async function proxyToPlugin(c, pluginApp, pluginId, agentId) {
     ? url.pathname.slice(prefixIndex + prefix.length) || "/"
     : "/";
   url.pathname = subPath;
+  url.searchParams.delete(PLUGIN_IFRAME_TICKET_QUERY);
 
   const headers = new Headers(c.req.raw.headers);
   if (agentId) headers.set("X-Hana-Agent-Id", agentId);
@@ -78,6 +91,54 @@ function createPluginRouteError(message, status = 400, code = "PLUGIN_ERROR") {
   err.status = status;
   err.code = code;
   return err;
+}
+
+export function parsePluginIframeSurfaceRoute(routeUrl) {
+  const parsed = new URL(String(routeUrl || ""), "http://hana.local");
+  const match = /^\/api\/plugins\/([^/]+)(\/.*)?$/.exec(parsed.pathname);
+  if (!match) {
+    throw createPluginRouteError("plugin iframe routeUrl must target /api/plugins/:pluginId/*", 400, "PLUGIN_IFRAME_ROUTE_INVALID");
+  }
+  const pluginId = decodeURIComponent(match[1]);
+  const surfacePath = canonicalPluginIframeSurfacePath(match[2] || "/", parsed.searchParams);
+  return { pluginId, surfacePath };
+}
+
+function canonicalPluginIframeSurfacePath(pathname, searchParams) {
+  const params = [];
+  for (const [key, value] of searchParams.entries()) {
+    if (PLUGIN_IFRAME_HOST_QUERY_PARAMS.has(key)) continue;
+    params.push([key, value]);
+  }
+  params.sort(([leftKey, leftValue], [rightKey, rightValue]) => (
+    leftKey === rightKey
+      ? leftValue.localeCompare(rightValue)
+      : leftKey.localeCompare(rightKey)
+  ));
+  const search = params
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+  const safePath = pathname && pathname.startsWith("/") ? pathname : `/${pathname || ""}`;
+  return search ? `${safePath}?${search}` : safePath;
+}
+
+function pluginIframeSurfaceRouteFromRequest(c) {
+  return parsePluginIframeSurfaceRoute(new URL(c.req.url).pathname + new URL(c.req.url).search);
+}
+
+function verifyPluginIframeTicketForRequest(c, engine, pluginId) {
+  const ticket = c.req.query(PLUGIN_IFRAME_TICKET_QUERY);
+  if (!ticket) return null;
+  const surface = pluginIframeSurfaceRouteFromRequest(c);
+  if (surface.pluginId !== pluginId) {
+    throw new PluginIframeTicketError("plugin iframe ticket plugin mismatch");
+  }
+  return verifyPluginIframeTicket({
+    hanakoHome: engine.hanakoHome,
+    ticket,
+    pluginId,
+    surfacePath: surface.surfacePath,
+  });
 }
 
 function assertInsideDir(childPath, parentDir) {
@@ -1005,6 +1066,37 @@ export function createPluginsRoute(engine) {
     return c.json(tabs);
   });
 
+  route.post("/plugins/iframe-ticket", async (c) => {
+    const pm = engine.pluginManager;
+    if (!pm) return c.json({ error: "Plugin manager not available" }, 500);
+    try {
+      const body = await c.req.json();
+      const { pluginId, surfacePath } = parsePluginIframeSurfaceRoute(body?.routeUrl);
+      if (!pm.getRouteApp(pluginId)) {
+        return c.json({ error: `Plugin "${pluginId}" not found` }, 404);
+      }
+      const principal = c.get("authPrincipal");
+      const issued = issuePluginIframeTicket({
+        hanakoHome: engine.hanakoHome,
+        pluginId,
+        surfacePath,
+        principalId: principal?.principalId || "principal_unknown",
+      });
+      return c.json({
+        ticket: issued.ticket,
+        ticketId: issued.ticketId,
+        pluginId,
+        surfacePath,
+        expiresAt: issued.expiresAt,
+      });
+    } catch (err) {
+      return c.json({
+        error: err.message,
+        ...(err.code ? { code: err.code } : {}),
+      }, err.status || 400);
+    }
+  });
+
   route.get("/plugins/theme.css", (c) => {
     const theme = c.req.query("theme") || DEFAULT_THEME;
     // Sanitize theme name to prevent path traversal
@@ -1034,6 +1126,14 @@ export function createPluginsRoute(engine) {
     const pluginId = c.req.param("pluginId");
     const pluginApp = engine.pluginManager?.getRouteApp(pluginId);
     if (!pluginApp) return c.json({ error: `Plugin "${pluginId}" not found` }, 404);
+    try {
+      verifyPluginIframeTicketForRequest(c, engine, pluginId);
+    } catch (err) {
+      if (err instanceof PluginIframeTicketError) {
+        return c.json({ error: err.code, detail: err.message }, err.status);
+      }
+      throw err;
+    }
     const url = new URL(c.req.url);
     const prefix = `/plugins/${pluginId}`;
     const prefixIndex = url.pathname.indexOf(prefix);

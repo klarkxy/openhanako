@@ -345,6 +345,11 @@ app.use("*", async (c, next) => {
     return;
   }
 
+  if (isPluginIframeTicketRequest(c, routePath)) {
+    await next();
+    return;
+  }
+
   if (isPublicHttpRoute({ method: c.req.method, path: routePath })) {
     await next();
     return;
@@ -389,6 +394,13 @@ function isResourceTicketContentRequest(c, routePath) {
   return (method === "GET" || method === "HEAD")
     && /^\/api\/resources\/[^/]+\/content$/.test(routePath)
     && !!c.req.query("ticket");
+}
+
+function isPluginIframeTicketRequest(c, routePath) {
+  const method = c.req.method;
+  return (method === "GET" || method === "HEAD")
+    && /^\/api\/plugins\/[^/]+\/.+$/.test(routePath)
+    && !!c.req.query("pluginIframeTicket");
 }
 
 // 全局错误处理

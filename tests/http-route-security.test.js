@@ -61,6 +61,29 @@ describe("HTTP route security policy", () => {
     }
   });
 
+  it("keeps access and device management routes local-owner only", async () => {
+    const { authorizeHttpRoute } = await import("../server/http/route-security.js");
+    const principal = devicePrincipal(["chat", "resources.read", "files.read", "files.write", "settings.read"]);
+
+    for (const [method, path] of [
+      ["GET", "/api/access/summary"],
+      ["PUT", "/api/access/network"],
+      ["POST", "/api/access/mobile-credentials"],
+      ["POST", "/api/access/desktop-credentials"],
+      ["PUT", "/api/access/account/profile"],
+      ["PUT", "/api/access/account/password"],
+      ["DELETE", "/api/access/account/password"],
+      ["POST", "/api/devices/device_1/revoke"],
+      ["POST", "/api/devices/credentials/cred_1/revoke"],
+    ]) {
+      expect(authorizeHttpRoute({ method, path, principal })).toMatchObject({
+        allowed: false,
+        status: 403,
+        error: "local_only_route",
+      });
+    }
+  });
+
   it("separates remote settings writes, provider management, bridge management, and secret mutation scopes", async () => {
     const { authorizeHttpRoute } = await import("../server/http/route-security.js");
     const settingsWriter = devicePrincipal(["settings.write"]);
@@ -140,6 +163,35 @@ describe("HTTP route security policy", () => {
         allowed: false,
         status: 403,
         error: "insufficient_scope",
+      });
+  });
+
+  it("allows remote plugin UI metadata and iframe ticket issuance without opening plugin route apps", async () => {
+    const { authorizeHttpRoute } = await import("../server/http/route-security.js");
+    const principal = devicePrincipal(["chat"]);
+
+    for (const [method, path] of [
+      ["GET", "/api/plugins/pages"],
+      ["GET", "/api/plugins/widgets"],
+      ["GET", "/api/plugins/ui-host-capabilities"],
+      ["GET", "/api/plugins/theme.css"],
+      ["POST", "/api/plugins/iframe-ticket"],
+    ]) {
+      expect(authorizeHttpRoute({ method, path, principal }))
+        .toMatchObject({ allowed: true });
+    }
+
+    expect(authorizeHttpRoute({ method: "GET", path: "/api/plugins/demo/page", principal }))
+      .toMatchObject({
+        allowed: false,
+        status: 403,
+        error: "local_only_route",
+      });
+    expect(authorizeHttpRoute({ method: "PUT", path: "/api/plugins/demo/config", principal }))
+      .toMatchObject({
+        allowed: false,
+        status: 403,
+        error: "local_only_route",
       });
   });
 
