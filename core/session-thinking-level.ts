@@ -71,6 +71,13 @@ export function normalizeThinkingLevelForModel(level, model) {
   return normalized;
 }
 
+export function resolveModelDefaultThinkingLevel(model, fallback = DEFAULT_SESSION_THINKING_LEVEL) {
+  const modelLevel = typeof model?.defaultThinkingLevel === "string"
+    ? model.defaultThinkingLevel
+    : fallback;
+  return normalizeThinkingLevelForModel(modelLevel, model);
+}
+
 export function resolveThinkingLevelForModel(level, model, resolveThinkingLevel = (value) => value) {
   return resolveThinkingLevel(normalizeThinkingLevelForModel(level, model));
 }

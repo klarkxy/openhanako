@@ -66,7 +66,10 @@ function readSessionThinkingLevel(ctx) {
 
 function resolveRequestReasoningLevel(models, prefs, ctx) {
   const sessionThinkingLevel = readSessionThinkingLevel(ctx);
-  const preferenceThinkingLevel = models.resolveThinkingLevel(prefs.getThinkingLevel());
+  const defaultThinkingLevel = typeof models.getModelDefaultThinkingLevel === "function"
+    ? models.getModelDefaultThinkingLevel(ctx?.model || null, prefs.getThinkingLevel())
+    : prefs.getThinkingLevel();
+  const preferenceThinkingLevel = models.resolveThinkingLevel(defaultThinkingLevel);
   return preferenceThinkingLevel === "xhigh" && sessionThinkingLevel === "high"
     ? "xhigh"
     : (sessionThinkingLevel || preferenceThinkingLevel);
@@ -971,6 +974,8 @@ export class HanaEngine {
   async setDefaultModel(id, provider, opts) { return this._configCoord.setDefaultModel(id, provider, opts); }
   getThinkingLevel() { return this._configCoord.getThinkingLevel(); }
   setThinkingLevel(l) { return this._configCoord.setThinkingLevel(l); }
+  getDefaultThinkingLevel() { return this._sessionCoord.getDefaultThinkingLevel(); }
+  setDefaultThinkingLevel(l) { return this._sessionCoord.setDefaultThinkingLevel(l); }
   getSessionThinkingLevel(sessionPath) { return this._sessionCoord.getSessionThinkingLevel(sessionPath); }
   setSessionThinkingLevel(sessionPath, level) { return this._sessionCoord.setSessionThinkingLevel(sessionPath, level); }
   getSandbox() { return this._prefs.getSandbox(); }

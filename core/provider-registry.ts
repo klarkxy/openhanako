@@ -33,6 +33,7 @@ const MALFORMED_PROVIDER_CONFIG = "malformed_provider_config";
 const INVALID_MODELS_CONFIG = "invalid_models_config";
 const DELETED_PROVIDERS_KEY = "_deleted_providers";
 const PROVIDER_RUNTIME_META_KEYS = new Set(["_config_error"]);
+const THINKING_LEVEL_VALUES = new Set(["auto", "off", "low", "medium", "high", "xhigh"]);
 const MEDIA_CAPABILITY_KEYS = {
   image_generation: "imageGeneration",
   image: "imageGeneration",
@@ -66,6 +67,19 @@ function normalizeDeletedProviders(value) {
     : [];
 }
 
+function normalizeModelDefaults(value) {
+  if (!isPlainObject(value)) return {};
+  const out = {};
+  for (const [rawModelId, rawEntry] of Object.entries(value)) {
+    const modelId = typeof rawModelId === "string" ? rawModelId.trim() : "";
+    if (!modelId || !isPlainObject(rawEntry)) continue;
+    const rawLevel = rawEntry.thinking_level ?? rawEntry.thinkingLevel;
+    if (typeof rawLevel !== "string" || !THINKING_LEVEL_VALUES.has(rawLevel)) continue;
+    out[modelId] = { thinking_level: rawLevel };
+  }
+  return out;
+}
+
 function normalizeProviderUserConfig(value) {
   if (!isPlainObject(value)) {
     return { _config_error: MALFORMED_PROVIDER_CONFIG };
@@ -89,6 +103,14 @@ function normalizeProviderUserConfig(value) {
       next._config_error = next._config_error || INVALID_MODELS_CONFIG;
     }
     next.models = models;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "model_defaults")) {
+    const modelDefaults = normalizeModelDefaults(next.model_defaults);
+    if (Object.keys(modelDefaults).length > 0) {
+      next.model_defaults = modelDefaults;
+    } else {
+      delete next.model_defaults;
+    }
   }
   return next;
 }
@@ -1024,6 +1046,48 @@ export class ProviderRegistry {
     return this._loadAddedModels();
   }
 
+  _providerConfigIdForModelDefaults(providerId) {
+    const entry = this.get(providerId);
+    return entry?.id || providerId;
+  }
+
+  getModelDefaultThinkingLevel(providerId, modelId) {
+    if (!providerId || !modelId) return null;
+    const userConfig = this._loadAddedModels();
+    const entry = this.get(providerId);
+    const providerIds = [
+      providerId,
+      entry?.id,
+      entry?.authJsonKey,
+    ].filter(Boolean);
+    for (const id of [...new Set(providerIds)]) {
+      const level = userConfig[id]?.model_defaults?.[modelId]?.thinking_level;
+      if (typeof level === "string" && THINKING_LEVEL_VALUES.has(level)) return level;
+    }
+    return null;
+  }
+
+  setModelDefaultThinkingLevel(providerId, modelId, level) {
+    if (!providerId || !modelId) {
+      throw new Error("setModelDefaultThinkingLevel: providerId and modelId required");
+    }
+    if (typeof level !== "string" || !THINKING_LEVEL_VALUES.has(level)) {
+      throw new Error(`invalid thinking level: ${level}`);
+    }
+    const userConfig = this._loadAddedModels();
+    const ownerProviderId = this._providerConfigIdForModelDefaults(providerId);
+    if (!userConfig[ownerProviderId]) userConfig[ownerProviderId] = {};
+    const defaults = isPlainObject(userConfig[ownerProviderId].model_defaults)
+      ? userConfig[ownerProviderId].model_defaults
+      : {};
+    const existing = isPlainObject(defaults[modelId]) ? defaults[modelId] : {};
+    defaults[modelId] = { ...existing, thinking_level: level };
+    userConfig[ownerProviderId].model_defaults = normalizeModelDefaults(defaults);
+    this._saveAddedModels(userConfig);
+    this._entries.clear();
+    return { provider: ownerProviderId, modelId, thinkingLevel: level };
+  }
+
   /**
    * 向某 provider 的 models 列表添加一个模型，立即持久化
    * 不会添加重复项（按 id 判断）
@@ -1072,7 +1136,7 @@ export class ProviderRegistry {
    * 裸字符串条目会被升级为对象
    * @param {string} providerId
    * @param {string} modelId
-   * @param {{ name?: string, context?: number, maxOutput?: number, image?: boolean, video?: boolean, reasoning?: boolean }} meta
+   * @param {{ name?: string, context?: number, maxOutput?: number, image?: boolean, video?: boolean, reasoning?: boolean, defaultThinkingLevel?: string }} meta
    */
   updateModelEntry(providerId, modelId, meta) {
     const userConfig = this._loadAddedModels();
@@ -1088,7 +1152,7 @@ export class ProviderRegistry {
     }
 
     // 白名单：只允许模型能力字段（image 是标准名，vision 为旧名不写入）
-    const ALLOWED = ["name", "context", "maxOutput", "image", "video", "reasoning", "type"];
+    const ALLOWED = ["name", "context", "maxOutput", "image", "video", "reasoning", "type", "defaultThinkingLevel"];
     const safe = {};
     for (const key of ALLOWED) {
       if (meta[key] !== undefined) safe[key] = meta[key];

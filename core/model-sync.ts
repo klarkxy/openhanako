@@ -15,6 +15,7 @@ import { normalizeProviderHeaders, providerCredentialAllowsMissingApiKey } from 
 import { validateProviderModels } from "../shared/provider-model-validation.ts";
 import { buildRuntimeApiKeyRef } from "../shared/runtime-api-key-ref.ts";
 import { normalizeProviderBaseUrlForApi } from "../lib/llm/provider-client.ts";
+import { normalizeThinkingLevelForModel } from "./session-thinking-level.ts";
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 const PI_BUILTIN_PROVIDER_REUSE = new Set(["kimi-coding"]);
@@ -48,6 +49,13 @@ function getModelId(modelEntry) {
   return typeof modelEntry === "object" && modelEntry !== null ? modelEntry.id : modelEntry;
 }
 
+function getProviderModelDefaultThinkingLevel(modelDefaults, modelId) {
+  if (!modelDefaults || !modelId) return undefined;
+  const entry = modelDefaults[modelId];
+  const level = entry?.thinking_level ?? entry?.thinkingLevel;
+  return typeof level === "string" ? level : undefined;
+}
+
 function buildPiInputModalities({ image = false } = {}) {
   return [
     "text",
@@ -75,8 +83,13 @@ function isZhipuOpenAICompat(provider, baseUrl, api) {
   );
 }
 
-function buildModelOverride(modelEntry) {
-  if (typeof modelEntry !== "object" || modelEntry === null) return null;
+function buildModelOverride(modelEntry, modelDefaults = {}) {
+  const modelDefaultThinkingLevel = getProviderModelDefaultThinkingLevel(modelDefaults, getModelId(modelEntry));
+  if (typeof modelEntry !== "object" || modelEntry === null) {
+    return modelDefaultThinkingLevel !== undefined
+      ? { defaultThinkingLevel: modelDefaultThinkingLevel }
+      : null;
+  }
 
   const override = {};
   if (modelEntry.name !== undefined) override.name = modelEntry.name;
@@ -84,6 +97,10 @@ function buildModelOverride(modelEntry) {
   if (modelEntry.contextWindow !== undefined) override.contextWindow = modelEntry.contextWindow;
   if (modelEntry.maxOutput !== undefined) override.maxTokens = modelEntry.maxOutput;
   if (modelEntry.maxTokens !== undefined) override.maxTokens = modelEntry.maxTokens;
+  const defaultThinkingLevel = modelEntry.defaultThinkingLevel ?? modelDefaultThinkingLevel;
+  if (defaultThinkingLevel !== undefined) {
+    override.defaultThinkingLevel = defaultThinkingLevel;
+  }
   const image = modelEntry.image ?? modelEntry.vision;
   const video = modelEntry.video;
   const audio = modelEntry.audio;
@@ -104,7 +121,7 @@ function buildModelOverride(modelEntry) {
  * @param {string|{id:string, name?:string, context?:number, maxOutput?:number}} modelEntry
  * @param {string} provider - provider 名称（查词典用）
  */
-function buildModelEntry(modelEntry, provider, baseUrl = "", api = "openai-completions") {
+function buildModelEntry(modelEntry, provider, baseUrl = "", api = "openai-completions", modelDefaults = {}) {
   const isObj = typeof modelEntry === "object" && modelEntry !== null;
   const id = getModelId(modelEntry);
   const known = lookupKnown(provider, id);
@@ -131,6 +148,15 @@ function buildModelEntry(modelEntry, provider, baseUrl = "", api = "openai-compl
 
   const maxOutput = (isObj && modelEntry.maxOutput) || known?.maxOutput;
   if (maxOutput) entry.maxTokens = maxOutput;
+  const defaultThinkingLevel = isObj
+    ? (modelEntry.defaultThinkingLevel ?? getProviderModelDefaultThinkingLevel(modelDefaults, id))
+    : getProviderModelDefaultThinkingLevel(modelDefaults, id);
+  if (defaultThinkingLevel !== undefined) {
+    entry.defaultThinkingLevel = normalizeThinkingLevelForModel(
+      defaultThinkingLevel,
+      { ...entry, provider, api, baseUrl },
+    );
+  }
 
   if (known?.quirks?.length) entry.quirks = known.quirks;
   if (piBuiltin?.headers) entry.headers = { ...piBuiltin.headers };
@@ -243,6 +269,7 @@ export function syncModels(providers, opts = {}) {
       baseUrl: p.base_url,
       api: effectiveApi,
     });
+    const modelDefaults = p.model_defaults || {};
     const chatModels = filterChatModelEntries(name, p.models);
     const customModels = [];
     const modelOverrides = {};
@@ -250,11 +277,11 @@ export function syncModels(providers, opts = {}) {
     for (const modelEntry of chatModels) {
       const id = getModelId(modelEntry);
       if (shouldReusePiBuiltinModel(name, id, effectiveApi)) {
-        const override = buildModelOverride(modelEntry);
+        const override = buildModelOverride(modelEntry, modelDefaults);
         if (override) modelOverrides[id] = override;
         continue;
       }
-      customModels.push(buildModelEntry(modelEntry, name, effectiveBaseUrl, effectiveApi));
+      customModels.push(buildModelEntry(modelEntry, name, effectiveBaseUrl, effectiveApi, modelDefaults));
     }
 
     const providerConfig = {

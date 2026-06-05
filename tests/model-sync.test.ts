@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import YAML from "js-yaml";
 
 // mock known-models 词典查询：provider + model 二级结构，未命中时再查通用 fallback
 const KNOWN_MODELS = {
@@ -241,6 +242,53 @@ describe("syncModels", () => {
 
     const result = JSON.parse(fs.readFileSync(modelsJsonPath, "utf-8"));
     expect(result.providers.custom.apiKey).toBe("hana-runtime-api-key:custom");
+  });
+
+  it("projects per-model default thinking level into runtime model metadata", async () => {
+    const syncModels = await loadSync();
+
+    const providers = {
+      custom: {
+        base_url: "https://custom.api.com/v1",
+        api: "openai-completions",
+        api_key: "sk-test",
+        models: [
+          { id: "reasoning-model", reasoning: true, defaultThinkingLevel: "high" },
+        ],
+      },
+    };
+
+    syncModels(providers, { modelsJsonPath });
+
+    const result = JSON.parse(fs.readFileSync(modelsJsonPath, "utf-8"));
+    expect(result.providers.custom.models[0]).toMatchObject({
+      id: "reasoning-model",
+      defaultThinkingLevel: "high",
+    });
+  });
+
+  it("projects provider model_defaults into runtime model metadata", async () => {
+    const syncModels = await loadSync();
+
+    const providers = {
+      custom: {
+        base_url: "https://custom.api.com/v1",
+        api: "openai-completions",
+        api_key: "sk-test",
+        models: ["reasoning-model"],
+        model_defaults: {
+          "reasoning-model": { thinking_level: "high" },
+        },
+      },
+    };
+
+    syncModels(providers, { modelsJsonPath });
+
+    const result = JSON.parse(fs.readFileSync(modelsJsonPath, "utf-8"));
+    expect(result.providers.custom.models[0]).toMatchObject({
+      id: "reasoning-model",
+      defaultThinkingLevel: "high",
+    });
   });
 
   it("skips providers without api_key (and not localhost/OAuth)", async () => {
@@ -1112,6 +1160,32 @@ describe("syncModels", () => {
     expect(result.providers.ollama.apiKey).toBe("local");
     expect(mm._modelRegistry.refresh).toHaveBeenCalledTimes(1);
     expect(mm.availableModels).toEqual([{ id: "llama3", provider: "ollama" }]);
+  });
+
+  it("stores model thinking defaults without narrowing builtin provider model availability", async () => {
+    const { ModelManager } = await import("../core/model-manager.ts");
+    fs.writeFileSync(path.join(tmpDir, "added-models.yaml"), "providers: {}\n", "utf-8");
+
+    const mm = new ModelManager({ hanakoHome: tmpDir });
+    mm._modelRegistry = {
+      refresh: vi.fn(),
+      getAvailable: vi.fn().mockResolvedValue([
+        { id: "gpt-4o", provider: "openai" },
+        { id: "gpt-5", provider: "openai" },
+      ]),
+    };
+    await mm.refreshAvailable();
+
+    const result = await mm.setModelDefaultThinkingLevel({ id: "gpt-4o", provider: "openai" }, "high");
+
+    const raw = YAML.load(fs.readFileSync(path.join(tmpDir, "added-models.yaml"), "utf-8"));
+    expect(raw.providers.openai.models).toBeUndefined();
+    expect(raw.providers.openai.model_defaults).toEqual({
+      "gpt-4o": { thinking_level: "high" },
+    });
+    expect(result.thinkingLevel).toBe("high");
+    expect(mm.availableModels.map(m => m.id)).toEqual(["gpt-4o", "gpt-5"]);
+    expect(mm.availableModels.find(m => m.id === "gpt-4o")?.defaultThinkingLevel).toBe("high");
   });
 
   it("ignores malformed provider records without breaking valid model projection", async () => {

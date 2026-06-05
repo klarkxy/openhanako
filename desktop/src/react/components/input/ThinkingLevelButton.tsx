@@ -37,7 +37,16 @@ export function ThinkingLevelButton({ level, onChange, modelXhigh }: {
     try {
       const useSessionThinking = !!currentSessionPath && !pendingNewSession;
       if (!useSessionThinking) {
-        const normalized = normalizeThinkingLevel(next);
+        const res = await hanaFetch('/api/session-thinking-level', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ level: next }),
+        });
+        const data = await res.json();
+        if (!res.ok || data?.ok === false) {
+          throw new Error(data?.error || 'failed to save thinking level');
+        }
+        const normalized = normalizeThinkingLevel((data?.thinkingLevel || next) as ThinkingLevel);
         useStore.getState().setPendingNewSessionThinkingLevel(normalized);
         onChange(normalized);
         return;

@@ -13,7 +13,6 @@ import { selectPreviewItems, selectActiveTabId } from '../stores/preview-slice';
 import { selectSessionFiles } from '../stores/selectors/file-refs';
 import { isImageFile, isVideoFile } from '../utils/format';
 import { isAudioFileName } from '../utils/file-kind';
-import { fetchConfig } from '../hooks/use-config';
 import { useI18n } from '../hooks/use-i18n';
 import { continueDeletedAgentSession, ensureSession, loadSessions } from '../stores/session-actions';
 import { revealDeskDirectory, toggleJianSidebar } from '../stores/desk-actions';
@@ -1261,9 +1260,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const activeServerConnection = useStore(s => s.activeServerConnection);
   useEffect(() => {
     if (activeServerConnection && surface !== 'mobile') {
-      fetchConfig()
-        .then(d => { if (d.thinking_level) setThinkingLevel(d.thinking_level as ThinkingLevel); })
-        .catch((err: unknown) => console.warn('[InputArea] load config failed', err));
+      hanaFetch('/api/session-thinking-level')
+        .then(r => r.json())
+        .then(d => { if (d.thinkingLevel) setThinkingLevel(d.thinkingLevel as ThinkingLevel); })
+        .catch((err: unknown) => console.warn('[InputArea] load thinking level failed', err));
     }
 
     const handler = (e: Event) => {

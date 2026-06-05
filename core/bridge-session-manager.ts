@@ -49,7 +49,10 @@ import {
   createPromptSnapshotResourceLoader,
   normalizeSessionPromptSnapshot,
 } from "./session-prompt-snapshot.ts";
-import { normalizeSessionThinkingLevel } from "./session-thinking-level.ts";
+import {
+  normalizeSessionThinkingLevel,
+  resolveModelDefaultThinkingLevel,
+} from "./session-thinking-level.ts";
 import { repairRestoredToolSnapshot, sameToolNames } from "./tool-snapshot-repair.ts";
 
 const log = createModuleLogger("bridge-session");
@@ -653,14 +656,18 @@ export class BridgeSessionManager {
 
   _buildOwnerFreshCompactContext(agent, homeCwd, opts = {}) {
     const prefs = this._deps.getPreferences();
+    const mm = this._deps.getModelManager();
+    const chatRef = agent.config?.models?.chat;
+    const ref = (typeof chatRef === "object" && chatRef?.id && chatRef?.provider) ? chatRef : null;
+    const ownerModel = ref ? findModel(mm.availableModels, ref.id, ref.provider) : null;
     const bridgeContext = opts.bridgeContext || null;
     const promptSnapshot = this._buildOwnerPromptSnapshot(agent, homeCwd, bridgeContext);
     const state = {
       bridgeReadOnly: prefs?.bridge?.readOnly === true,
       experienceEnabled: agent.experienceEnabled === true,
       memoryMasterEnabled: agent.memoryMasterEnabled !== false,
-      model: agent.config?.models?.chat || null,
-      thinkingLevel: normalizeSessionThinkingLevel(prefs?.thinking_level),
+      model: chatRef || null,
+      thinkingLevel: resolveModelDefaultThinkingLevel(ownerModel, normalizeSessionThinkingLevel(prefs?.thinking_level)),
     };
     return {
       promptSnapshot,
@@ -1192,7 +1199,10 @@ export class BridgeSessionManager {
 
     return {
       model: ownerModel,
-      thinkingLevel: mm.resolveThinkingLevel(normalizeSessionThinkingLevel(prefs?.thinking_level)),
+      thinkingLevel: mm.resolveThinkingLevel(resolveModelDefaultThinkingLevel(
+        ownerModel,
+        normalizeSessionThinkingLevel(prefs?.thinking_level),
+      )),
       resourceLoader: visionResourceLoader,
       tools: baseTools,
       customTools: baseCustomTools,

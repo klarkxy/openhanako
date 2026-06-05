@@ -5,6 +5,7 @@ import {
   modelSupportsAnthropicMaxEffort,
   modelSupportsXhigh,
   normalizeThinkingLevelForModel,
+  resolveModelDefaultThinkingLevel,
 } from "../core/session-thinking-level.ts";
 
 describe("session thinking level capabilities", () => {
@@ -45,5 +46,22 @@ describe("session thinking level capabilities", () => {
     };
 
     expect(modelSupportsAnthropicMaxEffort(model)).toBe(false);
+  });
+
+  it("resolves model-level thinking defaults with per-model xhigh capability", () => {
+    expect(resolveModelDefaultThinkingLevel(
+      { id: "gpt-5.5", provider: "openai", defaultThinkingLevel: "xhigh" },
+      "medium",
+    )).toBe("xhigh");
+
+    expect(resolveModelDefaultThinkingLevel(
+      { id: "plain-model", provider: "test", defaultThinkingLevel: "xhigh" },
+      "low",
+    )).toBe("high");
+
+    expect(resolveModelDefaultThinkingLevel(
+      { id: "plain-model", provider: "test" },
+      "low",
+    )).toBe("low");
   });
 });

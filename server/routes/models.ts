@@ -268,7 +268,12 @@ export function createModelsRoute(engine) {
         return c.json({ error: t("error.missingParam", { param: "provider" }) }, 400);
       }
       engine.setPendingModel(modelId, provider);
-      return c.json({ ok: true, model: engine.currentModel?.name, pendingModel: true });
+      return c.json({
+        ok: true,
+        model: engine.currentModel?.name,
+        pendingModel: true,
+        thinkingLevel: engine.getDefaultThinkingLevel?.() || engine.getThinkingLevel?.() || "medium",
+      });
     } catch (err) {
       return c.json({ error: err.message }, 500);
     }

@@ -518,6 +518,26 @@ describe("getAllProvidersRaw", () => {
   });
 });
 
+describe("model defaults", () => {
+  it("stores thinking defaults without creating a chat model allow list", () => {
+    writeAddedModels({
+      "test-provider": {
+        api_key: "sk-x",
+      },
+    });
+    const reg = makeRegistry();
+
+    reg.setModelDefaultThinkingLevel("test-provider", "model-a", "high");
+
+    const persisted = readAddedModels();
+    expect(persisted["test-provider"].models).toBeUndefined();
+    expect(persisted["test-provider"].model_defaults).toEqual({
+      "model-a": { thinking_level: "high" },
+    });
+    expect(reg.getModelDefaultThinkingLevel("test-provider", "model-a")).toBe("high");
+  });
+});
+
 // ── addModel ─────────────────────────────────────────────────────────────────
 
 describe("addModel", () => {

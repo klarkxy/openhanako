@@ -188,8 +188,13 @@ const SETTINGS_REGISTRY = {
     options: ["auto", "off", "low", "medium", "high", "xhigh"],
     get optionLabels() { return i18nLabels(THINKING_I18N); },
     searchTerms: ["reasoning", "推理", "思考", "推論"],
-    get: (engine, _agent) => engine.preferences.getThinkingLevel() || "medium",
-    apply: (engine, _agent, v) => engine.setThinkingLevel(v),
+    get: (engine, _agent) => engine.getDefaultThinkingLevel?.() || engine.preferences.getThinkingLevel() || "medium",
+    apply: (engine, _agent, v) => {
+      if (typeof engine.setDefaultThinkingLevel === "function") {
+        return engine.setDefaultThinkingLevel(v);
+      }
+      return engine.setThinkingLevel(v);
+    },
   },
   "memory.enabled": {
     type: "toggle",

@@ -216,6 +216,74 @@ describe("SessionCoordinator", () => {
     expect(meta["second.jsonl"].thinkingLevel).toBe("medium");
   });
 
+  it("uses the model-level thinking default for new sessions without an explicit draft", async () => {
+    const agentDir = path.join(tempDir, "agents", "hana");
+    const sessionDir = path.join(agentDir, "sessions");
+    const sessionPath = path.join(sessionDir, "model-default.jsonl");
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    const agent = {
+      id: "hana",
+      agentDir,
+      sessionDir,
+      sessionMemoryEnabled: true,
+      memoryMasterEnabled: true,
+      config: {},
+      setMemoryEnabled: vi.fn(),
+      buildSystemPrompt: () => "BASE",
+      tools: [],
+    };
+    const prefs = { getThinkingLevel: vi.fn(() => "medium") };
+    const model = { id: "m", provider: "test", defaultThinkingLevel: "high" };
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: model,
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: (level) => level,
+      }),
+      getResourceLoader: () => ({
+        getSystemPrompt: () => "BASE",
+        getAppendSystemPrompt: () => [],
+        getExtensions: () => ({ extensions: [], errors: [] }),
+        getSkills: () => ({ skills: [], diagnostics: [] }),
+        getAgentsFiles: () => ({ agentsFiles: [] }),
+      }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: vi.fn(),
+      getHomeCwd: () => tempDir,
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => prefs,
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [],
+    });
+
+    sessionManagerCreateMock.mockReturnValueOnce({ getCwd: () => tempDir, getSessionFile: () => sessionPath });
+    createAgentSessionMock.mockResolvedValueOnce({
+      session: {
+        sessionManager: { getSessionFile: () => sessionPath },
+        subscribe: vi.fn(() => vi.fn()),
+        setActiveToolsByName: vi.fn(),
+        setThinkingLevel: vi.fn(),
+        model,
+      },
+    });
+
+    await coordinator.createSession(null, tempDir, true);
+
+    expect(createAgentSessionMock.mock.calls[0][0].thinkingLevel).toBe("high");
+    const meta = JSON.parse(fs.readFileSync(path.join(sessionDir, "session-meta.json"), "utf-8"));
+    expect(meta["model-default.jsonl"].thinkingLevel).toBe("high");
+  });
+
   it("freezes the DeepSeek roleplay reasoning patch experiment per session", async () => {
     const agentDir = path.join(tempDir, "agents", "hana");
     const sessionDir = path.join(agentDir, "sessions");

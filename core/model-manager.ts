@@ -19,6 +19,11 @@ import { isLocalBaseUrl } from "../shared/net-utils.ts";
 import { syncModels } from "./model-sync.ts";
 import { enrichModelFromKnownMetadata } from "./model-known-enrichment.ts";
 import { migrateLegacyApiKeyAuthToProviders } from "./provider-auth-migration.ts";
+import {
+  normalizeSessionThinkingLevel,
+  normalizeThinkingLevelForModel,
+  resolveModelDefaultThinkingLevel,
+} from "./session-thinking-level.ts";
 
 export class ModelManager {
   /**
@@ -88,6 +93,17 @@ export class ModelManager {
 
   // ── 刷新 ──
 
+  _getPersistedModelDefaultThinkingLevel(model) {
+    if (!model?.provider || !model.id) return null;
+    if (typeof this.providerRegistry.getModelDefaultThinkingLevel !== "function") return null;
+    return this.providerRegistry.getModelDefaultThinkingLevel(model.provider, model.id);
+  }
+
+  _withPersistedModelDefaultThinkingLevel(model) {
+    const level = this._getPersistedModelDefaultThinkingLevel(model);
+    return level ? { ...model, defaultThinkingLevel: level } : model;
+  }
+
   /** 刷新可用模型列表，用 added-models.yaml 过滤 */
   async refreshAvailable() {
     const allModels = await this._modelRegistry.getAvailable();
@@ -111,7 +127,9 @@ export class ModelManager {
       // 没有在 added-models.yaml 里的 provider → 全部放行（兼容未知来源）
       if (!allowed) return true;
       return allowed.has(m.id);
-    }).map(enrichModelFromKnownMetadata);
+    })
+      .map(enrichModelFromKnownMetadata)
+      .map(m => this._withPersistedModelDefaultThinkingLevel(m));
     return this._availableModels;
   }
 
@@ -240,6 +258,38 @@ export class ModelManager {
   /** legacy auto -> medium，其余原样 */
   resolveThinkingLevel(level) {
     return level === "auto" ? "medium" : level;
+  }
+
+  _resolveModelForThinkingDefault(modelRef) {
+    if (!modelRef) return this.currentModel;
+    if (typeof modelRef === "object" && modelRef.id && modelRef.provider) {
+      return findModel(this._availableModels, modelRef.id, modelRef.provider) || modelRef;
+    }
+    return this.resolveExecutionModel(modelRef);
+  }
+
+  getModelDefaultThinkingLevel(modelRef = null, fallback = "medium") {
+    const model = this._resolveModelForThinkingDefault(modelRef);
+    const effectiveModel = this._withPersistedModelDefaultThinkingLevel(model);
+    return resolveModelDefaultThinkingLevel(effectiveModel, normalizeSessionThinkingLevel(fallback));
+  }
+
+  async setModelDefaultThinkingLevel(modelRef, level) {
+    const model = this._resolveModelForThinkingDefault(modelRef);
+    if (!model?.id || !model.provider) {
+      throw new Error("setModelDefaultThinkingLevel: model id and provider required");
+    }
+    const nextLevel = normalizeThinkingLevelForModel(level, model);
+    this.providerRegistry.setModelDefaultThinkingLevel(model.provider, model.id, nextLevel);
+    await this.syncAndRefresh();
+    await this.refreshAvailable();
+    this._rebindDefaultModel();
+    const refreshed = findModel(this._availableModels, model.id, model.provider)
+      || { ...model, defaultThinkingLevel: nextLevel };
+    return {
+      model: refreshed,
+      thinkingLevel: resolveModelDefaultThinkingLevel(refreshed, nextLevel),
+    };
   }
 
   /**

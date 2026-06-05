@@ -67,6 +67,7 @@ import {
 import {
   normalizeSessionThinkingLevel,
   normalizeThinkingLevelForModel,
+  resolveModelDefaultThinkingLevel,
   resolveThinkingLevelForModel,
 } from "./session-thinking-level.ts";
 import {
@@ -550,6 +551,44 @@ export class SessionCoordinator {
   setPendingModel(model) { this._pendingModel = model; }
   get pendingModel() { return this._pendingModel; }
 
+  _getDefaultThinkingLevelForModel(model = null) {
+    const models = this._d.getModels();
+    const fallback = normalizeSessionThinkingLevel(this._d.getPrefs().getThinkingLevel());
+    const targetModel = model || this._pendingModel || models?.currentModel || null;
+    if (typeof models?.getModelDefaultThinkingLevel === "function") {
+      return models.getModelDefaultThinkingLevel(targetModel, fallback);
+    }
+    return resolveModelDefaultThinkingLevel(targetModel, fallback);
+  }
+
+  getDefaultThinkingLevel() {
+    return this._getDefaultThinkingLevelForModel();
+  }
+
+  async setDefaultThinkingLevel(level) {
+    const models = this._d.getModels();
+    const fallback = normalizeSessionThinkingLevel(this._d.getPrefs().getThinkingLevel());
+    const targetModel = this._pendingModel || models?.currentModel || null;
+    if (!targetModel?.id || !targetModel.provider) {
+      return { ok: false, error: "model not found", thinkingLevel: fallback };
+    }
+    if (typeof models.setModelDefaultThinkingLevel !== "function") {
+      return { ok: false, error: "model thinking defaults unavailable", thinkingLevel: fallback };
+    }
+    const result = await models.setModelDefaultThinkingLevel(targetModel, level);
+    if (
+      this._pendingModel
+      && result?.model?.id === this._pendingModel.id
+      && result.model.provider === this._pendingModel.provider
+    ) {
+      this._pendingModel = result.model;
+    }
+    return {
+      ok: true,
+      thinkingLevel: normalizeSessionThinkingLevel(result?.thinkingLevel),
+    };
+  }
+
   get currentSessionPath() {
     return this._session?.sessionManager?.getSessionFile?.() ?? this._currentSessionPath ?? null;
   }
@@ -679,8 +718,8 @@ export class SessionCoordinator {
     const promptPatchModel = restoredPromptSnapshot ? null : (effectiveModel || restoredPromptModel);
     const requestedThinkingLevel = normalizeSessionThinkingLevel(
       restore
-        ? (restoredThinkingLevel || this._d.getPrefs().getThinkingLevel())
-        : (thinkingLevel ?? this._d.getPrefs().getThinkingLevel()),
+        ? (restoredThinkingLevel || this._getDefaultThinkingLevelForModel(promptPatchModel))
+        : (thinkingLevel ?? this._getDefaultThinkingLevelForModel(effectiveModel)),
     );
     let initialThinkingLevel = normalizeThinkingLevelForModel(requestedThinkingLevel, promptPatchModel);
     let resolvedThinkingLevel = models.resolveThinkingLevel(initialThinkingLevel);
@@ -2117,7 +2156,7 @@ export class SessionCoordinator {
   }
 
   getSessionThinkingLevel(sessionPath = this.currentSessionPath) {
-    const fallback = normalizeSessionThinkingLevel(this._d.getPrefs().getThinkingLevel());
+    const fallback = this.getDefaultThinkingLevel();
     if (!sessionPath) return fallback;
     const entry = this._sessions.get(sessionPath) || this._hibernatedSessionMeta.get(sessionPath);
     return normalizeSessionThinkingLevel(entry?.thinkingLevel || fallback);

@@ -84,12 +84,17 @@ export function ModelSelector({ models, sessionModel, isStreaming = false }: {
         setLoading(false);
         useStore.getState().setModelSwitching(false);
       } else {
-        // New session path — existing logic unchanged
-        await hanaFetch('/api/models/set', {
+        // New session path: persist the model selection and mirror its thinking default into the draft.
+        const setRes = await hanaFetch('/api/models/set', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ modelId, provider }),
         });
+        const setData = await setRes.json().catch(() => ({}));
+        if (setData.thinkingLevel) {
+          useStore.getState().setThinkingLevel(setData.thinkingLevel);
+          useStore.getState().setPendingNewSessionThinkingLevel(setData.thinkingLevel);
+        }
         if (currentSessionPath && !pendingNewSession) {
           const { createNewSession } = await import('../../stores/session-actions');
           await createNewSession();
