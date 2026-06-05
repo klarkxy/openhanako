@@ -1,9 +1,11 @@
 /**
- * WorkflowCard — 右侧「Workflow」卡（两级展开：workflow → 节点列表 → 节点实时流）
+ * WorkflowCard — 右侧「Workflow」卡（两级展开：workflow → Phase 折叠区 → 节点列表 → 节点实时流）
  *
- * 从统一 Agent Activity 真相源筛 kind=workflow（父）与 kind=workflow_agent（子节点，按 parentTaskId 归属）。
- * workflow 行：状态 + 名 + agent 数 + 时长，点开列出每个 agent 节点；
- * 节点行：头像 + 名 + 状态 + token，点开复用 SubagentSessionPreview 看实时流。无 workflow 时返回 null。
+ * 从统一 Agent Activity 真相源筛 kind=workflow（父）、kind=workflow_agent 与 kind=workflow_step（子节点，
+ * 按 parentTaskId 归属）。子节点按 phaseLabel 分组，每组一个 PhaseSection（可折叠，含进度条 + 点阵）。
+ * workflow 行：状态 + 名 + agent 数 + tokens 总计 + 时长，点开列出各 Phase；
+ * 节点行（workflow_agent）：头像 + 名 + token，可展开实时流；
+ * 节点行（workflow_step）：几何形状图标 + 名，不可展开。
  */
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../stores';
@@ -11,6 +13,8 @@ import { selectAgentActivities, type AgentActivityEntry } from '../../stores/age
 import { AgentAvatar, resolveAgentDisplayInfo } from '../../utils/agent-display';
 import { SubagentSessionPreview } from '../chat/SubagentSessionPreview';
 import { formatElapsed } from '../../utils/format-duration';
+import { WorkflowProgressDots } from '../shared/WorkflowProgressDots';
+import { ParallelStepIcon, PipelineStepIcon, LogStepIcon } from '../shared/WorkflowStepIcons';
 import type { Agent } from '../../types';
 import styles from './WorkflowCard.module.css';
 
@@ -48,7 +52,32 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-/** 节点行（workflow_agent 子 entry）：头像 + 名 + 状态 + token，可展开实时流。 */
+function StepShape({ stepKind }: { stepKind: string | null | undefined }) {
+  switch (stepKind) {
+    case 'parallel': return <ParallelStepIcon size={16} />;
+    case 'pipeline': return <PipelineStepIcon size={16} />;
+    case 'log': return <LogStepIcon size={16} />;
+    default: return <PipelineStepIcon size={16} />;
+  }
+}
+
+function groupByPhase(nodes: AgentActivityEntry[]): { phaseLabel: string | null; nodes: AgentActivityEntry[] }[] {
+  const map = new Map<string | null, AgentActivityEntry[]>();
+  for (const n of nodes) {
+    const key = n.phaseLabel || null;
+    const list = map.get(key) || [];
+    list.push(n);
+    map.set(key, list);
+  }
+  const groups: { phaseLabel: string | null; nodes: AgentActivityEntry[] }[] = [];
+  if (map.has(null)) groups.push({ phaseLabel: null, nodes: map.get(null)! });
+  for (const [key, list] of map) {
+    if (key !== null) groups.push({ phaseLabel: key, nodes: list });
+  }
+  return groups;
+}
+
+/** 节点行：workflow_agent（头像，可展开实时流）或 workflow_step（形状图标，不可展开）。 */
 function WorkflowNodeRow({ node, agents, open, onToggle }: {
   node: AgentActivityEntry;
   agents: Agent[];
@@ -56,15 +85,18 @@ function WorkflowNodeRow({ node, agents, open, onToggle }: {
   onToggle: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const info = resolveAgentDisplayInfo({
+  const isStep = node.kind === 'workflow_step';
+
+  const info = isStep ? null : resolveAgentDisplayInfo({
     id: node.agentId,
     agents,
     fallbackAgentName: node.label || node.agentName || node.agentId || 'agent',
   });
-  const displayName = node.label || info.displayName;
-  const tokenText = typeof node.tokens === 'number' ? `${formatTokens(node.tokens)} tok` : '';
+  const displayName = isStep
+    ? (node.label || node.stepKind || 'step')
+    : (node.label || info!.displayName);
+  const tokenText = typeof node.tokens === 'number' ? `${formatTokens(node.tokens)} tok` : (isStep ? '─' : '');
 
-  // 展开且子会话就绪时对齐 preview sessionPath（SubagentSessionPreview 内部做 race 校验）。
   useEffect(() => {
     if (open && node.childSessionPath) {
       useStore.getState().setSubagentPreviewSessionPath(node.id, node.childSessionPath);
@@ -73,13 +105,23 @@ function WorkflowNodeRow({ node, agents, open, onToggle }: {
 
   return (
     <div className={styles.nodeItem}>
-      <button type="button" className={styles.nodeRow} data-status={node.status} onClick={onToggle} aria-expanded={open}>
+      <button
+        type="button"
+        className={styles.nodeRow}
+        data-status={node.status}
+        onClick={isStep ? undefined : onToggle}
+        aria-expanded={isStep ? undefined : open}
+      >
         <span className={`${styles.statusIcon} ${styles[`status-${node.status}`] ?? ''}`} aria-hidden="true">{STATUS_ICON[node.status]}</span>
-        <span className={styles.nodeAvatar}><AgentAvatar info={info} className={styles.nodeAvatarImg} alt={displayName} /></span>
+        {isStep ? (
+          <span className={styles.stepIcon}><StepShape stepKind={node.stepKind} /></span>
+        ) : (
+          <span className={styles.nodeAvatar}><AgentAvatar info={info!} className={styles.nodeAvatarImg} alt={displayName} /></span>
+        )}
         <span className={styles.nodeName} title={displayName}>{displayName}</span>
         {tokenText && <span className={styles.nodeTokens}>{tokenText}</span>}
       </button>
-      {open && (
+      {!isStep && open && (
         <div className={styles.details}>
           <div ref={scrollRef} className={styles.scroll}>
             <SubagentSessionPreview
@@ -97,7 +139,54 @@ function WorkflowNodeRow({ node, agents, open, onToggle }: {
   );
 }
 
-/** workflow 行（父）：状态 + 名 + agent 数 + 时长，可展开节点列表。 */
+/** Phase 分组区：Phase 标题（名 + 进度条 + 计数）+ 点阵 + 可折叠节点列表。 */
+function PhaseSection({ phaseLabel, nodes, agents, expandedNodes, onToggleNode }: {
+  phaseLabel: string | null;
+  nodes: AgentActivityEntry[];
+  agents: Agent[];
+  now: number;
+  expandedNodes: Record<string, boolean>;
+  onToggleNode: (id: string) => void;
+}) {
+  const hasRunning = nodes.some((n) => n.status === 'running');
+  const [open, setOpen] = useState(hasRunning);
+  const doneCount = nodes.filter((n) => n.status === 'done').length;
+  const total = nodes.length;
+  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+
+  return (
+    <div className={styles.phaseSection}>
+      {phaseLabel && (
+        <button type="button" className={styles.phaseHeader} onClick={() => setOpen((o) => !o)}>
+          <Chevron open={open} />
+          <span className={styles.phaseName} title={phaseLabel}>{phaseLabel}</span>
+          <span className={styles.progressTrack}>
+            <span className={styles.progressFill} style={{ width: `${pct}%` }} />
+          </span>
+          <span className={styles.phaseCount}>{doneCount}/{total}</span>
+        </button>
+      )}
+      <div className={styles.phaseDots}>
+        <WorkflowProgressDots nodes={nodes} agents={agents} size="md" />
+      </div>
+      {(open || !phaseLabel) && (
+        <div className={styles.phaseNodes}>
+          {nodes.map((n) => (
+            <WorkflowNodeRow
+              key={n.id}
+              node={n}
+              agents={agents}
+              open={expandedNodes[n.id] === true}
+              onToggle={() => onToggleNode(n.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** workflow 行（父）：状态 + 名 + agent 数 + tokens 总计 + 时长，可展开 Phase 分组。 */
 function WorkflowRow({ wf, nodes, agents, now, open, onToggle, expandedNodes, onToggleNode }: {
   wf: AgentActivityEntry;
   nodes: AgentActivityEntry[];
@@ -110,23 +199,30 @@ function WorkflowRow({ wf, nodes, agents, now, open, onToggle, expandedNodes, on
 }) {
   const t: (k: string, v?: Record<string, string | number>) => string = window.t ?? ((k: string) => k);
   const dur = durationLabel(wf, now, t);
+  const agentNodes = nodes.filter((n) => n.kind === 'workflow_agent');
+  const totalTokens = nodes.reduce((sum, n) => sum + (typeof n.tokens === 'number' ? n.tokens : 0), 0);
+  const phases = groupByPhase(nodes);
+
   return (
     <div className={styles.item}>
       <button type="button" className={styles.row} data-status={wf.status} onClick={onToggle} aria-expanded={open}>
         <span className={`${styles.statusIcon} ${styles[`status-${wf.status}`] ?? ''}`} aria-hidden="true">{STATUS_ICON[wf.status]}</span>
         <span className={styles.name} title={wf.summary || ''}>{wf.summary || wf.id}</span>
-        {nodes.length > 0 && <span className={styles.agentCount}>{t('rightWorkspace.workflow.agents', { n: nodes.length })}</span>}
+        {agentNodes.length > 0 && <span className={styles.agentCount}>{t('rightWorkspace.workflow.agents', { n: agentNodes.length })}</span>}
+        {totalTokens > 0 && <span className={styles.tokenSum}>{formatTokens(totalTokens)}</span>}
         {dur && <span className={styles.duration}>{dur}</span>}
       </button>
       {open && nodes.length > 0 && (
         <div className={styles.nodeList}>
-          {nodes.map((n) => (
-            <WorkflowNodeRow
-              key={n.id}
-              node={n}
+          {phases.map((group) => (
+            <PhaseSection
+              key={group.phaseLabel || '__default__'}
+              phaseLabel={group.phaseLabel}
+              nodes={group.nodes}
               agents={agents}
-              open={expandedNodes[n.id] === true}
-              onToggle={() => onToggleNode(n.id)}
+              now={now}
+              expandedNodes={expandedNodes}
+              onToggleNode={onToggleNode}
             />
           ))}
         </div>
@@ -145,7 +241,7 @@ export function WorkflowCard() {
   const [now, setNow] = useState(() => Date.now());
 
   const workflows = all.filter((a) => a.kind === 'workflow');
-  const hasRunning = all.some((a) => (a.kind === 'workflow' || a.kind === 'workflow_agent') && a.status === 'running');
+  const hasRunning = all.some((a) => (a.kind === 'workflow' || a.kind === 'workflow_agent' || a.kind === 'workflow_step') && a.status === 'running');
 
   // running 时每秒 tick 刷新「已运行」时长；无 running 不开定时器，卸载/终态清理。
   useEffect(() => {
@@ -163,9 +259,9 @@ export function WorkflowCard() {
     return (b.startedAt ?? 0) - (a.startedAt ?? 0);
   });
 
-  // 每个 workflow 的子节点（按 parentTaskId 归属，启动序排列）。
+  // 每个 workflow 的子节点（workflow_agent + workflow_step，按 parentTaskId 归属，启动序排列）。
   const nodesOf = (wfId: string) =>
-    all.filter((a) => a.kind === 'workflow_agent' && a.parentTaskId === wfId)
+    all.filter((a) => (a.kind === 'workflow_agent' || a.kind === 'workflow_step') && a.parentTaskId === wfId)
       .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
 
   return (
