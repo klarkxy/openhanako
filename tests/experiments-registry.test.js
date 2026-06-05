@@ -6,6 +6,7 @@ import { PreferencesManager } from "../core/preferences-manager.js";
 import {
   CACHE_SNAPSHOT_EXPERIMENT_ID,
   COMPACTION_MODE_EXPERIMENT_ID,
+  DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID,
   getExperimentDefinitions,
   getResolvedExperimentValue,
   setExperimentValue,
@@ -59,6 +60,22 @@ describe("experiment registry", () => {
     ]);
   });
 
+  it("defines the DeepSeek roleplay reasoning patch as a boolean toggle defaulting to off", () => {
+    const defs = getExperimentDefinitions();
+    const entry = defs.find((def) => def.id === DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID);
+
+    expect(entry).toMatchObject({
+      id: DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID,
+      owner: "provider",
+      scope: "global",
+      defaultValue: false,
+      valueSchema: {
+        type: "boolean",
+        presentation: { type: "toggle" },
+      },
+    });
+  });
+
   it("rejects unknown experiment ids without writing preferences", () => {
     const { prefs } = makePrefs();
 
@@ -78,6 +95,17 @@ describe("experiment registry", () => {
     expect(setExperimentValue(prefs, COMPACTION_MODE_EXPERIMENT_ID, "pi_compatible")).toBe("pi_compatible");
     expect(getResolvedExperimentValue(prefs, COMPACTION_MODE_EXPERIMENT_ID)).toBe("pi_compatible");
     expect(prefs.getPreferences().experiments[COMPACTION_MODE_EXPERIMENT_ID]).toBe("pi_compatible");
+  });
+
+  it("persists and resolves valid global boolean values", () => {
+    const { prefs } = makePrefs();
+
+    expect(getResolvedExperimentValue(prefs, DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID)).toBe(false);
+    expect(setExperimentValue(prefs, DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID, true)).toBe(true);
+    expect(getResolvedExperimentValue(prefs, DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID)).toBe(true);
+    expect(prefs.getPreferences().experiments[DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID]).toBe(true);
+    expect(setExperimentValue(prefs, DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID, false)).toBe(false);
+    expect(getResolvedExperimentValue(prefs, DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID)).toBe(false);
   });
 
   it("rejects invalid enum values", () => {

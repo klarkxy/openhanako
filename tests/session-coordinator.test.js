@@ -37,6 +37,7 @@ import { SessionCoordinator } from "../core/session-coordinator.js";
 import { VisionBridge, VISION_CONTEXT_START } from "../core/vision-bridge.js";
 import { createUsageLedger } from "../lib/llm/usage-ledger.js";
 import { BrowserManager } from "../lib/browser/browser-manager.js";
+import { DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID } from "../lib/experiments/registry.js";
 
 const PNG_BASE64 = "iVBORw0KGgo=";
 
@@ -212,6 +213,120 @@ describe("SessionCoordinator", () => {
     const meta = JSON.parse(fs.readFileSync(path.join(sessionDir, "session-meta.json"), "utf-8"));
     expect(meta["first.jsonl"].thinkingLevel).toBe("high");
     expect(meta["second.jsonl"].thinkingLevel).toBe("medium");
+  });
+
+  it("freezes the DeepSeek roleplay reasoning patch experiment per session", async () => {
+    const agentDir = path.join(tempDir, "agents", "hana");
+    const sessionDir = path.join(agentDir, "sessions");
+    const sessionPath = path.join(sessionDir, "deepseek-experiment.jsonl");
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    const agent = {
+      id: "hana",
+      agentDir,
+      sessionDir,
+      sessionMemoryEnabled: true,
+      memoryMasterEnabled: true,
+      config: { locale: "zh-CN" },
+      setMemoryEnabled: vi.fn(),
+      buildSystemPrompt: () => "BASE",
+      tools: [],
+    };
+    const prefs = {
+      getThinkingLevel: vi.fn(() => "high"),
+      getExperimentValue: vi.fn((id) => (
+        id === DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID ? true : undefined
+      )),
+    };
+    const model = { id: "deepseek-v4-pro", provider: "deepseek", reasoning: true };
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: model,
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: (level) => level,
+      }),
+      getResourceLoader: () => ({
+        getSystemPrompt: () => "BASE",
+        getAppendSystemPrompt: () => [],
+        getExtensions: () => ({ extensions: [], errors: [] }),
+        getSkills: () => ({ skills: [], diagnostics: [] }),
+        getAgentsFiles: () => ({ agentsFiles: [] }),
+      }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: vi.fn(),
+      getHomeCwd: () => tempDir,
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => prefs,
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [],
+    });
+
+    sessionManagerCreateMock.mockReturnValueOnce({ getCwd: () => tempDir, getSessionFile: () => sessionPath });
+    createAgentSessionMock.mockResolvedValueOnce({
+      session: {
+        sessionManager: { getSessionFile: () => sessionPath },
+        subscribe: vi.fn(() => vi.fn()),
+        setActiveToolsByName: vi.fn(),
+        setThinkingLevel: vi.fn(),
+        model,
+      },
+    });
+
+    await coordinator.createSession(null, tempDir, true);
+
+    const meta = JSON.parse(fs.readFileSync(path.join(sessionDir, "session-meta.json"), "utf-8"));
+    expect(meta["deepseek-experiment.jsonl"].experiments).toEqual({
+      deepseekRoleplayReasoningPatch: true,
+    });
+    expect(coordinator.isDeepSeekRoleplayReasoningPatchEnabled(sessionPath)).toBe(true);
+
+    const offSessionPath = path.join(sessionDir, "deepseek-experiment-off.jsonl");
+    prefs.getExperimentValue.mockReturnValue(undefined);
+    sessionManagerCreateMock.mockReturnValueOnce({ getCwd: () => tempDir, getSessionFile: () => offSessionPath });
+    createAgentSessionMock.mockResolvedValueOnce({
+      session: {
+        sessionManager: { getSessionFile: () => offSessionPath },
+        subscribe: vi.fn(() => vi.fn()),
+        setActiveToolsByName: vi.fn(),
+        setThinkingLevel: vi.fn(),
+        model,
+      },
+    });
+
+    await coordinator.createSession(null, tempDir, true);
+
+    const updatedMeta = JSON.parse(fs.readFileSync(path.join(sessionDir, "session-meta.json"), "utf-8"));
+    expect(updatedMeta["deepseek-experiment-off.jsonl"].experiments).toBeUndefined();
+    expect(coordinator.isDeepSeekRoleplayReasoningPatchEnabled(offSessionPath)).toBe(false);
+
+    const restoredCoordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: model,
+        authStorage: {},
+        modelRegistry: {},
+        availableModels: [model],
+        resolveThinkingLevel: (level) => level,
+      }),
+      getResourceLoader: () => ({ getAppendSystemPrompt: () => [] }),
+      getPrefs: () => ({ getThinkingLevel: () => "high" }),
+      agentIdFromSessionPath: () => "hana",
+    });
+    expect(restoredCoordinator.isDeepSeekRoleplayReasoningPatchEnabled(sessionPath)).toBe(true);
+
+    const legacySessionPath = path.join(sessionDir, "legacy.jsonl");
+    expect(restoredCoordinator.isDeepSeekRoleplayReasoningPatchEnabled(legacySessionPath)).toBe(false);
   });
 
   it("persists authorized folders without adding them to the session prompt snapshot", async () => {

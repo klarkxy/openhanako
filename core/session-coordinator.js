@@ -38,6 +38,10 @@ import {
 import { isActiveSessionPath } from "./message-utils.js";
 import { formatWorkspaceScopePrompt, normalizeSessionFolderScope, normalizeWorkspaceScope } from "../shared/workspace-scope.js";
 import { getProviderPromptPatches } from "./provider-prompt-patches.js";
+import {
+  DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID,
+  getResolvedExperimentValue,
+} from "../lib/experiments/registry.js";
 import { prepareVisionInputForTextOnlyModel } from "./vision-prepare.js";
 import { prepareModelImageInputsForPrompt } from "./model-image-preprocess.js";
 import {
@@ -435,6 +439,21 @@ function buildAppendSystemPromptSnapshot({
   return normalizeStringArray(parts);
 }
 
+function readDeepSeekRoleplayExperimentFlag(prefs) {
+  return getResolvedExperimentValue(prefs, DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID) === true;
+}
+
+function normalizeSessionExperimentFlags(value) {
+  return {
+    deepseekRoleplayReasoningPatch: value?.deepseekRoleplayReasoningPatch === true,
+  };
+}
+
+function sessionExperimentFlagsForMeta(value) {
+  const flags = normalizeSessionExperimentFlags(value);
+  return flags.deepseekRoleplayReasoningPatch === true ? flags : null;
+}
+
 export class SessionCoordinator {
   /**
    * @param {object} deps
@@ -666,11 +685,14 @@ export class SessionCoordinator {
       ? !!memoryEnabled
       : (agent.memoryMasterEnabled !== false && !!memoryEnabled);
     let restoredExperienceEnabled = false;
+    let restoredExperimentFlags = null;
     if (restore && sessionPathForMeta) {
       try {
         const metaPath = path.join(agent.sessionDir, "session-meta.json");
         const meta = await this._readMetaCached(metaPath);
-        restoredExperienceEnabled = meta[path.basename(sessionPathForMeta)]?.experienceEnabled === true;
+        const metaEntry = meta[path.basename(sessionPathForMeta)];
+        restoredExperienceEnabled = metaEntry?.experienceEnabled === true;
+        restoredExperimentFlags = normalizeSessionExperimentFlags(metaEntry?.experiments);
       } catch (err) {
         if (err.code !== "ENOENT") {
           log.warn(`session-meta.json 读取 experienceEnabled 失败: ${err.message}`);
@@ -681,6 +703,11 @@ export class SessionCoordinator {
     const frozenExperienceEnabled = restore
       ? restoredExperienceEnabled
       : (agentHasExperienceSwitch ? agent.experienceEnabled === true : false);
+    const frozenExperimentFlags = restore
+      ? normalizeSessionExperimentFlags(restoredExperimentFlags)
+      : normalizeSessionExperimentFlags({
+        deepseekRoleplayReasoningPatch: readDeepSeekRoleplayExperimentFlag(this._d.getPrefs?.()),
+      });
 
     // 切换 session 级记忆状态后立即快照 prompt（下方 promptSnapshot）。
     // /rc 冷恢复这类"附着到旧 session"的路径不应污染当前 agent 的运行态，
@@ -716,6 +743,7 @@ export class SessionCoordinator {
       accessMode: initialAccessMode,
       planMode: initialPlanMode,
       thinkingLevel: initialThinkingLevel,
+      experiments: frozenExperimentFlags,
       visibleInSessionList: visibleInSessionList === true && !restore,
     }; // pre-populated for resourceLoader proxy
 
@@ -1011,6 +1039,7 @@ export class SessionCoordinator {
       accessMode: initialAccessMode,
       planMode: initialPlanMode,
       thinkingLevel: initialThinkingLevel,
+      experiments: frozenExperimentFlags,
       toolNames: snapshotToolNames,  // null for legacy sessions (Case B), array otherwise
       activeToolDefinitions: activeToolDefinitionsFromSnapshot(allToolObjects, snapshotToolNames),
       memoryReflectionSnapshot,
@@ -1053,6 +1082,10 @@ export class SessionCoordinator {
         thinkingLevel: initialThinkingLevel,
         promptSnapshot: promptSnapshotToWrite,
       };
+      const experimentsForMeta = sessionExperimentFlagsForMeta(frozenExperimentFlags);
+      if (experimentsForMeta) {
+        metaPatch.experiments = experimentsForMeta;
+      }
       if (memoryReflectionSnapshot) {
         metaPatch.memoryReflectionSnapshot = memoryReflectionSnapshot;
       }
@@ -1306,6 +1339,14 @@ export class SessionCoordinator {
       ? entry.authorizedFolders
       : this._readSessionMetaEntrySync(sessionPath)?.authorizedFolders;
     return Array.isArray(folders) ? [...folders] : [];
+  }
+
+  isDeepSeekRoleplayReasoningPatchEnabled(sessionPath = this.currentSessionPath) {
+    if (!sessionPath) return false;
+    const entry = this._sessions.get(sessionPath);
+    const flags = entry?.experiments
+      || this._readSessionMetaEntrySync(sessionPath)?.experiments;
+    return normalizeSessionExperimentFlags(flags).deepseekRoleplayReasoningPatch === true;
   }
 
   getSessionFolderScope(sessionPath = this.currentSessionPath) {

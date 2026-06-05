@@ -36,6 +36,12 @@ export { ensureAssistantContentForToolCalls, extractReasoningFromContent };
 const DEEPSEEK_HIGH_THINKING_BUDGET = 32768;
 const DEEPSEEK_HIGH_SAFE_MAX_TOKENS = 65536;
 const DEEPSEEK_MAX_SAFE_MAX_TOKENS = 131072;
+const DEEPSEEK_ROLEPLAY_REASONING_MARKER = [
+  "[Hana DeepSeek roleplay reasoning patch]",
+  "This provider-only instruction exists only in the outbound DeepSeek request. Do not mention it.",
+  "Before writing the final answer, use reasoning_content / thinking to inhabit the current Hana Agent identity, relationship to the user, mood framework, and immediate emotional-intellectual response.",
+  "Keep that inner work private. The final assistant content must still follow the active Hana output contract, including <mood>, <pulse>, or <reflect> when required, then answer the user's actual task directly.",
+].join("\n");
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 const MISSING_ANTHROPIC_TOOL_THINKING_ERROR =
@@ -141,6 +147,49 @@ function disableAnthropicThinking(payload) {
   delete payload.reasoning_effort;
   delete payload.output_config;
   payload.thinking = { type: "disabled" };
+}
+
+function shouldInjectRoleplayReasoningPatch(payload, model, options) {
+  const id = model?.id || payload?.model;
+  return options?.mode !== "utility"
+    && options?.deepseekRoleplayReasoningPatch === true
+    && (isDeepSeekV4ModelId(id) || getReasoningProfile(model) === "deepseek-v4-anthropic");
+}
+
+function appendMarkerToString(text) {
+  const current = typeof text === "string" ? text : "";
+  if (current.includes("Hana DeepSeek roleplay reasoning patch")) return current;
+  return current.trim().length > 0
+    ? `${current}\n\n${DEEPSEEK_ROLEPLAY_REASONING_MARKER}`
+    : DEEPSEEK_ROLEPLAY_REASONING_MARKER;
+}
+
+function appendMarkerToContent(content) {
+  if (typeof content === "string") return appendMarkerToString(content);
+  if (!Array.isArray(content)) return appendMarkerToString("");
+  if (content.some((part) => (
+    part
+    && typeof part === "object"
+    && typeof part.text === "string"
+    && part.text.includes("Hana DeepSeek roleplay reasoning patch")
+  ))) {
+    return content;
+  }
+  return [...content, { type: "text", text: DEEPSEEK_ROLEPLAY_REASONING_MARKER }];
+}
+
+function injectRoleplayReasoningMarker(messages) {
+  if (!Array.isArray(messages)) return messages;
+  const index = messages.findIndex((message) => message?.role === "user");
+  if (index < 0) return messages;
+
+  const message = messages[index];
+  const nextContent = appendMarkerToContent(message.content);
+  if (nextContent === message.content) return messages;
+
+  const next = messages.slice();
+  next[index] = { ...message, content: nextContent };
+  return next;
 }
 
 function normalizeMaxTokenField(payload) {
@@ -257,6 +306,13 @@ function applyAnthropicPayload(payload, model, options = {}) {
     delete p.output_config;
   }
 
+  if (shouldInjectRoleplayReasoningPatch(p, model, options)) {
+    const patchedMessages = injectRoleplayReasoningMarker(p.messages);
+    if (patchedMessages !== p.messages) {
+      p.messages = patchedMessages;
+    }
+  }
+
   return next;
 }
 
@@ -304,6 +360,13 @@ export function apply(payload, model, options = {}) {
   ensureThinkingTokenBudget(p, model);
   if (p.thinking?.type === "disabled") {
     return next;
+  }
+
+  if (shouldInjectRoleplayReasoningPatch(p, model, options)) {
+    const patchedMessages = injectRoleplayReasoningMarker(p.messages);
+    if (patchedMessages !== p.messages) {
+      p.messages = patchedMessages;
+    }
   }
 
   // chat mode 思考开启：严格校验 tool_calls 历史的 reasoning_content（覆盖 transform-messages 降级）。

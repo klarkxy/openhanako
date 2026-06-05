@@ -872,12 +872,15 @@
       "title": "Experiments",
       "compactionTitle": "Context Compaction",
       "compactionSectionDescription": "Choose whether compact prioritizes prompt-cache preservation or broad history compatibility.",
+      "modelPersonaTitle": "Models & Persona",
+      "modelPersonaDescription": "Observe how providers adapt to Hana's persona, mood, and output contracts.",
       "memoryTitle": "Cache Memory",
       "description": "Forward-looking features land here first. Once stable, they move to the settings page where they belong.",
       "empty": "No visible experiments",
       "owner": {
         "memory": "Memory",
-        "session": "Session"
+        "session": "Session",
+        "provider": "Provider"
       },
       "status": {
         "alpha": "Alpha",
@@ -916,6 +919,10 @@
         "auto": "Auto",
         "cachePreserving": "Cache-preserving compaction",
         "piCompatible": "Normal compaction"
+      },
+      "deepseekRoleplay": {
+        "title": "DeepSeek persona immersion patch",
+        "description": "When enabled, new DeepSeek V4 thinking sessions temporarily append a persona-immersion marker to the first outbound user message. It is not displayed, saved, or restored in chat history. Turning it off keeps the old behavior."
       }
     },
     "appearance": {
