@@ -3,6 +3,7 @@ import type { ChatListItem, ChatMessage } from '../../stores/chat-types';
 import { UserMessage } from './UserMessage';
 import { AssistantMessage } from './AssistantMessage';
 import { ProcessFoldBlock } from './ProcessFoldBlock';
+import { InterludeBlock } from './InterludeBlock';
 import { buildTranscriptRenderItems, type TranscriptRenderItem } from './process-fold';
 import { useStore } from '../../stores';
 import { selectIsStreamingSession } from '../../stores/session-selectors';
@@ -64,7 +65,9 @@ export const ChatTranscript = memo(function ChatTranscript({
 function renderItemKey(renderItem: TranscriptRenderItem): string {
   if (renderItem.type === 'process_fold') return renderItem.id;
   const item = renderItem.item;
-  return item.type === 'message' ? item.data.id : `c-${renderItem.originalIndex}`;
+  if (item.type === 'message') return item.data.id;
+  if (item.type === 'interlude') return `i-${item.id}`;
+  return `c-${renderItem.originalIndex}`;
 }
 
 function buildTurnState(items: ChatListItem[]): {
@@ -218,6 +221,7 @@ const TranscriptItemView = memo(function TranscriptItemView({
   }, [messageId, registerMessageElement]);
 
   if (item.type === 'compaction') return null;
+  if (item.type === 'interlude') return <InterludeBlock block={item.data} />;
 
   const msg = item.data;
   const prevRole = prevItem?.type === 'message' ? prevItem.data.role : null;

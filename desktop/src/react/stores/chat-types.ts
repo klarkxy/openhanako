@@ -256,6 +256,7 @@ export interface ChatMessage {
 
 export type ChatListItem =
   | { type: 'message'; data: ChatMessage }
+  | { type: 'interlude'; id: string; data: Extract<ContentBlock, { type: 'interlude' }> }
   | { type: 'compaction'; id: string; yuan: string };
 
 // ── Per-session 模型快照 ──

@@ -15,6 +15,10 @@ const deskActionMocks = vi.hoisted(() => ({
   activateWorkspaceDesk: vi.fn(),
 }));
 
+const streamResumeMocks = vi.hoisted(() => ({
+  requestStreamResume: vi.fn(),
+}));
+
 const mockState: MockState = {};
 const initialStateFactory = (): MockState => ({
   currentSessionPath: null,
@@ -134,6 +138,10 @@ vi.mock('../../services/websocket', () => ({
   getWebSocket: () => null,
 }));
 
+vi.mock('../../services/stream-resume', () => ({
+  requestStreamResume: streamResumeMocks.requestStreamResume,
+}));
+
 // Stub window.dispatchEvent / CustomEvent for jsdom-less runs
 if (typeof window === 'undefined') {
   (globalThis as any).window = {
@@ -238,6 +246,7 @@ function jsonResponse(body: unknown, ok = true): Response {
     mockFetch.mockReset();
     mockClearChat.mockReset();
     mockLoadDeskFiles.mockReset();
+    streamResumeMocks.requestStreamResume.mockReset();
     deskActionMocks.activateWorkspaceDesk.mockReset();
     deskActionMocks.activateWorkspaceDesk.mockImplementation(async (root?: string | null) => {
       const normalized = root || '';
@@ -935,6 +944,51 @@ function jsonResponse(body: unknown, ok = true): Response {
       // 只应该有一次 /api/sessions/switch，不应该有 /api/sessions/messages
       const calls = mockFetch.mock.calls.map(c => String(c[0]));
       expect(calls.filter(u => u.startsWith('/api/sessions/messages'))).toHaveLength(0);
+    });
+
+    it('后端确认目标 session 已结束时，清掉刷新前遗留的 streaming 标记', async () => {
+      (mockState.chatSessions as Record<string, unknown>)['/a'] = {
+        items: [{ type: 'message', data: { id: '0', text: 'cached' } }],
+        hasMore: false,
+        loadingMore: false,
+      };
+      Object.assign(mockState, {
+        streamingSessions: ['/a', '/background'],
+      });
+
+      mockFetch.mockResolvedValueOnce(jsonResponse({
+        agentId: null,
+        currentModelId: null,
+        currentModelName: null,
+        currentModelProvider: null,
+        isStreaming: false,
+      }));
+
+      await switchSession('/a');
+
+      expect(mockState.streamingSessions).toEqual(['/background']);
+      expect(streamResumeMocks.requestStreamResume).not.toHaveBeenCalled();
+    });
+
+    it('后端确认目标 session 仍在输出时，切入后主动请求恢复该 session 的流', async () => {
+      (mockState.chatSessions as Record<string, unknown>)['/a'] = {
+        items: [{ type: 'message', data: { id: '0', text: 'cached' } }],
+        hasMore: false,
+        loadingMore: false,
+      };
+
+      mockFetch.mockResolvedValueOnce(jsonResponse({
+        agentId: null,
+        currentModelId: null,
+        currentModelName: null,
+        currentModelProvider: null,
+        isStreaming: true,
+      }));
+
+      await switchSession('/a');
+
+      expect(mockState.streamingSessions).toEqual(['/a']);
+      expect(streamResumeMocks.requestStreamResume).toHaveBeenCalledWith('/a');
     });
 
     it('切换完成后仍在 chat surface 时恢复输入焦点', async () => {

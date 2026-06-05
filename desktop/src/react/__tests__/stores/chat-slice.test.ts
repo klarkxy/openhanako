@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createChatSlice, type ChatSlice } from '../../stores/chat-slice';
-import type { SessionModel } from '../../stores/chat-types';
+import type { ChatListItem, SessionModel } from '../../stores/chat-types';
 import { registerStreamBufferInvalidator } from '../../stores/stream-invalidator';
 
 function makeSlice(): ChatSlice {
@@ -24,6 +24,20 @@ const MODEL: SessionModel = {
   reasoning: true,
   contextWindow: 1_000_000,
 };
+
+function interludeItem(id: string): ChatListItem {
+  return {
+    type: 'interlude',
+    id,
+    data: {
+      type: 'interlude',
+      id,
+      variant: 'deferred_result',
+      status: 'success',
+      text: '后台回复已抵达',
+    },
+  };
+}
 
 describe('chat-slice', () => {
   let slice: ChatSlice;
@@ -79,6 +93,15 @@ describe('chat-slice', () => {
         loadingMore: false,
         oldestId: undefined,
       });
+    });
+
+    it('oldestId 取第一条 message，不被前置幕间条目占位', () => {
+      slice.initSession('/a', [
+        interludeItem('deferred:task-1:success'),
+        { type: 'message', data: { id: 'a1', role: 'assistant', blocks: [] } },
+      ], true);
+
+      expect(slice.chatSessions['/a']?.oldestId).toBe('a1');
     });
 
     it('LRU 淘汰只影响 chatSessions，不动 sessionModelsByPath', () => {
