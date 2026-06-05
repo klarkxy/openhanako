@@ -4,7 +4,7 @@
  * Non-blocking video generation. Submits via adapter, returns card immediately.
  */
 import path from "node:path";
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 export const name = "generate-video";
 export const description = t("toolDef.generateVideo.description");

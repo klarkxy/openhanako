@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "js-yaml";
-import { atomicWriteSync } from "../../../shared/safe-fs.js";
-import { t } from "../../../lib/i18n.js";
+import { atomicWriteSync } from "../../../shared/safe-fs.ts";
+import { t } from "../../../lib/i18n.ts";
 
 export const MARKDOWN_ATTACHMENT_DIR_NAME = t("plugin.beautify.attachmentDirName");
 

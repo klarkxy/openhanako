@@ -8,8 +8,7 @@ import { type MouseEvent, useState } from 'react';
 import { useStore } from '../../stores';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
 import styles from './SessionStatusCard.module.css';
-// @ts-expect-error — shared JS module
-import { workspaceDisplayName } from '../../../../../shared/workspace-history.js';
+import { workspaceDisplayName } from '../../../../../shared/workspace-history.ts';
 
 const EMPTY_AUTHORIZED_FOLDERS: string[] = [];
 

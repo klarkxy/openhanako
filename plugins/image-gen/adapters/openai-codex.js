@@ -7,7 +7,7 @@ import {
   OPENAI_IMAGE_RATIOS,
   resolveOpenAiImageSize,
 } from "../lib/resolution-tiers.js";
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 const PROVIDER_ID = "openai-codex-oauth";
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api";

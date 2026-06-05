@@ -35,7 +35,7 @@ import {
 } from '../stores/session-project-actions';
 import { ContextMenu, type ContextMenuItem } from '../ui/ContextMenu';
 import { renderMarkdown } from '../utils/markdown';
-import { cwdFromAutoProjectId } from '../../../../shared/session-projects.js';
+import { cwdFromAutoProjectId } from '../../../../shared/session-projects.ts';
 import { FolderIcon } from './shared/FolderIcon';
 import styles from './SessionList.module.css';
 

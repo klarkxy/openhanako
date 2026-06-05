@@ -4,12 +4,12 @@ import fs from "node:fs";
 import { AdapterRegistry } from "./lib/adapter-registry.js";
 import { TaskStore } from "./lib/task-store.js";
 import { Poller } from "./lib/poller.js";
-import { volcengineImageAdapter } from "./adapters/volcengine.js";
-import { openaiImageAdapter } from "./adapters/openai.js";
+import { volcengineImageAdapter } from "./adapters/volcengine.ts";
+import { openaiImageAdapter } from "./adapters/openai.ts";
 import { openaiCodexImageAdapter } from "./adapters/openai-codex.js";
-import { minimaxImageAdapter } from "./adapters/minimax.js";
-import { dashscopeImageAdapter } from "./adapters/dashscope.js";
-import { geminiImageAdapter } from "./adapters/gemini.js";
+import { minimaxImageAdapter } from "./adapters/minimax.ts";
+import { dashscopeImageAdapter } from "./adapters/dashscope.ts";
+import { geminiImageAdapter } from "./adapters/gemini.ts";
 import { submitImageGeneration } from "./lib/submit-image.js";
 
 export default class ImageGenPlugin {

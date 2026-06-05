@@ -1,5 +1,5 @@
 import path from "node:path";
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 export function createTaskId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);

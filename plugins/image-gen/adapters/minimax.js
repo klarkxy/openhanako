@@ -5,7 +5,7 @@ import {
   normalizeImageInput,
   saveBase64Images,
 } from "./common.js";
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 const DEFAULT_BASE_URL = "https://api.minimaxi.com/v1";
 

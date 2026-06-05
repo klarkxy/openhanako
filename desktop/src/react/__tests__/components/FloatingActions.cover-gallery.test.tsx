@@ -4,7 +4,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { COVER_GALLERY_PRESETS } from '../../../../../shared/cover-gallery-presets.js';
+import { COVER_GALLERY_PRESETS } from '../../../../../shared/cover-gallery-presets.ts';
 import { COVER_GALLERY_ITEMS } from '../../components/preview/cover-gallery-assets';
 import { FloatingActions } from '../../components/preview/FloatingActions';
 import { useStore, type StoreState } from '../../stores';

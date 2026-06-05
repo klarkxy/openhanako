@@ -1,4 +1,4 @@
-import { DEFAULT_DISABLED_TOOL_NAMES } from "../../../shared/tool-categories.js";
+import { DEFAULT_DISABLED_TOOL_NAMES } from "../../../shared/tool-categories.ts";
 
 export const BEAUTIFY_OPTIONAL_TOOL_NAME = "beautify";
 

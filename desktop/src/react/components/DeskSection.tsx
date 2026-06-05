@@ -19,8 +19,7 @@ import { DeskDropZone } from './desk/DeskDropZone';
 import { DeskEmptyOverlay } from './desk/DeskEmptyOverlay';
 import { DeskCwdSkillsButton, DeskCwdSkillsPanel } from './desk/DeskCwdSkills';
 import s from './desk/Desk.module.css';
-// @ts-expect-error — shared JS module
-import { workspaceDisplayName } from '../../../../shared/workspace-history.js';
+import { workspaceDisplayName } from '../../../../shared/workspace-history.ts';
 
 const DESK_FILTER_KEY = 'hana-desk-type-filters';
 const VALID_TYPE_FILTERS = new Set<FileTypeFilter>(['image', 'text', 'video']);

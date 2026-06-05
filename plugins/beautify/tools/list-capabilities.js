@@ -1,4 +1,4 @@
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 export const name = "list-capabilities";
 export const description = t("toolDef.listCapabilities.description");

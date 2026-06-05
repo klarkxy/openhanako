@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { saveImage } from "../lib/download.js";
 import { resolveModelId } from "../lib/model-catalog.js";
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 const FORMAT_TO_MIME = {
   png: "image/png",

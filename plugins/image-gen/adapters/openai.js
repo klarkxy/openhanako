@@ -8,7 +8,7 @@ import {
   OPENAI_IMAGE_RATIOS,
   resolveOpenAiImageSize,
 } from "../lib/resolution-tiers.js";
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 const FORMAT_TO_MIME = {
   png: "image/png",

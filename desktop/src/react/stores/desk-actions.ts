@@ -16,8 +16,7 @@ import {
 } from './workspace-ui-state-actions';
 import { hasServerConnection } from '../services/server-connection';
 import { isWebRuntime } from '../utils/platform-runtime';
-// @ts-expect-error — shared JS module
-import { mergeWorkspaceHistory, normalizeWorkspacePath, removeWorkspaceHistoryEntries } from '../../../../shared/workspace-history.js';
+import { mergeWorkspaceHistory, normalizeWorkspacePath, removeWorkspaceHistoryEntries } from '../../../../shared/workspace-history.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- store setState 回调及 IPC callback data */
 

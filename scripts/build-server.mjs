@@ -228,7 +228,7 @@ console.log("[build-server] Vite bundle copied to bundle/");
 
 console.log("[build-server] running CLI bundle...");
 execSync(
-  `npx esbuild "${path.join(ROOT, "cli", "entry.js")}" --bundle --platform=node --format=esm --target=node24 --external:ws --outfile="${path.join(bundleOutDir, "cli.js")}"`,
+  `npx esbuild "${path.join(ROOT, "cli", "entry.ts")}" --bundle --platform=node --format=esm --target=node24 --external:ws --outfile="${path.join(bundleOutDir, "cli.js")}"`,
   {
     cwd: ROOT,
     stdio: "inherit",
@@ -236,7 +236,7 @@ execSync(
 );
 console.log("[build-server] CLI bundle copied to bundle/cli.js");
 
-fs.copyFileSync(path.join(ROOT, "server", "bootstrap.js"), path.join(outDir, "bootstrap.js"));
+fs.copyFileSync(path.join(ROOT, "server", "bootstrap.ts"), path.join(outDir, "bootstrap.js"));
 console.log("[build-server] bootstrap copied");
 
 // ── 3. 复制运行时数据文件 ──

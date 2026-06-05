@@ -11,12 +11,12 @@ import type { AutoLaunchStatus } from '../../types';
 import {
   normalizeNotificationPreferences as normalizeSharedNotificationPreferences,
   normalizeTurnCompletionNotificationMode,
-} from '../../../../../shared/notification-preferences.js';
+} from '../../../../../shared/notification-preferences.ts';
 import {
   DEFAULT_QUICK_CHAT_REUSE_TIMEOUT_MINUTES,
   DEFAULT_QUICK_CHAT_SHORTCUT,
   normalizeQuickChatPreferences,
-} from '../../../../../shared/quick-chat-preferences.js';
+} from '../../../../../shared/quick-chat-preferences.ts';
 import styles from '../Settings.module.css';
 
 type TurnCompletionNotificationMode = 'never' | 'when_unfocused' | 'when_session_unfocused';

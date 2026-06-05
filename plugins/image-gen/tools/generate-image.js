@@ -6,7 +6,7 @@
  * Poller + DeferredResultStore.
  */
 import { submitImageGeneration } from "../lib/submit-image.js";
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 export const name = "generate-image";
 export const description = t("toolDef.generateImage.description");

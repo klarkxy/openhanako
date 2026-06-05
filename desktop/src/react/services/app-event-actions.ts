@@ -7,8 +7,7 @@ import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadChannels } from '../stores/channel-actions';
 import { applyEditorTypography } from '../editor/typography';
 import { refreshPreviewItemsFromFile } from '../utils/preview-file-refresh';
-// @ts-expect-error — shared JS module
-import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.js';
+import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.ts';
 
 declare const i18n: {
   locale: string;

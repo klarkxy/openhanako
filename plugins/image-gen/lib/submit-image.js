@@ -8,7 +8,7 @@ import {
   resolveImageTarget,
   runSubmitInBackground,
 } from "./image-task-runner.js";
-import { t } from "../../../lib/i18n.js";
+import { t } from "../../../lib/i18n.ts";
 
 function assertMediaRuntime(ctx) {
   const { registry, store, poller } = ctx?._mediaGen || {};

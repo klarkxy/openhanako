@@ -1000,9 +1000,9 @@ async function _spawnServerOnce(serverInfoPath) {
     // native addon 被 Electron 自带 Node 误加载。
     const devRoot = path.join(__dirname, "..");
     serverBin = process.env.HANA_DEV_NODE_BIN || process.env.npm_node_execpath || "node";
-    serverArgs = [path.join(devRoot, "server", "bootstrap.js")];
+    serverArgs = [path.join(devRoot, "server", "bootstrap.ts")];
     serverEnv.HANA_ROOT = devRoot;
-    serverEnv.HANA_SERVER_ENTRY = path.join(devRoot, "server", "index.js");
+    serverEnv.HANA_SERVER_ENTRY = path.join(devRoot, "server", "index.ts");
     // Keep dev and packaged startup contracts identical.
     serverEnv.HANA_CREATE_STARTUP_SESSION = "0";
     delete serverEnv.ELECTRON_RUN_AS_NODE;

@@ -1,10 +1,10 @@
 import { MCP_PROTOCOL_VERSION } from "./mcp-stdio-client.js";
-import { getOutboundProxyConfig } from "../../../lib/net/outbound-proxy.js";
+import { getOutboundProxyConfig } from "../../../lib/net/outbound-proxy.ts";
 import {
   normalizeNetworkProxyConfig,
   proxyConfigFromEnvironment,
   resolveProxyForUrl,
-} from "../../../shared/network-proxy.js";
+} from "../../../shared/network-proxy.ts";
 import {
   MCP_PROTOCOL_VERSION_HEADER,
   headersWithoutMcpProtocolVersion,

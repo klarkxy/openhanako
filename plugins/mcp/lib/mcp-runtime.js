@@ -14,7 +14,7 @@ import {
   exchangeMcpOAuthCode,
   refreshMcpOAuthToken,
 } from "./mcp-oauth.js";
-import { createSettingsUpdate } from "../../../lib/tools/settings-update-result.js";
+import { createSettingsUpdate } from "../../../lib/tools/settings-update-result.ts";
 
 const DEFAULT_CONFIG = {
   enabled: false,

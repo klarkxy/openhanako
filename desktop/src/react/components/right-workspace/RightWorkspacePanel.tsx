@@ -11,8 +11,7 @@ import { WorkflowCard } from './WorkflowCard';
 import { AgentActivityCard } from './AgentActivityCard';
 import { SessionStatusCard } from './SessionStatusCard';
 import styles from './RightWorkspacePanel.module.css';
-// @ts-expect-error — shared JS module
-import { workspaceDisplayName } from '../../../../../shared/workspace-history.js';
+import { workspaceDisplayName } from '../../../../../shared/workspace-history.ts';
 
 interface RightWorkspaceTabDef {
   id: RightWorkspaceTab;
