@@ -574,227 +574,225 @@
   },
   "tool": {
     "web_search": {
-      "running": "🌐 {name} 正在互联网冲浪",
-      "done": "🌐 {name} 冲浪回来了",
-      "failed": "🌐 {name} 没冲到浪"
+      "running": "🌐 {name} 网上冲个浪",
+      "done": "🌐 {name} 冲浪回来啦",
+      "failed": "🌐 {name} 没追上那波浪"
     },
     "web_fetch": {
-      "running": "📄 {name} 正在看网页",
-      "done": "📄 {name} 了然于心",
-      "failed": "📄 {name} 上网失败"
+      "running": "📄 {name} 把网页卷起来带回来",
+      "done": "📄 {name} 读完了",
+      "failed": "📄 {name} 上网扑了个空"
     },
     "search_memory": {
-      "running": "💭 {name} 正在努力回想",
-      "done": "💭 {name} 想起来了",
-      "failed": "💭 {name} 怎么也想不起来"
+      "running": "💭 {name} 翻着记忆的抽屉在找",
+      "done": "💭 {name} 找到了",
+      "failed": "💭 {name} 翻了半天没翻到"
     },
     "bash": {
-      "running": "💻 {name} 正在小心翼翼地用你的电脑",
-      "done": "💻 {name} 用完电脑了",
-      "failed": "💻 {name} 电脑没听话"
+      "running": "💻 {name} 战战兢兢地在黑屋子里敲命令",
+      "done": "💻 {name} 收工了",
+      "failed": "💻 {name} 电脑不听话"
     },
     "read": {
-      "running": "📖 {name} 正在翻阅文件",
-      "done": "📖 {name} 翻完了",
-      "failed": "📖 {name} 没翻到"
+      "running": "📖 {name} 翻着文件找东西",
+      "done": "📖 {name} 读完了",
+      "failed": "📖 {name} 没翻到那页"
     },
     "write": {
-      "running": "✏️ {name} 提笔写字中",
-      "done": "✏️ {name} 落笔了",
-      "failed": "✏️ {name} 笔没墨了"
+      "running": "✏️ {name} 蘸着墨水提笔",
+      "done": "✏️ {name} 落笔成稿",
+      "failed": "✏️ {name} 笔尖干了"
     },
     "edit": {
-      "running": "✏️ {name} 提笔改字中",
-      "done": "✏️ {name} 改好了",
-      "failed": "✏️ {name} 越改越乱了"
+      "running": "✏️ {name} 提笔在原文上修修补补",
+      "done": "✏️ {name} 改得满意",
+      "failed": "✏️ {name} 越改越乱"
     },
     "edit-diff": {
-      "running": "✏️ {name} 提笔改字中",
-      "done": "✏️ {name} 改好了",
-      "failed": "✏️ {name} 越改越乱了"
+      "running": "✏️ {name} 提笔在原文上修修补补",
+      "done": "✏️ {name} 改得满意",
+      "failed": "✏️ {name} 越改越乱"
     },
     "glob": {
-      "running": "🔍 {name} 正在找文件",
-      "done": "🔍 {name} 找到了",
-      "failed": "🔍 {name} 翻遍了也没找到"
+      "running": "🌐 {name} 拿着暗号翻文件名",
+      "done": "🌐 {name} 暗号对上了",
+      "failed": "🌐 {name} 翻遍也没对上"
     },
     "grep": {
-      "running": "🔍 {name} 正在文件里翻找",
-      "done": "🔍 {name} 翻到了",
-      "failed": "🔍 {name} 翻了个遍，没有"
+      "running": "🔍 {name} 拿着放大镜找字句",
+      "done": "🔍 {name} 找到了",
+      "failed": "🔍 {name} 翻了个底朝天也没见"
     },
     "find": {
-      "running": "🔍 {name} 正在找文件",
-      "done": "🔍 {name} 找到了",
-      "failed": "🔍 {name} 翻遍了也没找到"
+      "running": "🔍 {name} 在文件堆里翻找",
+      "done": "🔍 {name} 把它揪出来了",
+      "failed": "🔍 {name} 翻遍也没找到"
     },
     "ls": {
-      "running": "📂 {name} 正在看文件夹里有什么",
-      "done": "📂 {name} 看完了",
-      "failed": "📂 {name} 打不开这个目录"
+      "running": "📂 {name} 清点着柜子里的文件",
+      "done": "📂 {name} 心里有数了",
+      "failed": "📂 {name} 拉不开这个抽屉"
     },
     "truncate": {
-      "running": "✂️ {name} 正在整理文件",
-      "done": "✂️ {name} 整理好了",
-      "failed": "✂️ {name} 整理不动了"
+      "running": "✂️ {name} 给文件瘦个身",
+      "done": "✂️ {name} 整理妥当了",
+      "failed": "✂️ {name} 剪不动"
     },
     "stage_files": {
-      "running": "📎 {name} 正在整理文件",
-      "done": "📎 在这！",
-      "failed": "📎 文件没放好"
+      "running": "📎 {name} 把文件塞进信封",
+      "done": "📎 给！在这里！",
+      "failed": "📎 文件从信封里溜走了"
     },
     "browser": {
-      "running": "🌐 {name} 正在操作浏览器",
-      "done": "🌐 {name} 操作完了",
-      "failed": "🌐 {name} 浏览器不听使唤"
+      "running": "🌐 {name} 亲自打开浏览器翻网页",
+      "done": "🌐 {name} 把网页关上了",
+      "failed": "🌐 {name} 浏览器卡住了"
     },
     "subagent": {
-      "running": "🧭 子代理执行中",
-      "done": "🧭 子代理已完成",
-      "failed": "🧭 子代理执行失败"
+      "running": "🧭 {name} 把任务交给分身",
+      "done": "🧭 分身回来啦",
+      "failed": "🧭 分身在路上迷路了"
     },
     "check_pending_tasks": {
-      "running": "📋 {name} 正在找找没做完的事儿",
-      "done": "📋 {name} 找完了",
-      "failed": "📋 找不着"
+      "running": "📋 {name} 翻翻本子上还欠的活",
+      "done": "📋 {name} 心里有底了",
+      "failed": "📋 找不到本子"
     },
     "cron": {
-      "running": "⏰ {name} 正在设定时任务",
-      "done": "⏰ 设好了",
-      "failed": "⏰ 没设成"
+      "running": "⏰ {name} 给定时器上发条",
+      "done": "⏰ {name} 装好啦",
+      "failed": "⏰ 发条崩了"
     },
     "notify": {
-      "running": "🔔 {name} 正在发通知",
-      "done": "🔔 通知发了",
-      "failed": "🔔 通知没发出去"
+      "running": "🔔 {name} 敲你的手机屏",
+      "done": "🔔 通知发出去啦",
+      "failed": "🔔 没敲响"
     },
     "create_artifact": {
-      "running": "🖼️ {name} 正在写写画画",
-      "done": "🖼️ 画好了",
-      "failed": "🖼️ 画崩了"
+      "running": "🖼️ {name} 在画板前起稿",
+      "done": "🖼️ {name} 收笔了",
+      "failed": "🖼️ {name} 画崩了"
     },
     "dm": {
-      "running": "✉️ {name} 打开了手机",
-      "done": "✉️ 发出去了",
-      "failed": "✉️ 没发出去"
+      "running": "✉️ {name} 开小窗给同事发消息",
+      "done": "✉️ 飞鸽传书出去了",
+      "failed": "✉️ 鸽子飞丢了"
     },
     "channel": {
-      "running": "📢 {name} 正在频道发言",
-      "done": "📢 发完了",
-      "failed": "📢 发不出去",
-      "heading": "# 频道",
-      "ambiguousName": "频道名 \"{name}\" 不唯一，请改用频道 ID：{choices}"
+      "running": "📢 {name} 群里举手发言",
+      "done": "📢 {name} 说完啦",
+      "failed": "📢 {name} 话被吞了"
     },
     "install_skill": {
-      "running": "📥 {name} 正在装技能",
-      "done": "📥 装好了",
-      "failed": "📥 没装上"
+      "running": "📥 {name} 给新技能腾柜子",
+      "done": "📥 装好啦",
+      "failed": "📥 装一半卡住了"
     },
     "update_settings": {
-      "running": "⚙️ {name} 正在改设置",
-      "done": "⚙️ 改好了",
-      "failed": "⚙️ 没改成"
+      "running": "⚙️ {name} 拧着设置里的螺丝",
+      "done": "⚙️ {name} 拧紧了",
+      "failed": "⚙️ {name} 螺丝滑牙了"
     },
     "automation": {
-      "running": "🤖 {name} 正在调度快捷指令",
+      "running": "🤖 {name} 调度快捷指令",
       "done": "🤖 指令跑完了",
-      "failed": "🤖 指令执行失败"
+      "failed": "🤖 调度失灵了"
     },
     "computer": {
-      "running": "🖥️ {name} 正在操控你的屏幕",
-      "done": "🖥️ 操控完了",
-      "failed": "🖥️ 操控失败"
+      "running": "🖥️ {name} 亲自上机操作",
+      "done": "🖥️ {name} 收工了",
+      "failed": "🖥️ {name} 屏幕没配合"
     },
     "terminal": {
-      "running": "💻 {name} 正在敲命令",
-      "done": "💻 敲完了",
-      "failed": "💻 命令执行失败"
+      "running": "💻 {name} 跟终端的黑板对话",
+      "done": "💻 {name} 敲完了",
+      "failed": "💻 {name} 终端装死"
     },
     "current_status": {
-      "running": "🕐 {name} 正在看看现在什么情况",
-      "done": "🕐 掌握信息了",
-      "failed": "🕐 获取信息失败"
+      "running": "🕐 {name} 盘一盘手头有什么",
+      "done": "🕐 心里有数了",
+      "failed": "🕐 一片空白，没盘出啥"
     },
     "pin_memory": {
-      "running": "📌 {name} 正在把这件事钉起来",
-      "done": "📌 钉好了",
-      "failed": "📌 置顶失败"
+      "running": "📌 {name} 把这句贴进随手本",
+      "done": "📌 贴上啦，不会忘",
+      "failed": "📌 写不进去，本子合上了"
     },
     "unpin_memory": {
-      "running": "📌 {name} 正在把钉子拔下来",
-      "done": "📌 拔掉了",
-      "failed": "📌 取消置顶失败"
+      "running": "📌 {name} 从随手本上把那条撕下来",
+      "done": "📌 撕掉啦",
+      "failed": "📌 那条卡在里头了，撕不下来"
     },
     "recall_experience": {
-      "running": "🧠 {name} 正在翻经验本",
+      "running": "🧠 {name} 翻起经验本在找那一页",
       "done": "🧠 翻到了",
-      "failed": "🧠 没找到相关经验"
+      "failed": "🧠 那页空白着呢"
     },
     "record_experience": {
-      "running": "🧠 {name} 正在把经验记下来",
-      "done": "🧠 记好了",
-      "failed": "🧠 记录失败"
+      "running": "🧠 {name} 提笔在经验本上又添了一笔",
+      "done": "🧠 记下了",
+      "failed": "🧠 墨水还没干"
     },
     "session_folders": {
-      "running": "📁 {name} 正在调整文件夹权限",
-      "done": "📁 调好了",
-      "failed": "📁 调整失败"
+      "running": "📁 {name} 调整着工作柜子",
+      "done": "📁 摆好啦",
+      "failed": "📁 柜门卡住了"
     },
     "stop_task": {
-      "running": "🛑 {name} 正在叫停后台任务",
-      "done": "🛑 停下来了",
-      "failed": "🛑 停止失败"
+      "running": "🛑 {name} 按停后台的小火车",
+      "done": "🛑 停稳了",
+      "failed": "🛑 刹车失灵"
     },
     "todo_write": {
-      "running": "📝 {name} 正在写清单",
-      "done": "📝 写好了",
-      "failed": "📝 清单写入失败"
+      "running": "📝 {name} 在清单上划勾",
+      "done": "📝 写好啦",
+      "failed": "📝 笔没墨了"
     },
     "generate-image": {
-      "running": "🎨 {name} 正在作图",
-      "done": "🎨 画好了",
-      "failed": "🎨 作图失败"
+      "running": "🎨 {name} 心里给画面起稿",
+      "done": "🎨 {name} 画好了",
+      "failed": "🎨 {name} 调色盘翻了"
     },
     "generate-video": {
-      "running": "🎬 {name} 正在生成视频",
-      "done": "🎬 视频好了",
-      "failed": "🎬 视频生成失败"
+      "running": "🎬 {name} 在胶片上跑分镜",
+      "done": "🎬 {name} 剪辑完了",
+      "failed": "🎬 {name} 胶卷卡了"
     },
     "create-cover": {
-      "running": "🎨 {name} 正在设计封面",
-      "done": "🎨 封面好了",
-      "failed": "🎨 封面生成失败"
+      "running": "🎨 {name} 给文章配封面",
+      "done": "🎨 封面就位",
+      "failed": "🎨 封面被墨泼了"
     },
     "apply-cover-candidate": {
-      "running": "🖼️ {name} 正在换封面",
+      "running": "🖼️ {name} 给文章换封皮",
       "done": "🖼️ 换好了",
-      "failed": "🖼️ 封面应用失败"
+      "failed": "🖼️ 封皮没贴牢"
     },
     "get-cover-style-guide": {
-      "running": "📖 {name} 正在翻风格手册",
-      "done": "📖 翻到了",
-      "failed": "📖 获取风格指南失败"
+      "running": "📖 {name} 翻审美手册",
+      "done": "📖 翻到啦",
+      "failed": "📖 手册掉页了"
     },
     "list-capabilities": {
-      "running": "📋 {name} 正在清点能力",
+      "running": "📋 {name} 清点自己的本事",
       "done": "📋 点完了",
-      "failed": "📋 能力清点失败"
+      "failed": "📋 名册被风吹跑了"
     },
     "_fallback": {
-      "running": "🔧 {name} 正在忙碌中…",
-      "done": "🔧 {name} 忙完了",
+      "running": "🔧 {name} 默默忙活",
+      "done": "🔧 {name} 收工",
       "failed": "🔧 {name} 没忙明白"
     },
     "checkDeferred": {
-      "storeNotInitialized": "异步任务存储未初始化。",
-      "noActiveSession": "当前无活跃 session。",
+      "storeNotInitialized": "异步任务存储还没就绪。",
+      "noActiveSession": "当前没有活跃的 session。",
       "noTasks": "当前对话没有后台任务{qualifier}。",
       "noTasksQualifier": "（状态: {status}）"
     },
     "workflow": {
-      "running": "🔄 {name} 正在编排工作流",
-      "done": "🔄 编排完了",
-      "failed": "🔄 工作流执行失败",
+      "running": "🔄 {name} 搭工作流的骨架",
+      "done": "🔄 {name} 把线连好了",
+      "failed": "🔄 {name} 工作流散架了",
       "scriptInvalid": "workflow 脚本非法: {message}",
       "dispatched": "workflow \"{summary}\" 已派出后台执行（任务 {taskId}），完成后结果会自动回到对话。",
       "syncComplete": "workflow \"{name}\" 完成，派出 {count} 个 agent。\n\n结果:\n{result}",
@@ -804,6 +802,41 @@
     },
     "installSkill": {
       "safetyBlocked": "[安全策略] 技能安全审查未通过，已阻止安装。\n原因：{reason}\n\n请告知用户此技能未通过安全审查，说明具体原因。用户可以在设置中关闭安全审查（不推荐）。"
+    },
+    "ask_user": {
+      "running": "🗳️ {name} 竖起小耳朵听你拿主意",
+      "done": "🗳️ 听到啦",
+      "failed": "🗳️ 你说话了吗？"
+    },
+    "json_query": {
+      "running": "🔍 {name} 在 JSON 里穿针引线",
+      "done": "🔍 {name} 拎出来了",
+      "failed": "🔍 {name} 没找到那根线"
+    },
+    "llm_request": {
+      "running": "🪄 {name} 召请另一个脑子来帮忙",
+      "done": "🪄 {name} 拿到回信了",
+      "failed": "🪄 {name} 脑子没理我们"
+    },
+    "text_file": {
+      "running": "📄 {name} 给文本文件上上下下过一遍",
+      "done": "📄 {name} 改完啦",
+      "failed": "📄 {name} 文件不听话"
+    },
+    "apply_patch": {
+      "running": "🩹 {name} 给代码贴补丁",
+      "done": "🩹 {name} 贴好了",
+      "failed": "🩹 {name} 补丁没贴上"
+    },
+    "subagent_reply": {
+      "running": "🪢 {name} 拽分身回话",
+      "done": "🪢 分身说完了",
+      "failed": "🪢 分身没接上"
+    },
+    "subagent_close": {
+      "running": "🪢 {name} 给分身收工",
+      "done": "🪢 收工了",
+      "failed": "🪢 收不回来"
     }
   },
   "file_output": {

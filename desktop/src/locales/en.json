@@ -574,236 +574,269 @@
   },
   "tool": {
     "web_search": {
-      "running": "🌐 {name} is surfing the web",
+      "running": "🌐 {name} is riding the web's waves",
       "done": "🌐 {name} is back from surfing",
-      "failed": "🌐 {name} couldn't catch a wave"
+      "failed": "🌐 {name} wiped out on that wave"
     },
     "web_fetch": {
-      "running": "📄 {name} is peeking at a webpage",
-      "done": "📄 {name} got it all",
-      "failed": "📄 {name} couldn't reach the page"
+      "running": "📄 {name} is rolling the page up to bring back",
+      "done": "📄 {name} read the page",
+      "failed": "📄 {name} came back empty-handed"
     },
     "search_memory": {
-      "running": "💭 {name} is trying to remember",
-      "done": "💭 {name} remembered!",
-      "failed": "💭 {name} can't seem to remember"
+      "running": "💭 {name} is rummaging through the memory drawer",
+      "done": "💭 {name} found it",
+      "failed": "💭 {name} couldn't remember"
     },
     "bash": {
-      "running": "💻 {name} is tiptoeing through your computer",
-      "done": "💻 {name} is done with the computer",
-      "failed": "💻 {name}'s computer didn't cooperate"
+      "running": "💻 {name} is tiptoeing through the shell",
+      "done": "💻 {name} is done with the command line",
+      "failed": "💻 {name}'s computer wouldn't listen"
     },
     "read": {
-      "running": "📖 {name} is flipping through a file",
-      "done": "📖 {name} done flipping",
-      "failed": "📖 {name} found nothing there"
+      "running": "📖 {name} is flipping through pages",
+      "done": "📖 {name} finished reading",
+      "failed": "📖 {name} couldn't find that page"
     },
     "write": {
-      "running": "✏️ {name} is putting pen to paper",
-      "done": "✏️ {name} ink's down",
-      "failed": "✏️ {name} ran out of ink"
+      "running": "✏️ {name} is dipping the quill",
+      "done": "✏️ {name} put pen to paper",
+      "failed": "✏️ {name}'s pen ran dry"
     },
     "edit": {
-      "running": "✏️ {name} is making edits",
-      "done": "✏️ {name} all fixed up",
-      "failed": "✏️ {name} made a bit of a mess"
+      "running": "✏️ {name} is patching up the prose",
+      "done": "✏️ {name} signed off on the edit",
+      "failed": "✏️ {name} made it messier"
     },
     "edit-diff": {
-      "running": "✏️ {name} is making edits",
-      "done": "✏️ {name} all fixed up",
-      "failed": "✏️ {name} made a bit of a mess"
+      "running": "✏️ {name} is patching up the prose",
+      "done": "✏️ {name} signed off on the edit",
+      "failed": "✏️ {name} made it messier"
     },
     "glob": {
-      "running": "🔍 {name} is looking for files",
-      "done": "🔍 {name} found them",
-      "failed": "🔍 {name} searched high and low, nothing"
+      "running": "🌐 {name} is matching filename handshakes",
+      "done": "🌐 {name} matched the secret code",
+      "failed": "🌐 {name} couldn't find a match"
     },
     "grep": {
-      "running": "🔍 {name} is rummaging through files",
-      "done": "🔍 {name} found something",
-      "failed": "🔍 {name} rummaged through everything, nope"
+      "running": "🔍 {name} is sweeping the haystack for a needle",
+      "done": "🔍 {name} spotted it",
+      "failed": "🔍 {name} turned the place upside down"
     },
     "find": {
-      "running": "🔍 {name} is looking for files",
-      "done": "🔍 {name} found them",
-      "failed": "🔍 {name} searched high and low, nothing"
+      "running": "🔍 {name} is hunting through file stacks",
+      "done": "🔍 {name} caught it",
+      "failed": "🔍 {name} hunted everywhere"
     },
     "ls": {
-      "running": "📂 {name} is peeking inside a folder",
-      "done": "📂 {name} all seen",
-      "failed": "📂 {name} couldn't open this folder"
+      "running": "📂 {name} is taking inventory of the cabinet",
+      "done": "📂 {name} knows the layout now",
+      "failed": "📂 {name} can't open this drawer"
     },
     "truncate": {
-      "running": "✂️ {name} is tidying up a file",
-      "done": "✂️ {name} all tidied up",
-      "failed": "✂️ {name} couldn't tidy up"
+      "running": "✂️ {name} is trimming the file down to size",
+      "done": "✂️ {name} tidied up",
+      "failed": "✂️ {name} couldn't trim it"
     },
     "stage_files": {
-      "running": "📎 {name} is preparing the file",
-      "done": "📎 Here it is!",
-      "failed": "📎 Couldn't hand it over"
+      "running": "📎 {name} is stuffing files into envelopes",
+      "done": "📎 Here you go!",
+      "failed": "📎 the file slipped out of the envelope"
     },
     "browser": {
-      "running": "🌐 {name} is browsing the web",
-      "done": "🌐 {name} done with the browser",
-      "failed": "🌐 {name}'s browser wouldn't cooperate"
+      "running": "🌐 {name} is poking at the browser directly",
+      "done": "🌐 {name} closed the tab",
+      "failed": "🌐 {name}'s browser froze"
     },
     "subagent": {
-      "running": "🧭 {name} is investigating",
-      "done": "🧭 Clone dispatched",
-      "failed": "🧭 Clone ran into trouble"
+      "running": "🧭 {name} is dispatching a clone",
+      "done": "🧭 the clone is back",
+      "failed": "🧭 the clone got lost on the way"
     },
     "check_pending_tasks": {
-      "running": "📋 {name} is checking unfinished business",
-      "done": "📋 {name} all caught up",
-      "failed": "📋 Couldn't check"
+      "running": "📋 {name} is flipping through the IOU list",
+      "done": "📋 {name} knows what's pending",
+      "failed": "📋 can't find the list"
     },
     "cron": {
-      "running": "⏰ {name} is setting a scheduled task",
-      "done": "⏰ All set",
-      "failed": "⏰ Couldn't set it up"
+      "running": "⏰ {name} is winding up the timer",
+      "done": "⏰ {name} set it",
+      "failed": "⏰ the spring snapped"
     },
     "notify": {
-      "running": "🔔 {name} is sending a notification",
-      "done": "🔔 Notification sent",
-      "failed": "🔔 Notification didn't go through"
+      "running": "🔔 {name} is knocking on your phone",
+      "done": "🔔 ping sent",
+      "failed": "🔔 nobody heard the bell"
     },
     "create_artifact": {
-      "running": "🖼️ {name} is doodling away",
-      "done": "🖼️ Masterpiece ready",
-      "failed": "🖼️ Canvas fell apart"
+      "running": "🖼️ {name} is sketching at the easel",
+      "done": "🖼️ {name} put the brush down",
+      "failed": "🖼️ {name}'s canvas fell apart"
     },
     "dm": {
-      "running": "✉️ {name} picked up the phone",
-      "done": "✉️ Message sent",
-      "failed": "✉️ Message didn't go through"
+      "running": "✉️ {name} is slipping a note to a coworker",
+      "done": "✉️ sent by carrier pigeon",
+      "failed": "✉️ the pigeon got lost"
     },
     "channel": {
-      "running": "📢 {name} is posting in a channel",
-      "done": "📢 Posted",
-      "failed": "📢 Couldn't post",
-      "heading": "# Channels",
-      "ambiguousName": "Channel name \"{name}\" is not unique. Please use a channel ID instead: {choices}"
+      "running": "📢 {name} is raising a hand in the group chat",
+      "done": "📢 {name} finished speaking",
+      "failed": "📢 the message got eaten"
     },
     "install_skill": {
-      "running": "📥 {name} is installing a skill",
-      "done": "📥 Installed",
-      "failed": "📥 Installation failed"
+      "running": "📥 {name} is clearing a shelf for the new skill",
+      "done": "📥 installed",
+      "failed": "📥 got stuck halfway through"
     },
     "update_settings": {
-      "running": "⚙️ {name} is updating settings",
-      "done": "⚙️ Settings updated",
-      "failed": "⚙️ Couldn't update"
+      "running": "⚙️ {name} is tightening screws in the settings",
+      "done": "⚙️ {name} tightened it",
+      "failed": "⚙️ the screw stripped"
     },
     "automation": {
-      "running": "🤖 {name} is dispatching a shortcut",
-      "done": "🤖 Shortcut completed",
-      "failed": "🤖 Shortcut execution failed"
+      "running": "🤖 {name} is dispatching the shortcut robot",
+      "done": "🤖 the robot finished its run",
+      "failed": "🤖 the robot shorted out"
     },
     "computer": {
-      "running": "🖥️ {name} is controlling your screen",
-      "done": "🖥️ Screen control done",
-      "failed": "🖥️ Screen control failed"
+      "running": "🖥️ {name} is taking the wheel at the screen",
+      "done": "🖥️ {name} parked the cursor",
+      "failed": "🖥️ {name}'s screen wouldn't cooperate"
     },
     "terminal": {
-      "running": "💻 {name} is running a command",
-      "done": "💻 Command done",
-      "failed": "💻 Command execution failed"
+      "running": "💻 {name} is tapping on the terminal's blackboard",
+      "done": "💻 {name} finished typing",
+      "failed": "💻 the terminal froze up"
     },
     "current_status": {
-      "running": "🕐 {name} is checking what's going on",
-      "done": "🕐 Got it",
-      "failed": "🕐 Couldn't get the info"
+      "running": "🕐 {name} is taking stock of the room",
+      "done": "🕐 got the lay of the land",
+      "failed": "🕐 came up empty"
     },
     "pin_memory": {
-      "running": "📌 {name} is pinning this down",
-      "done": "📌 Pinned",
-      "failed": "📌 Pinning failed"
+      "running": "📌 {name} is sticking that onto the always-on note",
+      "done": "📌 stuck on, won't forget",
+      "failed": "📌 the notebook slammed shut on it"
     },
     "unpin_memory": {
-      "running": "📌 {name} is unpinning this",
-      "done": "📌 Unpinned",
-      "failed": "📌 Unpinning failed"
+      "running": "📌 {name} is peeling that line off the note",
+      "done": "📌 peeled off",
+      "failed": "📌 it's stuck to the page"
     },
     "recall_experience": {
-      "running": "🧠 {name} is flipping through the experience notes",
-      "done": "🧠 Found something",
-      "failed": "🧠 Nothing relevant in the notes"
+      "running": "🧠 {name} is flipping the experience book open",
+      "done": "🧠 found the page",
+      "failed": "🧠 that page is blank"
     },
     "record_experience": {
-      "running": "🧠 {name} is jotting this down",
-      "done": "🧠 Noted",
-      "failed": "🧠 Couldn't save the note"
+      "running": "🧠 {name} is scribbling another line in the experience book",
+      "done": "🧠 jotted it down",
+      "failed": "🧠 the ink's still wet"
     },
     "session_folders": {
-      "running": "📁 {name} is adjusting folder permissions",
-      "done": "📁 Adjusted",
-      "failed": "📁 Adjustment failed"
+      "running": "📁 {name} is rearranging the cabinet",
+      "done": "📁 all sorted",
+      "failed": "📁 the drawer jammed"
     },
     "stop_task": {
-      "running": "🛑 {name} is stopping a background task",
-      "done": "🛑 Stopped",
-      "failed": "🛑 Couldn't stop"
+      "running": "🛑 {name} is hitting the brakes on the background train",
+      "done": "🛑 stopped safely",
+      "failed": "🛑 the brakes failed"
     },
     "todo_write": {
-      "running": "📝 {name} is writing a checklist",
-      "done": "📝 Checklist ready",
-      "failed": "📝 Checklist write failed"
+      "running": "📝 {name} is ticking off the checklist",
+      "done": "📝 written down",
+      "failed": "📝 the pen ran out"
     },
     "generate-image": {
-      "running": "🎨 {name} is creating an image",
-      "done": "🎨 Image ready",
-      "failed": "🎨 Image generation failed"
+      "running": "🎨 {name} is sketching in their head",
+      "done": "🎨 {name} finished painting",
+      "failed": "🎨 {name} spilled the palette"
     },
     "generate-video": {
-      "running": "🎬 {name} is generating a video",
-      "done": "🎬 Video ready",
-      "failed": "🎬 Video generation failed"
+      "running": "🎬 {name} is running storyboards on the reel",
+      "done": "🎬 {name} finished editing",
+      "failed": "🎬 the film jammed"
     },
     "create-cover": {
-      "running": "🎨 {name} is designing a cover",
-      "done": "🎨 Cover ready",
-      "failed": "🎨 Cover generation failed"
+      "running": "🎨 {name} is dressing up the article's cover",
+      "done": "🎨 cover set",
+      "failed": "🎨 ink spilled on the cover"
     },
     "apply-cover-candidate": {
-      "running": "🖼️ {name} is applying the cover",
-      "done": "🖼️ Cover applied",
-      "failed": "🖼️ Couldn't apply the cover"
+      "running": "🖼️ {name} is swapping the article's cover",
+      "done": "🖼️ swapped",
+      "failed": "🖼️ the cover wouldn't stick"
     },
     "get-cover-style-guide": {
-      "running": "📖 {name} is looking up the style guide",
-      "done": "📖 Found it",
-      "failed": "📖 Couldn't find the style guide"
+      "running": "📖 {name} is flipping through the style guide",
+      "done": "📖 found it",
+      "failed": "📖 the pages fell out"
     },
     "list-capabilities": {
-      "running": "📋 {name} is listing capabilities",
-      "done": "📋 All listed",
-      "failed": "📋 Listing failed"
+      "running": "📋 {name} is taking stock of their toolkit",
+      "done": "📋 inventory done",
+      "failed": "📋 the manifest blew away"
     },
     "_fallback": {
-      "running": "🔧 {name} is busy working…",
-      "done": "🔧 {name} all done",
-      "failed": "🔧 {name} that didn't go as planned"
+      "running": "🔧 {name} is busy at work",
+      "done": "🔧 {name} is done",
+      "failed": "🔧 {name} got tangled up"
     },
     "checkDeferred": {
-      "storeNotInitialized": "Deferred task store not initialized.",
+      "storeNotInitialized": "Background task store not initialized.",
       "noActiveSession": "No active session.",
-      "noTasks": "No background tasks in current conversation{qualifier}.",
+      "noTasks": "No background tasks{qualifier} in this chat.",
       "noTasksQualifier": " (status: {status})"
     },
     "workflow": {
-      "running": "🔄 {name} is orchestrating a workflow",
-      "done": "🔄 Workflow complete",
-      "failed": "🔄 Workflow execution failed",
-      "scriptInvalid": "Workflow script invalid: {message}",
-      "dispatched": "Workflow \"{summary}\" has been dispatched for background execution (task {taskId}). Results will automatically return to the conversation when complete.",
-      "syncComplete": "Workflow \"{name}\" complete, dispatched {count} agents.\n\nResult:\n{result}",
-      "executionFailed": "Workflow execution failed: {message}",
-      "resumeFromRunIdDesc": "runId (taskId) of a previous workflow, used for checkpoint resume: completed agent nodes whose prompt+opts are unchanged return cached results instantly, re-execution starts from the first changed position.",
-      "journalResuming": "Resuming from {count} cached entries"
+      "running": "🔄 {name} is laying out the workflow's skeleton",
+      "done": "🔄 {name} wired it up",
+      "failed": "🔄 {name}'s workflow fell apart",
+      "scriptInvalid": "workflow script invalid: {message}",
+      "dispatched": "workflow \"{summary}\" dispatched to the background (task {taskId}); results will return to the chat when ready.",
+      "syncComplete": "workflow \"{name}\" done, dispatched {count} agents.\n\nResults:\n{result}",
+      "executionFailed": "workflow execution failed: {message}",
+      "resumeFromRunIdDesc": "The runId (taskId) of a previous workflow, for resuming from a journal. Agent nodes that already finished with unchanged prompt+opts return cached results instantly; execution resumes from the first changed position.",
+      "journalResuming": "resuming from {count} cached entries"
     },
     "installSkill": {
-      "safetyBlocked": "[Security Policy] Skill safety review failed. Installation blocked.\nReason: {reason}\n\nPlease inform the user that this skill did not pass the safety review and explain the specific reason. The user can disable safety review in settings (not recommended)."
+      "safetyBlocked": "[Safety] Skill safety review failed, installation blocked.\nReason: {reason}\n\nPlease inform the user about the safety review failure and the specific reason. Users can disable safety reviews in settings (not recommended)."
+    },
+    "ask_user": {
+      "running": "🗳️ {name} is leaning in to hear your call",
+      "done": "🗳️ got it",
+      "failed": "🗳️ did you say something?"
+    },
+    "json_query": {
+      "running": "🔍 {name} is threading a needle through JSON",
+      "done": "🔍 {name} pulled it out",
+      "failed": "🔍 {name} lost the thread"
+    },
+    "llm_request": {
+      "running": "🪄 {name} is summoning a second brain",
+      "done": "🪄 {name} got the reply",
+      "failed": "🪄 the summoned brain didn't answer"
+    },
+    "text_file": {
+      "running": "📄 {name} is sweeping through the text file",
+      "done": "📄 {name} finished editing",
+      "failed": "📄 the file wouldn't cooperate"
+    },
+    "apply_patch": {
+      "running": "🩹 {name} is sticking a patch on the code",
+      "done": "🩹 patched",
+      "failed": "🩹 the patch wouldn't stick"
+    },
+    "subagent_reply": {
+      "running": "🪢 {name} is tugging the clone back for a reply",
+      "done": "🪢 the clone answered",
+      "failed": "🪢 the clone didn't pick up"
+    },
+    "subagent_close": {
+      "running": "🪢 {name} is wrapping up the clone's shift",
+      "done": "🪢 clone dismissed",
+      "failed": "🪢 couldn't dismiss the clone"
     }
   },
   "file_output": {
