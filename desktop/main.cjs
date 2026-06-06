@@ -815,28 +815,18 @@ async function startServer() {
     })();
 
     if (pidAlive) {
-      const verification = await verifyReusableServerInfo(existingInfo);
-      if (verification.reusable) {
-        console.log(`[desktop] 复用已运行的 server，端口: ${existingInfo.port}, 版本: ${existingInfo.version || "unknown"}, studio: ${verification.identity.studioId}`);
-        serverPort = existingInfo.port;
-        serverToken = existingInfo.token;
-        reusedServerPid = existingInfo.pid;
-        reusedServerOwned = isDesktopOwnedServerInfo(existingInfo);
-        return; // 跳过启动
+      // npm start 强制轮换：不管现有 server 是 desktop 启动的、CLI 启动的、
+      // 还是上一代 desktop 残留，都先 kill 掉再 spawn 自己的新 server。
+      // 避免 server 进程跨 desktop session 残留(典型表现:关掉前端后 node
+      // bootstrap.js 进程还活着,下次启动读到旧 server-info.json 复用)。
+      console.log(`[desktop] npm start: 强制终止遗留 server PID ${existingInfo.pid}，spawn 自己的新 server`);
+      killPid(existingInfo.pid);
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        try { process.kill(existingInfo.pid, 0); } catch { break; }
+        await new Promise(r => setTimeout(r, 100));
       }
-
-      if (verification.terminate) {
-        console.log(`[desktop] 可信旧 server 不可复用（${verification.reason}），正在终止 PID ${existingInfo.pid}`);
-        killPid(existingInfo.pid);
-        const deadline = Date.now() + 2000;
-        while (Date.now() < deadline) {
-          try { process.kill(existingInfo.pid, 0); } catch { break; }
-          await new Promise(r => setTimeout(r, 100));
-        }
-        killPid(existingInfo.pid, true);
-      } else {
-        console.warn(`[desktop] server-info 不可信，拒绝复用且不自动终止 PID ${existingInfo.pid}: ${verification.reason}`);
-      }
+      killPid(existingInfo.pid, true);
     }
 
     // PID 已死或已 kill，删除脏文件
@@ -1047,6 +1037,9 @@ function monitorServer() {
         await startServer();
         console.log("[desktop] Server 重启成功");
         monitorServer(); // 重新挂监控
+        // 主动关闭旧 browser WS：旧 ws 持有的 serverToken 已失效，
+        // close() 触发 on("close") → connect() 在 2s 后用最新 serverToken 重连
+        closeBrowserCommandsWs();
         // 通知前端重连
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("server-restarted", { port: serverPort, token: serverToken });
@@ -2431,16 +2424,34 @@ async function handleBrowserCommand(cmd, params) {
   }
 }
 
-/** 通过 WebSocket 监听 server 的浏览器命令 */
+/** 通过 WebSocket 监听 server 的浏览器命令。
+ * 关键：url 不能闭包启动时的 serverPort/serverToken。server 一旦重启就会换 token，
+ * 否则旧 ws 用 2s 循环重连时永远拿旧 token，server 端 401 拒掉，
+ * _transport.connected 永远 false，浏览器调用就抛 "browserDesktopOnly" 误导错。
+ * 改为 connect() 内动态读最新 serverPort/serverToken，并把 ws 引用放模块级以便
+ * monitorServer() 重启 server 后主动 close 触发自然重连（拿新 token）。 */
+let _browserWs = null;
+let _browserWsReconnectTimer = null;
 function setupBrowserCommands() {
   if (!serverPort || !serverToken) return;
 
   const WebSocket = require("ws");
-  const url = `ws://127.0.0.1:${serverPort}/internal/browser?token=${serverToken}`;
-  let ws;
 
   function connect() {
-    ws = new WebSocket(url);
+    // 动态读最新 token/port：server 重启后 monitorServer() 会改全局变量
+    const currentPort = serverPort;
+    const currentToken = serverToken;
+    if (!currentPort || !currentToken) return;
+    const url = `ws://127.0.0.1:${currentPort}/internal/browser?token=${currentToken}`;
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      console.error("[desktop] Browser control WS construct failed:", err.message);
+      if (!isQuitting) _browserWsReconnectTimer = setTimeout(connect, 2000);
+      return;
+    }
+    _browserWs = ws;
     ws.on("open", () => {
       console.log("[desktop] Browser control WS connected");
     });
@@ -2469,14 +2480,34 @@ function setupBrowserCommands() {
       }
     });
     ws.on("close", () => {
+      if (_browserWs === ws) _browserWs = null;
       if (!isQuitting) {
-        setTimeout(connect, 2000);
+        _browserWsReconnectTimer = setTimeout(connect, 2000);
       }
     });
     ws.on("error", () => {}); // close event handles reconnect
   }
 
   connect();
+}
+
+/** 主动关闭当前 browser 控制 WS（若存在），让 on("close") 自然触发重连。
+ *  用于 server 重启后：旧 ws 持有的 token 已失效，强制关掉走 connect() 拿新 token。 */
+function closeBrowserCommandsWs() {
+  if (_browserWsReconnectTimer) {
+    clearTimeout(_browserWsReconnectTimer);
+    _browserWsReconnectTimer = null;
+  }
+  const ws = _browserWs;
+  _browserWs = null;
+  if (!ws) return;
+  try {
+    // CONNECTING(0) 调 close 是合法的；OPEN(1)/CLOSING(2)/CLOSED(3) 也都安全
+    ws.removeAllListeners?.();
+    ws.close();
+  } catch (err) {
+    console.error("[desktop] close browser WS failed:", err.message);
+  }
 }
 
 // ── 创建 Onboarding 窗口 ──
