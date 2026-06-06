@@ -35,21 +35,21 @@ import {
   createSubagentCloseTool,
   createSubagentReplyTool,
   createSubagentTool,
-} from "../lib/tools/subagent-tool.js";
-import { writeSubagentSessionMeta } from "../lib/subagent-executor-metadata.js";
-import { createCheckDeferredTool } from "../lib/tools/check-deferred-tool.js";
+} from "../lib/tools/subagent-tool.ts";
+import { writeSubagentSessionMeta } from "../lib/subagent-executor-metadata.ts";
+import { createCheckDeferredTool } from "../lib/tools/check-deferred-tool.ts";
 import { createAskUserTool } from "../lib/tools/ask-user-tool.js";
-import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
-import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
-import { createTerminalTool } from "../lib/tools/terminal-tool.js";
+import { createStopTaskTool } from "../lib/tools/stop-task-tool.ts";
+import { createCurrentStatusTool } from "../lib/tools/current-status-tool.ts";
+import { createTerminalTool } from "../lib/tools/terminal-tool.ts";
 import { createTextFileTool } from "../lib/tools/text-file-tool.js";
 import { createApplyPatchTool } from "../lib/tools/apply-patch.js";
 import { createJsonQueryTool } from "../lib/tools/json-query-tool.js";
 import { createLlmRequestTool } from "../lib/tools/llm-request-tool.js";
-import { createWorkflowTool } from "../lib/tools/workflow-tool.js";
-import { runCompatChecks } from "../lib/compat/index.js";
-import { getPlatformPromptNote } from "./platform-prompt.js";
-import { assertAgentConfigPatchYuan, getAgentConfigRepairState } from "./yuan-registry.js";
+import { createWorkflowTool } from "../lib/tools/workflow-tool.ts";
+import { runCompatChecks } from "../lib/compat/index.ts";
+import { getPlatformPromptNote } from "./platform-prompt.ts";
+import { assertAgentConfigPatchYuan, getAgentConfigRepairState } from "./yuan-registry.ts";
 import {
   collectWorkspaceInstructionFiles,
   formatWorkspaceInstructionFiles,
