@@ -58,6 +58,10 @@ import {
 } from "./session-jsonl-file.ts";
 import { createVisionContextInjectionExtension } from "./vision-context-injector.ts";
 import {
+  createSessionTurnContextExtension,
+  normalizeSessionTurnContext,
+} from "./session-turn-context.ts";
+import {
   modelSupportsDirectAudioInput,
   modelSupportsAudioInput,
   modelSupportsDirectVideoInput,
@@ -137,6 +141,42 @@ function buildPromptMediaOptions(opts: any) {
     ...(opts.videoAttachmentPaths?.length ? { videoAttachmentPaths: opts.videoAttachmentPaths } : {}),
     ...(opts.audioAttachmentPaths?.length ? { audioAttachmentPaths: opts.audioAttachmentPaths } : {}),
   };
+}
+
+function normalizePluginSessionMeta({ ownerPluginId, sessionKind, sessionVisibility }: any = {}) {
+  const pluginId = typeof ownerPluginId === "string" && ownerPluginId.trim()
+    ? ownerPluginId.trim()
+    : null;
+  const kind = typeof sessionKind === "string" && sessionKind.trim()
+    ? sessionKind.trim()
+    : null;
+  const visibility = typeof sessionVisibility === "string" && sessionVisibility.trim()
+    ? sessionVisibility.trim()
+    : null;
+  if (!pluginId && !kind && !visibility) return null;
+  return {
+    ownerPluginId: pluginId,
+    kind,
+    visibility: visibility || "public",
+  };
+}
+
+function sessionMatchesListOptions(sessionLike, options: any = {}) {
+  const ownerPluginId = typeof options.ownerPluginId === "string" && options.ownerPluginId.trim()
+    ? options.ownerPluginId.trim()
+    : null;
+  const includePluginPrivate = options.includePluginPrivate === true;
+  const sessionOwnerPluginId = sessionLike?.ownerPluginId || null;
+  const visibility = sessionLike?.visibility || sessionLike?.sessionVisibility || "public";
+  if (ownerPluginId && sessionOwnerPluginId !== ownerPluginId) return false;
+  if (
+    (visibility === "plugin_private" || visibility === "private")
+    && !includePluginPrivate
+    && sessionOwnerPluginId !== ownerPluginId
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function extractPlainTextFromContent(content: any, { stripThink = false } = {}) {
@@ -532,6 +572,7 @@ export class SessionCoordinator {
   declare _runtimePermissionModeDefault: any;
   declare _metaWriteQueue: Promise<any>;
   declare _prePromptAbortControllers: Map<string, AbortController>;
+  declare _turnContextBySession: Map<string, any>;
 
   /**
    * @param {object} deps
@@ -571,6 +612,7 @@ export class SessionCoordinator {
     this._runtimePermissionModeDefault = null;
     this._metaWriteQueue = Promise.resolve();
     this._prePromptAbortControllers = new Map();
+    this._turnContextBySession = new Map();
   }
 
   static _TITLES_TTL = 60_000; // 60 秒
@@ -702,6 +744,9 @@ export class SessionCoordinator {
     thinkingLevel = null,
     workspaceMountId = null,
     workspaceLabel = null,
+    ownerPluginId = null,
+    sessionKind = null,
+    sessionVisibility = null,
   }: any = {}) {
     const t0 = Date.now();
     const agent = explicitAgent
@@ -871,6 +916,7 @@ export class SessionCoordinator {
       experiments: frozenExperimentFlags,
       visibleInSessionList: visibleInSessionList === true && !restore,
     }; // pre-populated for resourceLoader proxy
+    const pluginSessionMeta = normalizePluginSessionMeta({ ownerPluginId, sessionKind, sessionVisibility });
 
     // 快照当前 system prompt，per-session 隔离。
     // 后续记忆编译、技能变更只影响新对话，已有对话的 prompt 不变（保护 prefix cache）。
@@ -944,6 +990,13 @@ export class SessionCoordinator {
       },
       warn: warnVisionContextInjection,
     });
+    const turnContextExtension = createSessionTurnContextExtension({
+      path: "hana-desktop-session-turn-context",
+      sessionPathRef,
+      getTurnContext: (sessionPath) => sessionPath
+        ? this._turnContextBySession.get(sessionPath) || null
+        : null,
+    });
 
     // Wrap resourceLoader: per-session prompt snapshot + plan mode injection + vision auxiliary extension
     const resourceLoaderProps = {
@@ -955,7 +1008,7 @@ export class SessionCoordinator {
           const base = baseResourceLoader.getExtensions?.() ?? { extensions: [], errors: [] };
           return {
             ...base,
-            extensions: [visionAuxiliaryExtension, ...(base.extensions || [])],
+            extensions: [turnContextExtension, visionAuxiliaryExtension, ...(base.extensions || [])],
           };
         },
       },
@@ -1169,6 +1222,9 @@ export class SessionCoordinator {
       experiments: frozenExperimentFlags,
       toolNames: snapshotToolNames,  // null for legacy sessions (Case B), array otherwise
       activeToolDefinitions: activeToolDefinitionsFromSnapshot(allToolObjects, snapshotToolNames),
+      ownerPluginId: pluginSessionMeta?.ownerPluginId || null,
+      sessionKind: pluginSessionMeta?.kind || null,
+      sessionVisibility: pluginSessionMeta?.visibility || "public",
       memoryReflectionSnapshot,
       lastTouchedAt: Date.now(),
       unsub,
@@ -1220,6 +1276,9 @@ export class SessionCoordinator {
       if (memoryReflectionSnapshot) {
         metaPatch.memoryReflectionSnapshot = memoryReflectionSnapshot;
       }
+      if (pluginSessionMeta) {
+        metaPatch.plugin = pluginSessionMeta;
+      }
       if (snapshotToolNames !== null) metaPatch.toolNames = snapshotToolNames;
       await this.writeSessionMeta(sessionPath, metaPatch);
     } else if (restore && sessionPath) {
@@ -1269,6 +1328,9 @@ export class SessionCoordinator {
     thinkingLevel = null,
     workspaceMountId = null,
     workspaceLabel = null,
+    ownerPluginId = null,
+    sessionKind = null,
+    sessionVisibility = null,
   }: any = {}) {
     const prevFocus = this._session;
     const prevCurrentSessionPath = this._currentSessionPath;
@@ -1290,6 +1352,9 @@ export class SessionCoordinator {
         thinkingLevel,
         workspaceMountId,
         workspaceLabel,
+        ownerPluginId,
+        sessionKind,
+        sessionVisibility,
       });
     } finally {
       this._session = prevFocus;
@@ -1804,6 +1869,7 @@ export class SessionCoordinator {
   }
 
   async prompt(text: any, opts: any) {
+    const turnContext = normalizeSessionTurnContext(opts?.context);
     if (!this._session) {
       const currentPath = this.currentSessionPath;
       if (!currentPath) throw new Error(t("error.noActiveSessionPrompt"));
@@ -1831,9 +1897,11 @@ export class SessionCoordinator {
     assertAudioInputSupported(this._session.model, opts?.audios);
     const promptOpts = buildPromptMediaOptions(opts);
     const nativeMediaTurn = engine?.beginCurrentTurnNativeMedia?.(sp, opts);
+    if (sp && turnContext) this._turnContextBySession.set(sp, turnContext);
     try {
       await this._session.prompt(text, promptOpts);
     } finally {
+      if (sp && turnContext) this._turnContextBySession.delete(sp);
       engine?.endCurrentTurnNativeMedia?.(nativeMediaTurn);
       pruneSessionInlineMediaHistory(this._session);
       this._projectOversizedSessionHistory(this._session, sp);
@@ -1878,6 +1946,7 @@ export class SessionCoordinator {
   // ── Path 感知 API（Phase 2） ──
 
   async promptSession(sessionPath: any, text: any, opts: any) {
+    const turnContext = normalizeSessionTurnContext(opts?.context);
     this._assertActiveDesktopSessionPath(sessionPath, "promptSession");
     let entry = this._sessions.get(sessionPath);
     if (!entry) {
@@ -1889,7 +1958,9 @@ export class SessionCoordinator {
       this._session = entry.session;
     }
     entry.lastTouchedAt = Date.now();
-    entry.visibleInSessionList = true;
+    if (entry.sessionVisibility !== "plugin_private" && entry.sessionVisibility !== "private") {
+      entry.visibleInSessionList = true;
+    }
     if (sessionPath === this.currentSessionPath) this._sessionStarted = true;
     const engine = this._d.getEngine?.();
     const abortController = new AbortController();
@@ -1919,9 +1990,11 @@ export class SessionCoordinator {
     assertAudioInputSupported(entry.session.model, opts?.audios);
     const promptOpts = buildPromptMediaOptions(opts);
     const nativeMediaTurn = engine?.beginCurrentTurnNativeMedia?.(sessionPath, opts);
+    if (turnContext) this._turnContextBySession.set(sessionPath, turnContext);
     try {
       await entry.session.prompt(text, promptOpts);
     } finally {
+      if (turnContext) this._turnContextBySession.delete(sessionPath);
       engine?.endCurrentTurnNativeMedia?.(nativeMediaTurn);
       pruneSessionInlineMediaHistory(entry.session);
       this._projectOversizedSessionHistory(entry.session, sessionPath);
@@ -2907,8 +2980,11 @@ export class SessionCoordinator {
     return this.abortSession(sessionPath);
   }
 
-  async listSessions() {
-    const activeAgents = this._d.listAgents();
+  async listSessions(options: any = {}) {
+    const activeAgents = this._d.listAgents({
+      includePluginPrivate: options.includePluginPrivate === true,
+      ...(options.ownerPluginId ? { ownerPluginId: options.ownerPluginId } : {}),
+    });
     const deletedAgents = this._d.listDeletedAgents?.() || [];
     const agents = [
       ...activeAgents.map(agent => ({ ...agent, agentDeleted: false })),
@@ -2925,6 +3001,7 @@ export class SessionCoordinator {
           this._loadSessionTitlesFor(sessionDir),
           this._readMetaCached(path.join(sessionDir, "session-meta.json")),
         ]);
+        const visibleSessions = [];
         for (const s of sessions) {
           if (titles[s.path]) s.title = titles[s.path];
           s.agentId = agent.id;
@@ -2944,6 +3021,12 @@ export class SessionCoordinator {
           const workspaceMount = normalizeSessionWorkspaceMount(metaEntry);
           s.workspaceMountId = workspaceMount?.mountId || null;
           s.workspaceLabel = workspaceMount?.label || null;
+          const pluginMeta = metaEntry?.plugin && typeof metaEntry.plugin === "object"
+            ? metaEntry.plugin
+            : null;
+          s.ownerPluginId = typeof pluginMeta?.ownerPluginId === "string" ? pluginMeta.ownerPluginId : null;
+          s.sessionKind = typeof pluginMeta?.kind === "string" ? pluginMeta.kind : null;
+          s.visibility = typeof pluginMeta?.visibility === "string" ? pluginMeta.visibility : "public";
           // 读取新格式 model:{id,provider}；老格式（只有 modelId）视为无 provider，
           // 调用方必须接受 modelProvider 可能为 null。
           if (metaEntry?.model && typeof metaEntry.model === "object") {
@@ -2953,8 +3036,10 @@ export class SessionCoordinator {
             s.modelId = metaEntry?.modelId || null;
             s.modelProvider = null;
           }
+          if (!sessionMatchesListOptions(s, options)) continue;
+          visibleSessions.push(s);
         }
-        return sessions;
+        return visibleSessions;
       } catch (err) {
         // 显式日志：之前静默吞错会让用户看到「对话框列表为空」却没有任何线索 (#414)
         log.warn(`listSessions: agent="${agent.id}" sessionDir="${sessionDir}" failed: ${err?.message || err}`);
@@ -2978,7 +3063,7 @@ export class SessionCoordinator {
       const deletedInfo = this._d.getDeletedAgentInfo?.(entry.agentId);
       const isDeleted = !!deletedInfo || this._d.isAgentDeleted?.(entry.agentId);
       const agent = isDeleted ? deletedInfo : (this._d.getAgentById?.(entry.agentId) || this._d.getAgent());
-      allSessions.push({
+      const projected = {
         path: sessionPath,
         title: null,
         firstMessage: "",
@@ -2989,6 +3074,9 @@ export class SessionCoordinator {
         agentName: agent?.agentName || agent?.name || entry.agentId || null,
         modelId: entry.modelId || null,
         modelProvider: entry.modelProvider || null,
+        ownerPluginId: entry.ownerPluginId || null,
+        sessionKind: entry.sessionKind || null,
+        visibility: entry.sessionVisibility || "public",
         workspaceMountId: entry.workspaceMountId || null,
         workspaceLabel: entry.workspaceLabel || null,
         pinnedAt: null,
@@ -2999,7 +3087,9 @@ export class SessionCoordinator {
           continuationAvailable: true,
           deletedAt: deletedInfo?.deletedAt || null,
         } : {}),
-      });
+      };
+      if (!sessionMatchesListOptions(projected, options)) continue;
+      allSessions.push(projected);
       projectedPaths.add(sessionPath);
     }
 
@@ -3026,6 +3116,45 @@ export class SessionCoordinator {
     await this._verifySessionPinnedState(sessionPath, pinnedAt);
     this._emitSessionMetadataUpdated(sessionPath, { pinnedAt });
     return pinnedAt;
+  }
+
+  async setSessionPluginMeta(sessionPath: any, patch: any = {}) {
+    if (!sessionPath) throw new Error("sessionPath is required");
+    const entry = this._sessions.get(sessionPath) || null;
+    let current: any = {
+      ownerPluginId: entry?.ownerPluginId || null,
+      kind: entry?.sessionKind || null,
+      visibility: entry?.sessionVisibility || "public",
+    };
+    try {
+      const metaPath = this._sessionMetaPathFor(sessionPath);
+      const meta = await this._readMetaCached(metaPath);
+      const metaEntry = meta[path.basename(sessionPath)];
+      if (metaEntry?.plugin && typeof metaEntry.plugin === "object") {
+        current = {
+          ownerPluginId: metaEntry.plugin.ownerPluginId || current.ownerPluginId || null,
+          kind: metaEntry.plugin.kind || current.kind || null,
+          visibility: metaEntry.plugin.visibility || current.visibility || "public",
+        };
+      }
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        log.warn(`setSessionPluginMeta: meta read failed for ${path.basename(sessionPath)}: ${err.message}`);
+      }
+    }
+    const plugin = normalizePluginSessionMeta({
+      ownerPluginId: patch.ownerPluginId ?? current.ownerPluginId,
+      sessionKind: patch.kind ?? patch.sessionKind ?? current.kind,
+      sessionVisibility: patch.visibility ?? patch.sessionVisibility ?? current.visibility,
+    }) || { ownerPluginId: null, kind: null, visibility: "public" };
+    await this.writeSessionMeta(sessionPath, { plugin });
+    if (entry) {
+      entry.ownerPluginId = plugin.ownerPluginId || null;
+      entry.sessionKind = plugin.kind || null;
+      entry.sessionVisibility = plugin.visibility || "public";
+    }
+    this._emitSessionMetadataUpdated(sessionPath, { plugin });
+    return plugin;
   }
 
   async _verifySessionPinnedState(sessionPath: any, expectedPinnedAt: any) {

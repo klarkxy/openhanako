@@ -130,6 +130,46 @@ describe("submitDesktopSessionMessage", () => {
     });
   });
 
+  it("forwards turn context to promptSession without exposing it in the visible user message", async () => {
+    const session = makeFakeSession();
+    const engine = {
+      ensureSessionLoaded: vi.fn(async () => session),
+      promptSession: vi.fn(async (sessionPath, text, opts) => session.prompt(text, opts)),
+      emitEvent: vi.fn(),
+      setUiContext: vi.fn(),
+    };
+
+    await submitDesktopSessionMessage(engine, {
+      sessionPath: "/tmp/desk.jsonl",
+      text: "hello",
+      displayMessage: { text: "hello" },
+      context: {
+        beforeUser: "world lore",
+        metadata: { pluginId: "tavern" },
+      },
+    } as any);
+
+    expect(engine.emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "session_user_message",
+        message: expect.objectContaining({ text: "hello" }),
+      }),
+      "/tmp/desk.jsonl",
+    );
+    expect(engine.emitEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "session_user_message",
+        message: expect.objectContaining({ text: expect.stringContaining("world lore") }),
+      }),
+      expect.anything(),
+    );
+    expect(engine.promptSession).toHaveBeenCalledWith(
+      "/tmp/desk.jsonl",
+      "hello",
+      { context: { beforeUser: "world lore", metadata: { pluginId: "tavern" } } },
+    );
+  });
+
   it("prefers structured tool media items over legacy mediaUrls", async () => {
     const item = { type: "session_file", fileId: "sf_1", filePath: "/tmp/a.png" };
     const session = makeFakeSession({

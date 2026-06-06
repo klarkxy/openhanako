@@ -1028,6 +1028,62 @@ describe("SessionCoordinator", () => {
     expect(sessions[0].modified.toISOString()).toBe("2026-05-17T08:02:00.000Z");
   });
 
+  it("passes ownerPluginId through when listing plugin-private sessions", async () => {
+    const agentsDir = path.join(tempDir, "agents");
+    const sessionDir = path.join(agentsDir, "plugin-agent", "sessions");
+    const sessionPath = path.join(sessionDir, "tavern.jsonl");
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    const listAgents = vi.fn((options: any = {}) => (
+      options.ownerPluginId === "tavern"
+        ? [{ id: "plugin-agent", name: "Tavern Agent", plugin: { ownerPluginId: "tavern", visibility: "plugin_private" } }]
+        : []
+    ));
+
+    const coordinator = Object.create(SessionCoordinator.prototype);
+    coordinator._d = {
+      agentsDir,
+      listAgents,
+      listDeletedAgents: () => [],
+    };
+    coordinator._sessionListProjectionCache = {
+      list: vi.fn(async () => [{
+        path: sessionPath,
+        title: null,
+        firstMessage: "",
+        modified: new Date("2026-06-07T00:00:00.000Z"),
+        messageCount: 0,
+        cwd: "/workspace",
+      }]),
+    };
+    coordinator._loadSessionTitlesFor = vi.fn(async () => ({}));
+    coordinator._readMetaCached = vi.fn(async () => ({
+      [path.basename(sessionPath)]: {
+        plugin: {
+          ownerPluginId: "tavern",
+          kind: "tavern",
+          visibility: "plugin_private",
+        },
+      },
+    }));
+    coordinator._sessions = new Map();
+    coordinator._prePromptAbortControllers = new Map();
+    coordinator._currentSessionPath = null;
+    coordinator._sessionStarted = false;
+
+    const sessions = await coordinator.listSessions({ ownerPluginId: "tavern" });
+
+    expect(listAgents).toHaveBeenCalledWith(expect.objectContaining({ ownerPluginId: "tavern" }));
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      path: sessionPath,
+      agentId: "plugin-agent",
+      ownerPluginId: "tavern",
+      sessionKind: "tavern",
+      visibility: "plugin_private",
+    });
+  });
+
   it("lists user-created pending sessions before their JSONL projection exists", async () => {
     const agentsDir = path.join(tempDir, "agents");
     const sessionDir = path.join(agentsDir, "hana", "sessions");

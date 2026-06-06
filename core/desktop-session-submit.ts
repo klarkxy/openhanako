@@ -19,6 +19,7 @@
  * @param {object} [opts.displayMessage]
  * @param {Array<{fileId?:string, sessionPath?:string, label?:string, kind?:string}>} [opts.sessionFileRefs]
  * @param {object|null|undefined} [opts.uiContext]
+ * @param {object|null|undefined} [opts.context]
  * @returns {Promise<{ text: string | null, toolMedia: string[] }>}
  */
 import path from "path";
@@ -44,6 +45,7 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
   displayMessage?: any;
   sessionFileRefs?: Array<{ fileId?: string; sessionPath?: string; label?: string; kind?: string }>;
   uiContext?: any;
+  context?: any;
 } = {}) {
   const {
     sessionPath,
@@ -59,6 +61,7 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
     displayMessage,
     sessionFileRefs,
     uiContext,
+    context,
   } = opts;
 
   if (!engine || typeof engine.ensureSessionLoaded !== "function" || typeof engine.promptSession !== "function") {
@@ -188,16 +191,15 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
     });
 
     try {
-      const promptOpts = images?.length || videos?.length || audios?.length
-        ? {
-          ...(images?.length ? { images } : {}),
-          ...(videos?.length ? { videos } : {}),
-          ...(audios?.length ? { audios } : {}),
-          ...(promptImageAttachmentPaths.length ? { imageAttachmentPaths: promptImageAttachmentPaths } : {}),
-          ...(promptVideoAttachmentPaths.length ? { videoAttachmentPaths: promptVideoAttachmentPaths } : {}),
-          ...(promptAudioAttachmentPaths.length ? { audioAttachmentPaths: promptAudioAttachmentPaths } : {}),
-        }
-        : undefined;
+      const promptOpts = buildPromptOptions({
+        images,
+        videos,
+        audios,
+        promptImageAttachmentPaths,
+        promptVideoAttachmentPaths,
+        promptAudioAttachmentPaths,
+        context,
+      });
       await engine.promptSession(sessionPath, promptText, promptOpts);
     } finally {
       try { unsub?.(); } catch {}
@@ -211,6 +213,26 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
   } finally {
     pendingDesktopSessionSubmissions.delete(sessionPath);
   }
+}
+
+function buildPromptOptions({
+  images,
+  videos,
+  audios,
+  promptImageAttachmentPaths,
+  promptVideoAttachmentPaths,
+  promptAudioAttachmentPaths,
+  context,
+}: any = {}) {
+  const opts: any = {};
+  if (images?.length) opts.images = images;
+  if (videos?.length) opts.videos = videos;
+  if (audios?.length) opts.audios = audios;
+  if (promptImageAttachmentPaths?.length) opts.imageAttachmentPaths = promptImageAttachmentPaths;
+  if (promptVideoAttachmentPaths?.length) opts.videoAttachmentPaths = promptVideoAttachmentPaths;
+  if (promptAudioAttachmentPaths?.length) opts.audioAttachmentPaths = promptAudioAttachmentPaths;
+  if (context !== undefined && context !== null) opts.context = context;
+  return Object.keys(opts).length ? opts : undefined;
 }
 
 function queueVoiceInputTranscriptions({ speechRecognition, sessionPath, attachments }) {

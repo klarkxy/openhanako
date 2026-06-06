@@ -4,9 +4,9 @@ import { createPluginConfigStore } from "./plugin-config.ts";
 
 /**
  * Create a PluginContext for a plugin.
- * @param {{ pluginId: string, pluginKey?: string, source?: string, pluginDir: string, dataDir: string, bus: object, accessLevel?: "full-access" | "restricted", permissions?: string[], registerSessionFile?: Function, configSchema?: object, logSink?: Function, runtimeContext?: object }} opts
+ * @param {{ pluginId: string, pluginKey?: string, source?: string, pluginDir: string, dataDir: string, bus: object, accessLevel?: "full-access" | "restricted", permissions?: string[], capabilities?: string[], sensitiveCapabilities?: string[], registerSessionFile?: Function, configSchema?: object, logSink?: Function, runtimeContext?: object }} opts
  */
-export function createPluginContext({ pluginId, pluginKey, source, pluginDir, dataDir, bus, accessLevel, permissions, registerSessionFile: registerSessionFileImpl, configSchema, logSink, runtimeContext }) {
+export function createPluginContext({ pluginId, pluginKey, source, pluginDir, dataDir, bus, accessLevel, permissions, capabilities, sensitiveCapabilities, registerSessionFile: registerSessionFileImpl, configSchema, logSink, runtimeContext }) {
   const config = createPluginConfigStore({ dataDir, schema: configSchema });
   const runtimeScope = runtimeContext ? {
     serverId: runtimeContext.serverId,
@@ -22,6 +22,8 @@ export function createPluginContext({ pluginId, pluginKey, source, pluginDir, da
 
   const resolvedAccess = accessLevel || "restricted";
   const grantedPermissions = normalizePermissions(permissions);
+  const declaredCapabilities = normalizeCapabilityList(capabilities);
+  const declaredSensitiveCapabilities = normalizeCapabilityList(sensitiveCapabilities);
   const pluginBus = resolvedAccess === "full-access"
     ? bus
     : createRestrictedBusProxy(bus, grantedPermissions);
@@ -87,6 +89,8 @@ export function createPluginContext({ pluginId, pluginKey, source, pluginDir, da
     source: source || "community",
     pluginDir,
     dataDir,
+    capabilities: declaredCapabilities,
+    sensitiveCapabilities: declaredSensitiveCapabilities,
     bus: pluginBus,
     config,
     log,
@@ -138,6 +142,13 @@ function createRestrictedBusProxy(bus, grantedPermissions) {
 function normalizePermissions(permissions) {
   if (!Array.isArray(permissions)) return new Set();
   return new Set(permissions.filter((permission) => typeof permission === "string" && permission.trim()).map((permission) => permission.trim()));
+}
+
+function normalizeCapabilityList(capabilities) {
+  if (!Array.isArray(capabilities)) return [];
+  return [...new Set(capabilities
+    .filter((capability) => typeof capability === "string" && capability.trim())
+    .map((capability) => capability.trim()))];
 }
 
 function hasPermission(grantedPermissions, permission) {

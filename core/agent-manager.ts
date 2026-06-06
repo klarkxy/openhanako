@@ -45,6 +45,43 @@ function writeStartupError(startupLog, message) {
   }
 }
 
+function normalizeAgentPluginMeta(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      ownerPluginId: null,
+      visibility: "public",
+    };
+  }
+  const ownerPluginId = typeof raw.ownerPluginId === "string" && raw.ownerPluginId.trim()
+    ? raw.ownerPluginId.trim()
+    : null;
+  const visibility = typeof raw.visibility === "string" && raw.visibility.trim()
+    ? raw.visibility.trim()
+    : "public";
+  return {
+    ownerPluginId,
+    visibility,
+    ...(typeof raw.kind === "string" && raw.kind.trim() ? { kind: raw.kind.trim() } : {}),
+  };
+}
+
+function agentMatchesListOptions(agent, options: any = {}) {
+  const ownerPluginId = typeof options.ownerPluginId === "string" && options.ownerPluginId.trim()
+    ? options.ownerPluginId.trim()
+    : null;
+  const includePluginPrivate = options.includePluginPrivate === true;
+  const plugin = normalizeAgentPluginMeta(agent?.plugin);
+  if (ownerPluginId && plugin.ownerPluginId !== ownerPluginId) return false;
+  if (
+    (plugin.visibility === "plugin_private" || plugin.visibility === "private")
+    && !includePluginPrivate
+    && plugin.ownerPluginId !== ownerPluginId
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export class AgentManager {
   declare _activeAgentId: any;
   declare _activityStores: any;
@@ -304,7 +341,7 @@ export class AgentManager {
 
   static AGENT_LIST_TTL = 30_000; // 30 秒
 
-  listAgents() {
+  listAgents(options: any = {}) {
     const now = Date.now();
     if (!this._agentListCache || now - this._agentListCache.ts > AgentManager.AGENT_LIST_TTL) {
       this._agentListCache = { raw: this._scanAgentList(), ts: now };
@@ -314,11 +351,12 @@ export class AgentManager {
     const primaryId = prefs.getPrimaryAgent();
     const order = prefs.getPreferences()?.agentOrder || [];
 
-    const agents = this._agentListCache.raw.map(a => ({
+    let agents = this._agentListCache.raw.map(a => ({
       ...a,
       isPrimary: a.id === primaryId,
       isCurrent: a.id === this._activeAgentId,
     }));
+    agents = agents.filter((agent) => agentMatchesListOptions(agent, options));
 
     if (order.length) {
       agents.sort((a, b) => {
@@ -381,6 +419,7 @@ export class AgentManager {
           id: entry.name,
           name: cfg.agent?.name || entry.name,
           yuan: cfg.agent?.yuan || "hanako",
+          plugin: normalizeAgentPluginMeta(cfg.plugin),
           needsRepair: !!repairState,
           repairState,
           identity,

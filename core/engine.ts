@@ -683,7 +683,7 @@ export class HanaEngine {
   getActivityStore(agentId) { return this._agentMgr.getActivityStore(agentId); }
 
   get agents() { return this._agentMgr.agents; }
-  listAgents() { return this._agentMgr.listAgents(); }
+  listAgents(options = {}) { return this._agentMgr.listAgents(options); }
   listDeletedAgents() { return this._agentMgr.listDeletedAgents(); }
   isAgentDeleted(agentId) { return this._agentMgr.isAgentDeleted(agentId); }
   getDeletedAgentInfo(agentId) { return this._agentMgr.getDeletedAgentInfo(agentId); }
@@ -800,7 +800,7 @@ export class HanaEngine {
   isSessionStreaming(p) { return this._sessionCoord.isSessionStreaming(p); }
   isSessionSwitching(p) { return this._sessionCoord.isSessionSwitching(p); }
   async abortSessionByPath(p) { return this._sessionCoord.abortSessionByPath(p); }
-  async listSessions() { return this._sessionCoord.listSessions(); }
+  async listSessions(options = {}) { return this._sessionCoord.listSessions(options); }
   async continueDeletedAgentSession(p) { return this._sessionCoord.continueDeletedAgentSession(p); }
   getSessionProjectCatalog() { return this._sessionProjects.getCatalog(); }
   createSessionProjectFolder(input) { return this._sessionProjects.createFolder(input); }
@@ -849,6 +849,7 @@ export class HanaEngine {
   async saveSessionTitle(p, t) { return this._sessionCoord.saveSessionTitle(p, t); }
   async clearSessionTitle(p) { return this._sessionCoord.clearSessionTitle(p); }
   async setSessionPinned(p, pinned) { return this._sessionCoord.setSessionPinned(p, pinned); }
+  async setSessionPluginMeta(p, patch) { return this._sessionCoord.setSessionPluginMeta(p, patch); }
   createSessionContext() { return this._sessionCoord.createSessionContext(); }
   async promoteActivitySession(f, agentId) { return this._sessionCoord.promoteActivitySession(f, agentId); }
   async executeIsolated(prompt, opts) { return this._sessionCoord.executeIsolated(prompt, opts); }

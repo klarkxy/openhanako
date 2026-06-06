@@ -26,6 +26,21 @@ describe("createPluginContext", () => {
     expect(typeof ctx.config.set).toBe("function");
   });
 
+  it("exposes declared ordinary and sensitive capabilities on ctx", () => {
+    const bus = { emit() {}, subscribe() {}, request() {}, hasHandler() {} };
+    const ctx = createPluginContext({
+      pluginId: "cap-plugin",
+      pluginDir: "/plugins/cap-plugin",
+      dataDir: "/plugin-data/cap-plugin",
+      bus,
+      capabilities: ["session", "agent", "session"],
+      sensitiveCapabilities: ["filesystem.write"],
+    } as any);
+
+    expect(ctx.capabilities).toEqual(["session", "agent"]);
+    expect(ctx.sensitiveCapabilities).toEqual(["filesystem.write"]);
+  });
+
   it("exposes server runtime scope when provided", () => {
     const bus = { emit() {}, subscribe() {}, request() {}, hasHandler() {} };
     const ctx = createPluginContext({

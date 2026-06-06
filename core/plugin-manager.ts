@@ -107,6 +107,13 @@ function normalizeActivationEvents(raw, hasLifecycle) {
   return hasLifecycle ? ["onStartup"] : [];
 }
 
+function normalizeCapabilityList(raw) {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw
+    .map((item) => typeof item === "string" ? item.trim() : "")
+    .filter(Boolean))];
+}
+
 function activationMatches(events = [], reason: any = {}) {
   const event = reason.event || "";
   if (!event) return false;
@@ -373,7 +380,9 @@ export class PluginManager {
     const trust = manifest?.trust === "full-access" ? "full-access" : "restricted";
     const hidden = !!manifest?.hidden;
     const activationEvents = normalizeActivationEvents(manifest?.activationEvents, hasLifecycle);
-    return { id, name, version, description, pluginDir, manifest, contributions, trust, hidden, uiHostCapabilities, configSchema, activationEvents, hasLifecycle, formatIssue, source: undefined as any, pluginKey: undefined as any };
+    const capabilities = normalizeCapabilityList(manifest?.capabilities);
+    const sensitiveCapabilities = normalizeCapabilityList(manifest?.sensitiveCapabilities);
+    return { id, name, version, description, pluginDir, manifest, contributions, trust, hidden, uiHostCapabilities, configSchema, activationEvents, capabilities, sensitiveCapabilities, hasLifecycle, formatIssue, source: undefined as any, pluginKey: undefined as any };
   }
 
   async loadAll() {
@@ -522,6 +531,8 @@ export class PluginManager {
       logSink: this._logSink,
       runtimeContext: this._runtimeContext,
       permissions: entry.manifest?.permissions,
+      capabilities: entry.capabilities,
+      sensitiveCapabilities: entry.sensitiveCapabilities,
     });
 
     // All plugins: declarative contributions

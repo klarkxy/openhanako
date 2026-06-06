@@ -567,6 +567,47 @@ hub.eventBus.handle("utility:call-text", async (payload: any = {}) => {
   } as any);
   return { text };
 });
+hub.eventBus.handle("model:sample-text", async (payload: any = {}) => {
+  if (!Array.isArray(payload.messages)) {
+    throw new Error("messages is required");
+  }
+  const sessionPath = typeof payload.sessionPath === "string" && payload.sessionPath.trim()
+    ? payload.sessionPath.trim()
+    : null;
+  const agentId = typeof payload.agentId === "string" && payload.agentId.trim()
+    ? payload.agentId.trim()
+    : (sessionPath ? engine.agentIdFromSessionPath?.(sessionPath) || null : null);
+  const pluginId = typeof payload.pluginId === "string" && payload.pluginId.trim()
+    ? payload.pluginId.trim()
+    : null;
+  const utility = engine.resolveUtilityConfig({ agentId, sessionPath });
+  const text = await callText({
+    api: utility.api,
+    apiKey: utility.api_key,
+    baseUrl: utility.base_url,
+    model: utility.utility,
+    systemPrompt: payload.systemPrompt || "",
+    messages: payload.messages,
+    temperature: payload.temperature,
+    maxTokens: payload.maxTokens,
+    usageLedger: utility.usageLedger,
+    usageContext: {
+      source: {
+        subsystem: pluginId ? "plugin" : "utility",
+        operation: payload.operation || "sample-text",
+        surface: "plugin",
+        trigger: "tool",
+        actor: pluginId ? { kind: "plugin", pluginId, agentId: agentId || null, sessionPath } : undefined,
+      },
+      attribution: pluginId
+        ? { kind: "plugin", pluginId, agentId: utility.usageAgentId || agentId || null, sessionPath }
+        : sessionPath
+          ? { kind: "session", agentId: utility.usageAgentId || agentId || null, sessionPath }
+          : { kind: "utility", agentId: utility.usageAgentId || agentId || null },
+    },
+  } as any);
+  return { text };
+});
 hub.eventBus.handle("usage:list", (filter = {}) => {
   return engine.usageLedger.list(filter);
 });
