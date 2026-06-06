@@ -49,6 +49,8 @@ export interface Session {
   agentId: string | null;
   agentName: string | null;
   cwd: string | null;
+  workspaceMountId?: string | null;
+  workspaceLabel?: string | null;
   projectId?: string | null;
   permissionMode?: SessionPermissionMode | null;
   pinnedAt?: string | null;
@@ -198,6 +200,17 @@ export interface DeskFile {
   isDir: boolean;
   size?: number;
   mtime?: string;
+}
+
+export interface StudioWorkspace {
+  workspaceId: string;
+  mountId: string;
+  label: string;
+  sourceKind?: string | null;
+  provider?: string | null;
+  presentation?: string | null;
+  capabilities?: string[];
+  isDefault?: boolean;
 }
 
 export interface WorkspaceChangePayload {

@@ -298,6 +298,7 @@ function TreeNode({
   onCancelRename: () => void;
 }) {
   const deskBasePath = useStore(st => st.deskBasePath);
+  const deskWorkspaceMountId = useStore(st => st.deskWorkspaceMountId);
   const treeFilesByPath = useStore(st => st.deskTreeFilesByPath);
   const expandedPaths = useStore(st => st.deskExpandedPaths);
   const setDeskExpandedPaths = useStore(st => st.setDeskExpandedPaths);
@@ -332,21 +333,22 @@ function TreeNode({
 
   const previewFile = useCallback(() => {
     if (file.isDir) return;
-    if (isWebRuntime()) {
-      void openMobileWorkbenchPreview({ file, subdir: parent, mountId: 'default' });
+    const mountId = deskWorkspaceMountId || (isWebRuntime() ? 'default' : null);
+    if (mountId) {
+      void openMobileWorkbenchPreview({ file, subdir: parent, mountId });
       return;
     }
     const path = fullPath(deskBasePath, subdir);
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     openFilePreview(path, file.name, ext, { origin: 'desk' });
-  }, [deskBasePath, file, parent, subdir]);
+  }, [deskBasePath, deskWorkspaceMountId, file, parent, subdir]);
 
   const handleClick = useCallback((event: React.MouseEvent) => {
     const multi = event.metaKey || event.ctrlKey;
     onSelect(subdir, { multi, shift: event.shiftKey });
     if (file.isDir && !multi && !event.shiftKey) toggleFolder();
-    if (!file.isDir && isWebRuntime() && !multi && !event.shiftKey) previewFile();
-  }, [file.isDir, onSelect, previewFile, subdir, toggleFolder]);
+    if (!file.isDir && (isWebRuntime() || deskWorkspaceMountId) && !multi && !event.shiftKey) previewFile();
+  }, [deskWorkspaceMountId, file.isDir, onSelect, previewFile, subdir, toggleFolder]);
 
   const openFile = useCallback(() => {
     onSelect(subdir, { multi: false, shift: false });
@@ -377,7 +379,7 @@ function TreeNode({
               schedulePersistCurrentWorkspaceUiState();
               void loadDeskTreeFiles(subdir, { force: true });
             } else {
-              if (isWebRuntime()) previewFile();
+              if (isWebRuntime() || deskWorkspaceMountId) previewFile();
               else window.platform?.openFile?.(path);
             }
           },
@@ -386,10 +388,12 @@ function TreeNode({
           { label: t('desk.ctx.newMdFile'), action: () => { void onStartCreate(subdir, 'markdown'); } },
           { label: t('desk.ctx.newFolder'), action: () => { void onStartCreate(subdir, 'folder'); } },
         ] : []),
-        ...(!isWebRuntime() ? [
+        ...(!isWebRuntime() && !deskWorkspaceMountId ? [
           { label: t('desk.ctx.openInFinder'), action: () => window.platform?.showInFinder?.(path) },
         ] : []),
-        { label: t('desk.ctx.copyPath'), action: () => navigator.clipboard.writeText(path).catch(() => {}) },
+        ...(!deskWorkspaceMountId ? [
+          { label: t('desk.ctx.copyPath'), action: () => navigator.clipboard.writeText(path).catch(() => {}) },
+        ] : []),
         { divider: true },
         {
           label: t('desk.ctx.rename'),
@@ -399,7 +403,7 @@ function TreeNode({
         {
           label: deleteLabel,
           danger: true,
-          disabled: actionEntries.length === 0 || (!isWebRuntime() && !window.platform?.trashItem),
+          disabled: actionEntries.length === 0 || (!isWebRuntime() && !deskWorkspaceMountId && !window.platform?.trashItem),
           action: async () => {
             const confirmed = window.confirm?.(
               actionEntries.length > 1
@@ -417,7 +421,7 @@ function TreeNode({
         },
       ],
     });
-  }, [deskBasePath, expandedPaths, file.isDir, file.name, getDragEntries, onBeginRename, onSelect, onShowMenu, onStartCreate, previewFile, selectedPaths, setDeskExpandedPaths, subdir, t]);
+  }, [deskBasePath, deskWorkspaceMountId, expandedPaths, file.isDir, file.name, getDragEntries, onBeginRename, onSelect, onShowMenu, onStartCreate, previewFile, selectedPaths, setDeskExpandedPaths, subdir, t]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== 'Enter' || isRenaming || inlineEdit) return;
@@ -434,7 +438,9 @@ function TreeNode({
     const draggedFiles = dragEntries.map(entry => ({
       id: `workspace:${entry.subdir}`,
       name: entry.file.name,
-      path: fullPath(deskBasePath, entry.subdir),
+      path: deskWorkspaceMountId
+        ? `workbench:${deskWorkspaceMountId}:${entry.subdir}`
+        : fullPath(deskBasePath, entry.subdir),
       sourceSubdir: entry.parent,
       isDirectory: entry.file.isDir,
     }));
@@ -446,8 +452,8 @@ function TreeNode({
     e.currentTarget.addEventListener('dragend', () => clearAppFileDragPayload(payload.dragId), { once: true });
     e.preventDefault();
     const paths = draggedFiles.map(item => item.path);
-    window.platform?.startDrag?.(paths.length === 1 ? paths[0] : paths);
-  }, [deskBasePath, getDragEntries, onSelect, selectedPaths, subdir]);
+    if (!deskWorkspaceMountId) window.platform?.startDrag?.(paths.length === 1 ? paths[0] : paths);
+  }, [deskBasePath, deskWorkspaceMountId, getDragEntries, onSelect, selectedPaths, subdir]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (!file.isDir) return;
@@ -483,7 +489,7 @@ function TreeNode({
 
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
-      if (isWebRuntime()) {
+      if (isWebRuntime() || deskWorkspaceMountId) {
         await deskUploadBrowserFilesToSubdir(Array.from(files), subdir);
         setDropTarget(false);
         return;
@@ -495,7 +501,7 @@ function TreeNode({
       }
       if (paths.length > 0) await deskUploadFilesToSubdir(paths, subdir);
     }
-  }, [file.isDir, subdir]);
+  }, [deskWorkspaceMountId, file.isDir, subdir]);
 
   return (
     <>

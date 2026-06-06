@@ -186,6 +186,7 @@ export function PreviewPanel() {
               <PreviewEditor
                 content={previewItem.content}
                 filePath={previewItem.filePath}
+                remoteContentRef={previewItem.remoteContentRef}
                 fileVersion={previewItem.fileVersion ?? previewItem.remoteContentRef?.version ?? null}
                 saveDocument={saveDocument}
                 mode={getEditorMode(previewItem)}

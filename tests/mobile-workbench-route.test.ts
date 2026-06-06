@@ -510,6 +510,66 @@ describe("mobile workbench route", () => {
     expect(fs.readFileSync(path.join(mountRoot, "mounted.md"), "utf-8")).toBe("new mount body");
   });
 
+  it("moves multiple tree items inside a mounted workspace and returns touched directories", async () => {
+    tmpDir = makeTmpDir();
+    const workspace = path.join(tmpDir, "workspace");
+    const mountRoot = path.join(tmpDir, "mounted-docs");
+    const hanakoHome = path.join(tmpDir, "hana");
+    fs.mkdirSync(path.join(mountRoot, "notes"), { recursive: true });
+    fs.mkdirSync(path.join(mountRoot, "archive"), { recursive: true });
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(mountRoot, "notes", "draft.md"), "draft", "utf-8");
+    upsertStudioMount(hanakoHome, {
+      mountId: "mount_docs",
+      hostStudioId: "studio_1",
+      sourceKind: "storage",
+      provider: "local_fs",
+      rootLocator: { path: mountRoot },
+      label: "Mounted Docs",
+      presentation: "folder",
+      capabilities: ["list", "read", "write"],
+    });
+    const app = await makeApp({
+      hanakoHome,
+      deskCwd: workspace,
+      homeCwd: workspace,
+      getRuntimeContext: () => ({
+        serverId: "server_1",
+        serverNodeId: "node_1",
+        userId: "user_1",
+        studioId: "studio_1",
+        connectionKind: "local",
+        credentialKind: "loopback_token",
+      }),
+    });
+
+    const res = await app.request("/api/workbench/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "movePaths",
+        mountId: "mount_docs",
+        items: [{ sourceSubdir: "notes", name: "draft.md", isDirectory: false }],
+        destSubdir: "archive",
+        currentSubdir: "",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toMatchObject({
+      ok: true,
+      action: "movePaths",
+      mountId: "mount_docs",
+      filesByPath: {
+        notes: [],
+        archive: [{ name: "draft.md", isDir: false }],
+      },
+    });
+    expect(fs.existsSync(path.join(mountRoot, "notes", "draft.md"))).toBe(false);
+    expect(fs.readFileSync(path.join(mountRoot, "archive", "draft.md"), "utf-8")).toBe("draft");
+  });
+
   it("creates and consumes an execution lease for remote mobile writes", async () => {
     tmpDir = makeTmpDir();
     const workspace = path.join(tmpDir, "workspace");

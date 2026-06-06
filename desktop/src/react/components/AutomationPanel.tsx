@@ -44,7 +44,11 @@ export function AutomationPanel() {
   const agentYuan = useStore(s => s.agentYuan);
   const currentAgentId = useStore(s => s.currentAgentId);
   const currentSessionPath = useStore(s => s.currentSessionPath);
+  const currentSessionProjection = useStore(s => s.currentSessionPath
+    ? s.sessions.find(session => session.path === s.currentSessionPath)
+    : null);
   const deskBasePath = useStore(s => s.deskBasePath);
+  const deskWorkspaceMountId = useStore(s => s.deskWorkspaceMountId);
   const homeFolder = useStore(s => s.homeFolder);
   const agents = useStore(s => s.agents);
   const addToast = useStore(s => s.addToast);
@@ -116,7 +120,9 @@ export function AutomationPanel() {
       addToast(tr('automation.agentRequired'), 'error');
       return;
     }
-    const cwd = deskBasePath || homeFolder || null;
+    const cwd = deskWorkspaceMountId
+      ? (currentSessionProjection?.cwd || null)
+      : (deskBasePath || homeFolder || null);
     const res = await hanaFetch('/api/desk/cron', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -146,7 +152,7 @@ export function AutomationPanel() {
     const data = await res.json();
     await loadData();
     if (data.job?.id) setOpenJobs(prev => ({ ...prev, [data.job.id]: true }));
-  }, [addToast, agents, currentAgentId, currentSessionPath, deskBasePath, homeFolder, loadData, selectedAgentId]);
+  }, [addToast, agents, currentAgentId, currentSessionPath, currentSessionProjection?.cwd, deskBasePath, deskWorkspaceMountId, homeFolder, loadData, selectedAgentId]);
 
   const groups = useMemo(() => groupJobs(jobs, currentAgentId), [currentAgentId, jobs]);
   const tabs = useMemo(() => agentTabIds(agents, groups), [agents, groups]);

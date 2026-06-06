@@ -30,6 +30,7 @@ import { isLocalOwnerPrincipal } from "../http/route-security.ts";
 import { createRequestContext } from "../http/boundary.ts";
 import { createModuleLogger } from "../../lib/debug-log.ts";
 import { MountAwareFileError, MountAwareFileService } from "../../core/mount-aware-file-service.ts";
+import { materializeUploadedSkillPackage } from "../utils/uploaded-skill-package.ts";
 
 const log = createModuleLogger("desk");
 
@@ -95,6 +96,10 @@ function isPlainEntryName(value) {
     && value !== ".."
     && !value.includes("/")
     && !value.includes("\\");
+}
+
+function normalizeMountId(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function getStudioCronStore(engine) {
@@ -486,6 +491,21 @@ export function createDeskRoute(engine, hub) {
         ? (args) => engine.createUserEditCheckpoint(args)
         : null,
     });
+  }
+
+  function resolveWorkspaceRootFromRequest(c, body = null) {
+    const mountId = normalizeMountId(body?.mountId || body?.rootId || c.req.query("mountId") || c.req.query("rootId"));
+    if (mountId) {
+      const files = fileServiceForRequest(c);
+      const root = files.resolveRoot(mountId);
+      return {
+        dir: files.resolveDirectory(mountId, ""),
+        mountId: root.mountId || root.id || mountId,
+        mount: root,
+      };
+    }
+    const dir = body?.dir || (c.req.query("dir") ? decodeURIComponent(c.req.query("dir")) : defaultDeskDir(engine));
+    return { dir, mountId: null, mount: null };
   }
 
   function normalizeWorkbenchCoverTarget(body) {
@@ -1067,36 +1087,43 @@ export function createDeskRoute(engine, hub) {
 
   /** 扫描工作台下的项目级技能 */
   route.get("/desk/skills", async (c) => {
-    const agentId = c.req.query("agentId") || null;
-    const dir = c.req.query("dir") ? decodeURIComponent(c.req.query("dir")) : defaultDeskDir(engine);
-    if (!dir) return c.json({ skills: [] });
-    if (c.req.query("dir") && !isApprovedDir(dir, engine, { agentId })) return c.json({ skills: [] });
+    try {
+      const agentId = c.req.query("agentId") || null;
+      const workspace = resolveWorkspaceRootFromRequest(c);
+      const dir = workspace.dir;
+      if (!dir) return c.json({ skills: [] });
+      if (!workspace.mountId && c.req.query("dir") && !isApprovedDir(dir, engine, { agentId })) return c.json({ skills: [] });
 
-    const results = [];
-    for (const { sub, label } of WORKSPACE_SKILL_DIRS) {
-      const skillsDir = path.join(dir, sub);
-      if (!fs.existsSync(skillsDir)) continue;
-      try {
-        for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-          if (!entry.isDirectory()) continue;
-          const skillFile = path.join(skillsDir, entry.name, "SKILL.md");
-          if (!fs.existsSync(skillFile)) continue;
-          try {
-            const content = fs.readFileSync(skillFile, "utf-8");
-            const meta = parseSkillMetadata(content, entry.name);
-            results.push({
-              name: meta.name,
-              description: meta.description,
-              source: label,
-              dirPath: skillsDir,
-              filePath: skillFile,
-              baseDir: path.join(skillsDir, entry.name),
-            });
-          } catch { /* ignore malformed workspace skill entries */ }
-        }
-      } catch { /* ignore unreadable workspace skill roots */ }
+      const results = [];
+      for (const { sub, label } of WORKSPACE_SKILL_DIRS) {
+        const skillsDir = path.join(dir, sub);
+        if (!fs.existsSync(skillsDir)) continue;
+        try {
+          for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const skillFile = path.join(skillsDir, entry.name, "SKILL.md");
+            if (!fs.existsSync(skillFile)) continue;
+            try {
+              const content = fs.readFileSync(skillFile, "utf-8");
+              const meta = parseSkillMetadata(content, entry.name);
+              results.push({
+                name: meta.name,
+                description: meta.description,
+                source: label,
+                dirPath: skillsDir,
+                filePath: skillFile,
+                baseDir: path.join(skillsDir, entry.name),
+                workspaceMountId: workspace.mountId,
+              });
+            } catch { /* ignore malformed workspace skill entries */ }
+          }
+        } catch { /* ignore unreadable workspace skill roots */ }
+      }
+      return c.json({ skills: results });
+    } catch (err) {
+      if (err instanceof MountAwareFileError) return c.json({ error: err.message, code: err.code }, err.status as any);
+      return c.json({ error: err?.message || String(err) }, err?.status || 500);
     }
-    return c.json({ skills: results });
   });
 
   /**
@@ -1106,17 +1133,20 @@ export function createDeskRoute(engine, hub) {
    */
   route.post("/desk/install-skill", async (c) => {
     const body = await safeJson(c);
-    const { filePath, dir } = body;
-    const agentId = body.agentId || null;
-    const cwd = dir || defaultDeskDir(engine);
-    if (!filePath || !cwd) {
-      return c.json({ error: "filePath and active workspace required" }, 400);
-    }
-    if (dir && !isApprovedDir(cwd, engine, { agentId })) {
-      return c.json({ error: "workspace is not approved" }, 403);
-    }
-
+    let uploadedSource = null;
     try {
+      const { filePath, dir } = body;
+      const agentId = body.agentId || null;
+      const workspace = resolveWorkspaceRootFromRequest(c, body);
+      const cwd = workspace.dir;
+      const sourcePath = filePath || (uploadedSource = materializeUploadedSkillPackage(engine, body))?.sourcePath;
+      if (!sourcePath || !cwd) {
+        return c.json({ error: "skill package and active workspace required" }, 400);
+      }
+      if (!workspace.mountId && dir && !isApprovedDir(cwd, engine, { agentId })) {
+        return c.json({ error: "workspace is not approved" }, 403);
+      }
+
       const skillsDir = path.join(cwd, ".agents", "skills");
 
       // 确保 .agents/skills/ 存在
@@ -1129,11 +1159,11 @@ export function createDeskRoute(engine, hub) {
       }
 
       const installed = await installSkillPackageFromPath({
-        sourcePath: filePath,
+        sourcePath,
         installDir: skillsDir,
         owner: "workspace",
       });
-      if (realPath(cwd) === realPath(engine.deskCwd)) {
+      if (typeof engine.syncWorkspaceSkillPaths === "function") {
         await engine.syncWorkspaceSkillPaths(cwd, { reload: true, emitEvent: true, force: true });
       }
       return c.json({
@@ -1143,6 +1173,8 @@ export function createDeskRoute(engine, hub) {
       });
     } catch (err) {
       return c.json({ error: err.message }, err.status || 500);
+    } finally {
+      uploadedSource?.cleanup?.();
     }
   });
 
@@ -1153,21 +1185,22 @@ export function createDeskRoute(engine, hub) {
     if (!skillDir) {
       return c.json({ error: "skillDir is required" }, 400);
     }
-    // 安全检查：必须在当前工作区的已知技能目录下
-    const cwd = defaultDeskDir(engine);
-    if (!cwd) {
-      return c.json({ error: "No active workspace" }, 400);
-    }
-    const ALLOWED_SKILL_SUBS = WORKSPACE_SKILL_DIRS.map(({ sub }) => sub);
-    const allowed = ALLOWED_SKILL_SUBS.some(sub =>
-      isInsidePath(skillDir, path.join(cwd, sub))
-    );
-    if (!allowed) {
-      return c.json({ error: "Only skills in current workspace skill directories can be deleted" }, 403);
-    }
     try {
+      // 安全检查：必须在当前工作区的已知技能目录下
+      const workspace = resolveWorkspaceRootFromRequest(c, body);
+      const cwd = workspace.dir;
+      if (!cwd) {
+        return c.json({ error: "No active workspace" }, 400);
+      }
+      const ALLOWED_SKILL_SUBS = WORKSPACE_SKILL_DIRS.map(({ sub }) => sub);
+      const allowed = ALLOWED_SKILL_SUBS.some(sub =>
+        isInsidePath(skillDir, path.join(cwd, sub))
+      );
+      if (!allowed) {
+        return c.json({ error: "Only skills in current workspace skill directories can be deleted" }, 403);
+      }
       fs.rmSync(skillDir, { recursive: true, force: true });
-      if (realPath(cwd) === realPath(engine.deskCwd)) {
+      if (typeof engine.syncWorkspaceSkillPaths === "function") {
         await engine.syncWorkspaceSkillPaths(cwd, { reload: true, emitEvent: true, force: true });
       }
       return c.json({ ok: true });

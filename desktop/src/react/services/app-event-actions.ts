@@ -64,22 +64,27 @@ function handleAgentWorkspaceChanged(data: any): void {
   const previousHomeFolder = state.homeFolder || null;
   const previousSelectedFolder = state.selectedFolder || null;
   const nextHomeFolder = normalizeWorkspacePath(data.homeFolder);
-  const selectedFollowedDefault = !previousSelectedFolder || previousSelectedFolder === previousHomeFolder;
+  const selectedFollowedDefault = !state.selectedWorkspaceMountId
+    && (!previousSelectedFolder || previousSelectedFolder === previousHomeFolder);
   const nextSelectedFolder = selectedFollowedDefault ? nextHomeFolder : previousSelectedFolder;
   const deskWasShowingDefault =
-    state.pendingNewSession ||
-    !state.currentSessionPath ||
-    !state.deskBasePath ||
-    (!!previousHomeFolder && state.deskBasePath === previousHomeFolder);
+    !state.deskWorkspaceMountId && (
+      state.pendingNewSession ||
+      !state.currentSessionPath ||
+      !state.deskBasePath ||
+      (!!previousHomeFolder && state.deskBasePath === previousHomeFolder)
+    );
 
   useStore.setState({
     homeFolder: nextHomeFolder,
     selectedFolder: nextSelectedFolder,
+    selectedWorkspaceMountId: selectedFollowedDefault ? null : state.selectedWorkspaceMountId,
+    selectedWorkspaceLabel: selectedFollowedDefault ? null : state.selectedWorkspaceLabel,
     workspaceFolders: [],
   });
 
   if (deskWasShowingDefault) {
-    void activateWorkspaceDesk(nextHomeFolder);
+    void activateWorkspaceDesk(nextHomeFolder, { mountId: null });
   }
 }
 

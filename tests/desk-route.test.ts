@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { upsertStudioMount } from "../core/studio-mounts.ts";
 
 const extractZipMock = vi.fn(async (zipPath, destDir) => {
   const skillDir = path.join(destDir, "sample-skill");
@@ -99,6 +100,77 @@ describe("desk route", () => {
       expect(await res.json()).toEqual({ ok: true });
       expect(fs.existsSync(skillDir)).toBe(false);
       expect(syncWorkspaceSkillPaths).toHaveBeenCalledWith(cwd, { reload: true, emitEvent: true, force: true });
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("manages workspace skills through a mounted Studio workspace", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
+    try {
+      const hanakoHome = path.join(tempRoot, "hana");
+      const workspace = path.join(tempRoot, "mounted-workspace");
+      const existingSkillDir = path.join(workspace, ".agents", "skills", "existing-skill");
+      fs.mkdirSync(existingSkillDir, { recursive: true });
+      fs.writeFileSync(path.join(existingSkillDir, "SKILL.md"), "---\nname: existing-skill\n---\n", "utf-8");
+      upsertStudioMount(hanakoHome, {
+        schemaVersion: 1,
+        mountId: "mount_docs",
+        hostStudioId: "studio-main",
+        sourceKind: "storage",
+        provider: "local_fs",
+        label: "Docs",
+        presentation: "folder",
+        capabilities: ["list", "read", "write"],
+        rootLocator: { path: workspace },
+      });
+
+      const syncWorkspaceSkillPaths = vi.fn(async () => {});
+      const engine = {
+        hanakoHome,
+        deskCwd: path.join(tempRoot, "default-workspace"),
+        homeCwd: path.join(tempRoot, "default-workspace"),
+        getRuntimeContext: () => ({ studioId: "studio-main" }),
+        syncWorkspaceSkillPaths,
+      };
+
+      const { createDeskRoute } = await import("../server/routes/desk.ts");
+      const app = new Hono();
+      app.route("/api", createDeskRoute(engine, null));
+
+      const listed = await app.request("/api/desk/skills?mountId=mount_docs");
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toMatchObject({
+        skills: [{ name: "existing-skill", workspaceMountId: "mount_docs" }],
+      });
+
+      const installed = await app.request("/api/desk/install-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mountId: "mount_docs",
+          file: {
+            filename: "sample-skill.zip",
+            contentBase64: Buffer.from("placeholder").toString("base64"),
+          },
+        }),
+      });
+      expect(installed.status).toBe(200);
+      expect(await installed.json()).toMatchObject({ ok: true, name: "sample-skill" });
+      expect(fs.existsSync(path.join(workspace, ".agents", "skills", "sample-skill", "SKILL.md"))).toBe(true);
+      expect(syncWorkspaceSkillPaths).toHaveBeenCalledWith(fs.realpathSync(workspace), { reload: true, emitEvent: true, force: true });
+
+      const deleted = await app.request("/api/desk/delete-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mountId: "mount_docs",
+          skillDir: path.join(workspace, ".agents", "skills", "sample-skill"),
+        }),
+      });
+      expect(deleted.status).toBe(200);
+      expect(await deleted.json()).toEqual({ ok: true });
+      expect(fs.existsSync(path.join(workspace, ".agents", "skills", "sample-skill"))).toBe(false);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

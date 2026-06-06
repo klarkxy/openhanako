@@ -170,6 +170,41 @@ export class MountAwareFileService {
     return workbenchWriteResult(root, "move", { files: await listFiles(dir) });
   }
 
+  async movePaths(rootId, body: Record<string, any> = {}) {
+    const root = this._resolveRootInternal(rootId);
+    requireCapability(root, "write");
+    const items = Array.isArray(body.items) ? body.items : [];
+    const destSubdir = normalizeSubdirOrThrow(body.destSubdir || "");
+    const currentSubdir = normalizeSubdirOrThrow(body.currentSubdir || "");
+    const destDir = resolveInsideRoot(root.path, destSubdir);
+    if (!destDir) throw fileError("invalid path", "invalid_path", 400);
+    fs.mkdirSync(destDir, { recursive: true });
+
+    const touchedSubdirs = new Set([currentSubdir, destSubdir]);
+    for (const item of items) {
+      const sourceSubdir = normalizeSubdirOrThrow(item?.sourceSubdir || "");
+      const name = normalizePlainNameOrThrow(item?.name);
+      const sourceDir = resolveInsideRoot(root.path, sourceSubdir);
+      if (!sourceDir) throw fileError("invalid path", "invalid_path", 400);
+      const source = resolveFileTarget(root.path, sourceDir, name);
+      const target = resolveFileTarget(root.path, destDir, name);
+      if (!source || !target) throw fileError("invalid path", "invalid_path", 400);
+      fs.renameSync(source, target);
+      touchedSubdirs.add(sourceSubdir);
+    }
+
+    const filesByPath = {};
+    for (const subdir of touchedSubdirs) {
+      const dir = resolveInsideRoot(root.path, subdir);
+      if (dir) filesByPath[subdir] = await listFiles(dir);
+    }
+    const currentDir = resolveInsideRoot(root.path, currentSubdir);
+    return workbenchWriteResult(root, "movePaths", {
+      filesByPath,
+      files: currentDir ? await listFiles(currentDir) : [],
+    });
+  }
+
   async safeDelete(rootId, subdir, body: Record<string, any> = {}) {
     const { root, dir, normalizedSubdir } = this._writeDir(rootId, subdir);
     const name = normalizePlainNameOrThrow(body.name);

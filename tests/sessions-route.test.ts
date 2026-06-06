@@ -95,6 +95,7 @@ describe("sessions route", () => {
         messages: [{ role: "assistant", content: "ok" }],
       })),
       getAgent: vi.fn(() => ({ agentName: "Hana" })),
+      getSessionWorkspaceMount: vi.fn(() => ({ mountId: "mount_docs", label: "Docs" })),
       agentIdFromSessionPath: vi.fn((sp) => {
         const rel = path.relative("/tmp/agents", sp);
         return rel.split(path.sep)[0] || null;
@@ -115,6 +116,8 @@ describe("sessions route", () => {
     expect(browserManagerMock.resumeForSession).toHaveBeenCalledWith("/tmp/agents/a/sessions/new.jsonl");
     expect(data.browserRunning).toBe(true); // resumeForSession sets it running
     expect(data.browserUrl).toBe("https://after.example.com"); // per-session URL
+    expect(data.workspaceMountId).toBe("mount_docs");
+    expect(data.workspaceLabel).toBe("Docs");
     expect(data.currentModelAudio).toBe(true);
     expect(data.currentModelAudioTransport).toBe("mimo-input-audio");
     expect(data.currentModelAudioTransportSupported).toBe(true);
@@ -215,6 +218,7 @@ describe("sessions route", () => {
       persistSessionMeta: vi.fn(),
       updateConfig: vi.fn(async (patch) => Object.assign(engine.config, patch)),
       getAgent: vi.fn(() => ({ agentName: "Hana" })),
+      getSessionWorkspaceMount: vi.fn(() => ({ mountId: "mount_docs", label: "Docs" })),
       getSessionWorkspaceFolders: vi.fn(() => []),
       getSessionThinkingLevel: vi.fn(() => "medium"),
     };
@@ -234,13 +238,20 @@ describe("sessions route", () => {
       resolvedMountedRoot,
       true,
       undefined,
-      { workspaceFolders: [], visibleInSessionList: true },
+      {
+        workspaceFolders: [],
+        visibleInSessionList: true,
+        workspaceMountId: "mount_docs",
+        workspaceLabel: "Docs",
+      },
     );
     expect(engine.updateConfig).toHaveBeenCalledWith({
       last_cwd: resolvedMountedRoot,
       cwd_history: [resolvedMountedRoot],
     });
     expect(data.cwd).toBe(resolvedMountedRoot);
+    expect(data.workspaceMountId).toBe("mount_docs");
+    expect(data.workspaceLabel).toBe("Docs");
   });
 
   it("creates a detached session without switching the focused session", async () => {

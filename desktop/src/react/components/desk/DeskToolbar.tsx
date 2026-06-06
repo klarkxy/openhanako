@@ -23,13 +23,14 @@ import s from './Desk.module.css';
 // ── Open in Finder 按钮 ──
 
 export function DeskOpenButton() {
+  const isMountWorkspace = useStore(s => !!s.deskWorkspaceMountId);
   const handleClick = useCallback(() => {
     const s = useStore.getState();
-    if (!s.deskBasePath) return;
+    if (!s.deskBasePath || s.deskWorkspaceMountId) return;
     window.platform?.openFolder?.(s.deskBasePath);
   }, []);
 
-  if (isWebRuntime()) return null;
+  if (isWebRuntime() || isMountWorkspace) return null;
 
   return (
     <button className={s.openBtn} onClick={handleClick}>
@@ -40,15 +41,16 @@ export function DeskOpenButton() {
 }
 
 export function DeskOpenIconButton() {
-  const hasDesk = useStore(s => !!s.deskBasePath);
+  const hasDesk = useStore(s => !!s.deskBasePath && !s.deskWorkspaceMountId);
   const label = (window.t ?? ((p: string) => p))('desk.openInFinder');
   const handleClick = useCallback(() => {
     const s = useStore.getState();
-    if (!s.deskBasePath) return;
+    if (!s.deskBasePath || s.deskWorkspaceMountId) return;
     window.platform?.openFolder?.(s.deskBasePath);
   }, []);
 
-  if (isWebRuntime()) return null;
+  const isMountWorkspace = useStore(s => !!s.deskWorkspaceMountId);
+  if (isWebRuntime() || isMountWorkspace) return null;
 
   return (
     <button className={`${s.sortBtn} ${s.iconBtn}`} onClick={handleClick} title={label} aria-label={label} disabled={!hasDesk}>

@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import JSZip from "jszip";
 import { extractZip } from "../lib/extract-zip.ts";
 
 function expectAppEvent(emitEvent, type, payload) {
@@ -14,6 +15,14 @@ function expectAppEvent(emitEvent, type, payload) {
       source: "server",
     },
   }, null);
+}
+
+async function makeSkillZipBase64(name = "uploaded-skill") {
+  const zip = new JSZip();
+  zip.file("SKILL.md", `---\nname: ${name}\n---\n# ${name}\n`);
+  zip.file("references/guide.md", "# Guide\n");
+  const buffer = await zip.generateAsync({ type: "nodebuffer" });
+  return buffer.toString("base64");
 }
 
 describe("skills route", () => {
@@ -648,6 +657,49 @@ describe("skills route", () => {
         filePath: srcDir,
         origin: "skill_install_source",
         storageKind: "install_source",
+      },
+    });
+  });
+
+  it("installs an uploaded skill package without requiring a client-local path", async () => {
+    const { createSkillsRoute } = await import("../server/routes/skills.ts");
+    const app = new Hono();
+    const userSkillsDir = path.join(tempRoot, "user-skills");
+    const engine = {
+      hanakoHome: tempRoot,
+      userSkillsDir,
+      agentsDir: tempRoot,
+      registerSessionFile: vi.fn(),
+      reloadSkills: vi.fn().mockResolvedValue(undefined),
+      emitEvent: vi.fn(),
+      getAllSkills: vi.fn(() => [{ name: "uploaded-skill" }]),
+      currentAgentId: "",
+    };
+
+    app.route("/api", createSkillsRoute(engine));
+
+    const res = await app.request("/api/skills/install", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: {
+          filename: "uploaded-skill.zip",
+          contentBase64: await makeSkillZipBase64("uploaded-skill"),
+        },
+      }),
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(engine.registerSessionFile).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(userSkillsDir, "uploaded-skill", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(userSkillsDir, "uploaded-skill", "references", "guide.md"))).toBe(true);
+    expect(data).toMatchObject({
+      ok: true,
+      skill: { name: "uploaded-skill" },
+      installedSkillSource: {
+        owner: "user",
+        skillName: "uploaded-skill",
       },
     });
   });

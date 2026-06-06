@@ -32,6 +32,7 @@ import {
 } from "../../lib/skill-bundles/store.ts";
 import { exportSkillBundlePackage } from "../../lib/skill-bundles/package-service.ts";
 import { createModuleLogger } from "../../lib/debug-log.ts";
+import { materializeUploadedSkillPackage } from "../utils/uploaded-skill-package.ts";
 
 const log = createModuleLogger("skills");
 
@@ -370,36 +371,41 @@ export function createSkillsRoute(engine) {
   // ── 安装用户技能 ──
   route.post("/skills/install", async (c) => {
     return withInstallLock(async () => {
+    let uploadedSource = null;
     try {
       const body = await safeJson(c);
       const { path: srcPath, sessionPath } = body;
-      if (!srcPath || !path.isAbsolute(srcPath)) {
+      uploadedSource = srcPath ? null : materializeUploadedSkillPackage(engine, body);
+      const sourcePath = srcPath || uploadedSource?.sourcePath;
+      if (!sourcePath || !path.isAbsolute(sourcePath)) {
         return c.json({ error: t("error.skillNeedAbsolutePath") }, 400);
       }
 
-      if (!fs.existsSync(srcPath)) {
+      if (!fs.existsSync(sourcePath)) {
         return c.json({ error: t("error.skillPathNotExists") }, 400);
       }
 
-      const sourceFile = registerSessionFileFromRequest(engine, {
-        sessionPath,
-        filePath: srcPath,
-        label: path.basename(srcPath),
-        origin: "skill_install_source",
-        storageKind: "install_source",
-      } as any);
+      const sourceFile = srcPath
+        ? registerSessionFileFromRequest(engine, {
+          sessionPath,
+          filePath: sourcePath,
+          label: path.basename(sourcePath),
+          origin: "skill_install_source",
+          storageKind: "install_source",
+        } as any)
+        : null;
 
       const userDir = engine.userSkillsDir;
       let installed;
       try {
         // 手动安装（用户行为）不做 LLM 安全审查，只做包结构和文件系统安全校验。
         installed = await installSkillPackageFromPath({
-          sourcePath: srcPath,
+          sourcePath,
           installDir: userDir,
           owner: "user",
         });
       } catch (err) {
-        return c.json({ error: installErrorMessage(err, srcPath) }, err.status || 400);
+        return c.json({ error: installErrorMessage(err, sourcePath) }, err.status || 400);
       }
       const safeName = installed.name;
       const installedSkillSource = installed.installedSkillSource;
@@ -438,7 +444,9 @@ export function createSkillsRoute(engine) {
       });
     } catch (err) {
       log.error(`install failed: ${err?.stack || err}`);
-      return c.json({ error: err.message }, 500);
+      return c.json({ error: err.message }, err.status || 500);
+    } finally {
+      uploadedSource?.cleanup?.();
     }
     }); // withInstallLock
   });

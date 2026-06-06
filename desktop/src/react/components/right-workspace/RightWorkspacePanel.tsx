@@ -75,15 +75,20 @@ function TabContent({ activeTab }: { activeTab: RightWorkspaceTab }) {
 
 function WorkspaceHeader() {
   const deskBasePath = useStore(s => s.deskBasePath);
+  const deskWorkspaceMountId = useStore(s => s.deskWorkspaceMountId);
+  const deskWorkspaceLabel = useStore(s => s.deskWorkspaceLabel);
   const selectedFolder = useStore(s => s.selectedFolder);
   const homeFolder = useStore(s => s.homeFolder);
   const t = window.t ?? ((p: string) => p);
-  const title = workspaceDisplayName(deskBasePath || selectedFolder || homeFolder, t('desk.title'));
+  const title = deskWorkspaceMountId
+    ? (deskWorkspaceLabel || deskWorkspaceMountId)
+    : workspaceDisplayName(deskBasePath || selectedFolder || homeFolder, t('desk.title'));
+  const titlePath = deskWorkspaceMountId ? title : (deskBasePath || selectedFolder || homeFolder || undefined);
 
   return (
     <>
       <div className={styles.workspaceHeader}>
-        <div className={styles.workspaceTitle} title={deskBasePath || selectedFolder || homeFolder || undefined}>
+        <div className={styles.workspaceTitle} title={titlePath}>
           {title}
         </div>
         <DeskCwdSkillsButton />

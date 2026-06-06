@@ -500,6 +500,20 @@ function sessionExperimentFlagsForMeta(value: any) {
   return flags.deepseekRoleplayReasoningPatch === true ? flags : null;
 }
 
+function normalizeSessionWorkspaceMount(value: any) {
+  const mountId = typeof value?.workspaceMountId === "string" && value.workspaceMountId.trim()
+    ? value.workspaceMountId.trim()
+    : (typeof value?.mountId === "string" && value.mountId.trim() ? value.mountId.trim() : null);
+  if (!mountId) return null;
+  const label = typeof value?.workspaceLabel === "string" && value.workspaceLabel.trim()
+    ? value.workspaceLabel.trim()
+    : (typeof value?.label === "string" && value.label.trim() ? value.label.trim() : null);
+  return {
+    mountId,
+    label,
+  };
+}
+
 export class SessionCoordinator {
   declare _d: any;
   declare _pendingModel: any;
@@ -686,6 +700,8 @@ export class SessionCoordinator {
     authorizedFolders = [],
     visibleInSessionList = false,
     thinkingLevel = null,
+    workspaceMountId = null,
+    workspaceLabel = null,
   }: any = {}) {
     const t0 = Date.now();
     const agent = explicitAgent
@@ -746,6 +762,7 @@ export class SessionCoordinator {
         locale: agent.config?.locale || getLocale(),
       })
       : [];
+    let workspaceMount = normalizeSessionWorkspaceMount({ workspaceMountId, workspaceLabel });
     let workspaceScope = normalizeWorkspaceScope({
       primaryCwd: effectiveCwd,
       workspaceFolders,
@@ -762,6 +779,7 @@ export class SessionCoordinator {
         const metaEntry = meta[path.basename(sessionPathForMeta)];
         const restoredFolders = metaEntry?.workspaceFolders;
         const restoredAuthorizedFolders = metaEntry?.authorizedFolders;
+        workspaceMount = normalizeSessionWorkspaceMount(metaEntry);
         workspaceScope = normalizeWorkspaceScope({
           primaryCwd: effectiveCwd,
           workspaceFolders: restoredFolders,
@@ -1141,6 +1159,8 @@ export class SessionCoordinator {
       modelProvider: resolvedModel?.provider || effectiveModel?.provider || null,
       cwd: effectiveCwd,
       workspaceFolders: workspaceScope.workspaceFolders,
+      workspaceMountId: workspaceMount?.mountId || null,
+      workspaceLabel: workspaceMount?.label || null,
       authorizedFolders: folderScope.authorizedFolders,
       permissionMode: initialPermissionMode,
       accessMode: initialAccessMode,
@@ -1189,6 +1209,10 @@ export class SessionCoordinator {
         thinkingLevel: initialThinkingLevel,
         promptSnapshot: promptSnapshotToWrite,
       };
+      if (workspaceMount?.mountId) {
+        metaPatch.workspaceMountId = workspaceMount.mountId;
+        metaPatch.workspaceLabel = workspaceMount.label || null;
+      }
       const experimentsForMeta = sessionExperimentFlagsForMeta(frozenExperimentFlags);
       if (experimentsForMeta) {
         metaPatch.experiments = experimentsForMeta;
@@ -1243,6 +1267,8 @@ export class SessionCoordinator {
     visibleInSessionList = true,
     permissionMode = null,
     thinkingLevel = null,
+    workspaceMountId = null,
+    workspaceLabel = null,
   }: any = {}) {
     const prevFocus = this._session;
     const prevCurrentSessionPath = this._currentSessionPath;
@@ -1262,6 +1288,8 @@ export class SessionCoordinator {
         authorizedFolders,
         visibleInSessionList,
         thinkingLevel,
+        workspaceMountId,
+        workspaceLabel,
       });
     } finally {
       this._session = prevFocus;
@@ -1437,6 +1465,16 @@ export class SessionCoordinator {
       ? entry.workspaceFolders
       : this._readSessionMetaEntrySync(sessionPath)?.workspaceFolders;
     return Array.isArray(folders) ? [...folders] : [];
+  }
+
+  getSessionWorkspaceMount(sessionPath = this.currentSessionPath) {
+    if (!sessionPath) return null;
+    const entry = this._sessionFolderEntry(sessionPath);
+    const metaEntry = entry ? null : this._readSessionMetaEntrySync(sessionPath);
+    return normalizeSessionWorkspaceMount({
+      workspaceMountId: entry?.workspaceMountId ?? metaEntry?.workspaceMountId,
+      workspaceLabel: entry?.workspaceLabel ?? metaEntry?.workspaceLabel,
+    });
   }
 
   getSessionAuthorizedFolders(sessionPath = this.currentSessionPath) {
@@ -2903,6 +2941,9 @@ export class SessionCoordinator {
           s.projectId = typeof metaEntry?.projectId === "string" && metaEntry.projectId.trim()
             ? metaEntry.projectId.trim()
             : null;
+          const workspaceMount = normalizeSessionWorkspaceMount(metaEntry);
+          s.workspaceMountId = workspaceMount?.mountId || null;
+          s.workspaceLabel = workspaceMount?.label || null;
           // 读取新格式 model:{id,provider}；老格式（只有 modelId）视为无 provider，
           // 调用方必须接受 modelProvider 可能为 null。
           if (metaEntry?.model && typeof metaEntry.model === "object") {
@@ -2948,6 +2989,8 @@ export class SessionCoordinator {
         agentName: agent?.agentName || agent?.name || entry.agentId || null,
         modelId: entry.modelId || null,
         modelProvider: entry.modelProvider || null,
+        workspaceMountId: entry.workspaceMountId || null,
+        workspaceLabel: entry.workspaceLabel || null,
         pinnedAt: null,
         projectId: null,
         ...(isDeleted ? {
