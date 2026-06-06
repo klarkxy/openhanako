@@ -1,10 +1,10 @@
 import React from 'react';
 import { t } from '../helpers';
-import { Toggle } from '../widgets/Toggle';
 import { PlatformSection } from './bridge/PlatformSection';
 import { WechatSection } from './bridge/WechatSection';
 import { useBridgeState } from './bridge/useBridgeState';
 import { BridgeAgentRow } from './bridge/BridgeAgentRow';
+import { BridgePermissionModeSelect, type BridgePermissionMode } from './bridge/BridgeWidgets';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
 import styles from '../Settings.module.css';
@@ -17,31 +17,20 @@ export function BridgeTab() {
   const fsInfo = b.status?.feishu;
   const qqInfo = b.status?.qq;
   const wxInfo = b.status?.wechat;
-  const readOnly = b.status ? b.status.readOnly === true : undefined;
-  const receiptEnabled = b.status ? b.status.receiptEnabled !== false : undefined;
+  const permissionMode: BridgePermissionMode = b.status?.permissionMode
+    || (b.status?.readOnly === true ? 'read_only' : 'auto');
   const globalSettingsPending = !b.status || b.globalSettingsSaving;
 
   return (
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="bridge">
       <SettingsSection title={t('settings.bridge.globalSettings')}>
         <SettingsRow
-          label={t('settings.bridge.receiptEnabled')}
-          hint={t('settings.bridge.receiptEnabledDesc')}
+          label={t('settings.bridge.permissionMode')}
+          hint={t('settings.bridge.permissionModeDesc')}
           control={
-            <Toggle
-              on={receiptEnabled}
-              onChange={(on) => b.saveGlobalSettings({ receiptEnabled: on })}
-              disabled={globalSettingsPending}
-            />
-          }
-        />
-        <SettingsRow
-          label={t('settings.bridge.readOnly')}
-          hint={t('settings.bridge.readOnlyDesc')}
-          control={
-            <Toggle
-              on={readOnly}
-              onChange={(on) => b.saveGlobalSettings({ readOnly: on })}
+            <BridgePermissionModeSelect
+              value={permissionMode}
+              onChange={(mode) => b.saveGlobalSettings({ permissionMode: mode })}
               disabled={globalSettingsPending}
             />
           }

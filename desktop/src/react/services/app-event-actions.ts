@@ -7,8 +7,7 @@ import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadChannels } from '../stores/channel-actions';
 import { applyEditorTypography } from '../editor/typography';
 import { refreshPreviewItemsFromFile } from '../utils/preview-file-refresh';
-// @ts-expect-error — shared JS module
-import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.js';
+import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.ts';
 
 declare const i18n: {
   locale: string;
@@ -265,6 +264,11 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
     case 'network-proxy-changed':
       if (options.source === 'server') {
         window.platform?.settingsChanged?.('network-proxy-changed', data);
+      }
+      break;
+    case 'keep-awake-changed':
+      if (options.source === 'server') {
+        window.platform?.settingsChanged?.('keep-awake-changed', data);
       }
       break;
     case 'paper-texture-changed':

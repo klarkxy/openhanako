@@ -1,4 +1,5 @@
 import type { Session, SessionStream, TodoItem } from '../types';
+import type { ThinkingLevel } from './model-slice';
 
 export interface SessionSlice {
   sessions: Session[];
@@ -7,6 +8,7 @@ export interface SessionSlice {
   sessionStreams: Record<string, SessionStream>;
   pendingNewSession: boolean;
   pendingProjectId: string | null;
+  pendingNewSessionThinkingLevel: ThinkingLevel | null;
   memoryEnabled: boolean;
   /** @deprecated 兼容层 — 读取当前 session 的 todos，新代码用 todosBySession */
   sessionTodos: TodoItem[];
@@ -25,6 +27,7 @@ export interface SessionSlice {
   removeSessionStream: (sessionPath: string) => void;
   setPendingNewSession: (pending: boolean) => void;
   setPendingProjectId: (projectId: string | null) => void;
+  setPendingNewSessionThinkingLevel: (level: ThinkingLevel | null) => void;
   setMemoryEnabled: (enabled: boolean) => void;
   setSessionTodos: (todos: TodoItem[]) => void;
   setSessionTodosForPath: (sessionPath: string, todos: TodoItem[]) => void;
@@ -41,6 +44,7 @@ export const createSessionSlice = (
   sessionStreams: {},
   pendingNewSession: false,
   pendingProjectId: null,
+  pendingNewSessionThinkingLevel: null,
   memoryEnabled: true,
   sessionTodos: [],
   todosBySession: {},
@@ -60,6 +64,7 @@ export const createSessionSlice = (
     }),
   setPendingNewSession: (pending) => set({ pendingNewSession: pending }),
   setPendingProjectId: (projectId) => set({ pendingProjectId: projectId }),
+  setPendingNewSessionThinkingLevel: (level) => set({ pendingNewSessionThinkingLevel: level }),
   setMemoryEnabled: (enabled) => set({ memoryEnabled: enabled }),
   // 兼容：旧调用方仍可用，写入当前 session
   setSessionTodos: (todos) =>

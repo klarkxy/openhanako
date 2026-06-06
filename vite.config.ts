@@ -23,9 +23,12 @@ const CSP_PROFILES: Record<string, string> = {
   // 设置窗口：需要 API 连接、图片、字体
   'settings.html':
     "default-src 'self'; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: file: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:",
+  // Quick Chat：独立小窗，需要 API/WS、附件预览图片
+  'quick-chat.html':
+    "default-src 'self'; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: blob: file: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:",
   // Onboarding：需要 API 连接、图片、字体
   'onboarding.html':
-    "default-src 'self'; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: file: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:",
+    "default-src 'self'; connect-src 'self' http: https: ws: wss:; img-src 'self' data: file: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:",
   // 以下窗口不加载第三方字体，保持严格策略
   'splash.html':
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' file:",
@@ -121,6 +124,26 @@ function restoreLegacyCss(): Plugin {
   };
 }
 
+/**
+ * Vite dev server 直接服务 source HTML 时，theme helper 不能再依赖 dist-renderer/lib/theme.js。
+ * 开发模式把旧 script 标签重写到 source theme.ts，保持和 build:theme 同一份实现。
+ */
+function useSourceThemeInDev(): Plugin {
+  return {
+    name: 'hana-use-source-theme-in-dev',
+    apply: 'serve',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html) {
+        return html.replace(
+          /<script\s+src="lib\/theme\.js"><\/script>/g,
+          '<script type="module" src="/shared/theme.ts"></script>',
+        );
+      },
+    },
+  };
+}
+
 function readDevWebClientConfig(): DevWebClientConfig | null {
   if (process.env.HANA_DEV_WEB !== '1') return null;
   const apiBaseUrl = process.env.HANA_DEV_WEB_API_BASE_URL?.trim();
@@ -157,6 +180,40 @@ function injectDevWebConfig(): Plugin {
           `<script>window.__HANA_DEV_WEB__=${payload};</script>\n</head>`,
         );
       },
+    },
+  };
+}
+
+function serveMobilePwaStaticFiles(): Plugin {
+  const srcDir = path.resolve(__dirname, 'desktop/src');
+  const filesByUrl = new Map<string, { file: string; contentType: string }>([
+    ['/sw.js', { file: path.join(srcDir, 'mobile-sw.js'), contentType: 'application/javascript; charset=utf-8' }],
+    ['/manifest.webmanifest', { file: path.join(srcDir, 'mobile-manifest.webmanifest'), contentType: 'application/manifest+json; charset=utf-8' }],
+    ['/icon.png', { file: path.join(srcDir, 'icon.png'), contentType: 'image/png' }],
+  ]);
+
+  return {
+    name: 'hana-serve-mobile-pwa-static-files',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = req.url?.split('?')[0] || '';
+        const asset = filesByUrl.get(pathname);
+        if (!asset) {
+          next();
+          return;
+        }
+        fs.readFile(asset.file, (err, data) => {
+          if (err) {
+            next(err);
+            return;
+          }
+          res.statusCode = 200;
+          res.setHeader('Content-Type', asset.contentType);
+          res.setHeader('Cache-Control', 'no-cache');
+          res.end(data);
+        });
+      });
     },
   };
 }
@@ -245,6 +302,8 @@ export default defineConfig({
     react(),
     injectCsp(),
     injectDevWebConfig(),
+    serveMobilePwaStaticFiles(),
+    useSourceThemeInDev(),
     restoreLegacyCss(),
     copyLegacyFiles(),
   ],
@@ -277,6 +336,7 @@ export default defineConfig({
         main: path.resolve(__dirname, 'desktop/src/index.html'),
         mobile: path.resolve(__dirname, 'desktop/src/mobile.html'),
         settings: path.resolve(__dirname, 'desktop/src/settings.html'),
+        'quick-chat': path.resolve(__dirname, 'desktop/src/quick-chat.html'),
         onboarding: path.resolve(__dirname, 'desktop/src/onboarding.html'),
         splash: path.resolve(__dirname, 'desktop/src/splash.html'),
         'browser-viewer': path.resolve(__dirname, 'desktop/src/browser-viewer.html'),

@@ -9,6 +9,7 @@ import { ToastContainer } from '../components/ToastContainer';
 import { toggleSidebar } from '../components/SidebarLayout';
 import { toggleJianSidebar } from '../stores/desk-actions';
 import { togglePreviewPanel } from '../stores/preview-actions';
+import { openSettingsModal } from '../stores/settings-modal-actions';
 import { useStore } from '../stores';
 import { createNewSession } from '../stores/session-actions';
 import {
@@ -25,10 +26,13 @@ const MOBILE_EDGE_GESTURE_WIDTH = 28;
 const MOBILE_EDGE_GESTURE_MIN_DISTANCE = 56;
 const MOBILE_EDGE_GESTURE_MAX_VERTICAL_DRIFT = 80;
 const MOBILE_EDGE_GESTURE_DOMINANCE = 1.25;
+const MOBILE_UPDATE_AVAILABLE_EVENT = 'hana-mobile-update-available';
+const MOBILE_APPLY_UPDATE_EVENT = 'hana-mobile-apply-update';
 
 const LazyPreviewPanel = lazy(() => import('../components/PreviewPanel').then(module => ({ default: module.PreviewPanel })));
 const LazyMediaViewer = lazy(() => import('../components/shared/MediaViewer/MediaViewer').then(module => ({ default: module.MediaViewer })));
 const LazyWorkspaceCompanionRail = lazy(() => import('../components/app/WorkspaceCompanionRail').then(module => ({ default: module.WorkspaceCompanionRail })));
+const LazySettingsModalShell = lazy(() => import('../components/SettingsModalShell').then(module => ({ default: module.SettingsModalShell })));
 
 type MobileEdgeGesture = {
   edge: 'left' | 'right';
@@ -55,7 +59,7 @@ export function MobileApp(): React.ReactElement {
     if (!principalHasRequiredScopes(session.principal, MOBILE_REQUIRED_SCOPES)) {
       await apiJson('/api/web-auth/logout', { method: 'POST' }).catch(() => null);
       setPrincipal(null);
-      setLoginError('当前登录缺少工作台权限，请重新输入访问密钥。');
+      setLoginError((window.t ?? ((p: string) => p))('mobile.auth.scopeError'));
       setAuthState('login');
       return;
     }
@@ -90,7 +94,7 @@ export function MobileApp(): React.ReactElement {
       setLoginPassword('');
       await bootstrap();
     } catch (err) {
-      setLoginError(err instanceof Error ? err.message : '登录失败');
+      setLoginError(err instanceof Error ? err.message : (window.t ?? ((p: string) => p))('mobile.auth.loginFailed'));
     }
   };
 
@@ -140,6 +144,7 @@ function MobileDesktopShell({
   const edgeGestureRef = useRef<MobileEdgeGesture | null>(null);
   const previousWsStateRef = useRef(wsState);
   const t = window.t ?? ((p: string) => p);
+  const [mobileUpdateAvailable, setMobileUpdateAvailable] = useState(false);
 
   const titlebarTitle = useMemo(() => {
     if (pendingNewSession) return t('sidebar.newChat');
@@ -154,6 +159,19 @@ function MobileDesktopShell({
   useEffect(() => {
     if (isNarrow) useStore.setState({ sidebarOpen: false, jianOpen: false, previewOpen: false });
   }, [isNarrow]);
+
+  useEffect(() => {
+    const unsubscribe = window.platform?.onOpenSettingsModal?.((tab?: string) => {
+      openSettingsModal(tab);
+    });
+    return typeof unsubscribe === 'function' ? unsubscribe : undefined;
+  }, []);
+
+  useEffect(() => {
+    const handleUpdateAvailable = () => setMobileUpdateAvailable(true);
+    window.addEventListener(MOBILE_UPDATE_AVAILABLE_EVENT, handleUpdateAvailable);
+    return () => window.removeEventListener(MOBILE_UPDATE_AVAILABLE_EVENT, handleUpdateAvailable);
+  }, []);
 
   const refreshMobileSessions = useCallback(() => {
     void loadMobileSessions().catch((err) => {
@@ -193,6 +211,10 @@ function MobileDesktopShell({
     }
     useStore.setState({ sidebarOpen: false });
     toggleJianSidebar(true);
+  }, []);
+
+  const applyMobileUpdate = useCallback(() => {
+    window.dispatchEvent(new Event(MOBILE_APPLY_UPDATE_EVENT));
   }, []);
 
   const handleTouchStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
@@ -290,6 +312,12 @@ function MobileDesktopShell({
           togglePreviewPanel();
         }}
       />
+      {mobileUpdateAvailable && (
+        <div className="mobile-update-banner" role="status">
+          <span>{t('mobile.update.available')}</span>
+          <button type="button" onClick={applyMobileUpdate}>{t('mobile.update.reload')}</button>
+        </div>
+      )}
       <div className="app mobile-desktop-app">
         <ChatSidebar
           open={sidebarOpen && currentTab === 'chat'}
@@ -314,8 +342,11 @@ function MobileDesktopShell({
           </Suspense>
         )}
       </div>
-      {showDrawerScrim && <button className="mobile-drawer-scrim" type="button" aria-label="关闭侧边栏" onClick={closeMobileDrawers} />}
+      {showDrawerScrim && <button className="mobile-drawer-scrim" type="button" aria-label={t('mobile.closeSidebar')} onClick={closeMobileDrawers} />}
       <StatusBar />
+      <Suspense fallback={null}>
+        <LazySettingsModalShell />
+      </Suspense>
       {mediaViewer && (
         <Suspense fallback={null}>
           <LazyMediaViewer />
@@ -336,12 +367,13 @@ function WorkspaceCompanionRailFallback({ open }: { open: boolean }) {
 }
 
 function MobileLoadingScreen() {
+  const t = window.t ?? ((p: string) => p);
   return (
     <main className="onboarding">
       <section className="onboarding-step active">
         <img className="onboarding-avatar" src="./icon.png" alt="" />
         <h1 className="onboarding-title">HanaAgent</h1>
-        <p className="onboarding-subtitle">正在连接 Hana...</p>
+        <p className="onboarding-subtitle">{t('mobile.loading')}</p>
       </section>
     </main>
   );
@@ -370,6 +402,7 @@ function MobileLoginScreen({
   onPasswordChange: (value: string) => void;
   onSubmit: (event: React.FormEvent) => void;
 }) {
+  const t = window.t ?? ((p: string) => p);
   const loginDisabled = mode === 'device'
     ? !secret.trim()
     : !username.trim() || !password;
@@ -378,42 +411,42 @@ function MobileLoginScreen({
     <main className="onboarding">
       <form className="onboarding-step active" onSubmit={onSubmit}>
         <img className="onboarding-avatar" src="./icon.png" alt="" />
-        <h1 className="onboarding-title">手机访问 Hana</h1>
+        <h1 className="onboarding-title">{t('mobile.auth.title')}</h1>
         <p className="onboarding-subtitle">{mode === 'device'
-          ? '输入桌面端为这台设备生成的访问密钥。登录后会改用 HttpOnly 会话 cookie。'
-          : '使用桌面端设置的本地账号登录。局域网明文 HTTP 会被服务器拒绝，请使用本机、HTTPS 或可信 Tunnel。'}</p>
+          ? t('mobile.auth.deviceHelp')
+          : t('mobile.auth.passwordHelp')}</p>
 
-        <div className="provider-grid" role="tablist" aria-label="登录方式">
+        <div className="provider-grid" role="tablist" aria-label={t('mobile.auth.tabLabel')}>
           <button type="button" role="tab" aria-selected={mode === 'device'} className={`provider-card${mode === 'device' ? ' selected' : ''}`} onClick={() => onModeChange('device')}>
-            访问密钥
+            {t('mobile.auth.deviceTab')}
           </button>
           <button type="button" role="tab" aria-selected={mode === 'password'} className={`provider-card${mode === 'password' ? ' selected' : ''}`} onClick={() => onModeChange('password')}>
-            用户名密码
+            {t('mobile.auth.passwordTab')}
           </button>
         </div>
 
         {mode === 'device' ? (
           <label className="custom-field">
-            <span className="ob-field-label">访问密钥</span>
+            <span className="ob-field-label">{t('mobile.auth.deviceField')}</span>
             <input className="ob-input" value={secret} onChange={(event) => onSecretChange(event.target.value)} autoComplete="one-time-code" spellCheck={false} />
           </label>
         ) : (
           <>
             <label className="custom-field">
-              <span className="ob-field-label">用户名</span>
+              <span className="ob-field-label">{t('mobile.auth.usernameField')}</span>
               <input className="ob-input" value={username} onChange={(event) => onUsernameChange(event.target.value)} autoComplete="username" spellCheck={false} />
             </label>
             <label className="custom-field">
-              <span className="ob-field-label">密码</span>
+              <span className="ob-field-label">{t('mobile.auth.passwordField')}</span>
               <input className="ob-input" value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" />
             </label>
-            <p className="onboarding-subtitle">远程明文链路不接收账号密码，避免把长期凭证暴露在局域网或 Tunnel 中。</p>
+            <p className="onboarding-subtitle">{t('mobile.auth.plaintextWarning')}</p>
           </>
         )}
 
         {error && <div className="ob-status error">{error}</div>}
         <div className="onboarding-actions">
-          <button className="ob-btn ob-btn-primary" type="submit" disabled={loginDisabled}>登录</button>
+          <button className="ob-btn ob-btn-primary" type="submit" disabled={loginDisabled}>{t('mobile.auth.submit')}</button>
         </div>
       </form>
     </main>

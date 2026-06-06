@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
-import { invalidateConfigCache } from '../../hooks/use-config';
 import { useI18n } from '../../hooks/use-i18n';
 import { useStore } from '../../stores';
 import { normalizeThinkingLevel, type ThinkingLevel } from '../../stores/model-slice';
@@ -37,19 +36,31 @@ export function ThinkingLevelButton({ level, onChange, modelXhigh }: {
     setOpen(false);
     try {
       const useSessionThinking = !!currentSessionPath && !pendingNewSession;
-      const res = await hanaFetch(useSessionThinking ? '/api/session-thinking-level' : '/api/config', {
-        method: useSessionThinking ? 'POST' : 'PUT',
+      if (!useSessionThinking) {
+        const res = await hanaFetch('/api/session-thinking-level', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ level: next }),
+        });
+        const data = await res.json();
+        if (!res.ok || data?.ok === false) {
+          throw new Error(data?.error || 'failed to save thinking level');
+        }
+        const normalized = normalizeThinkingLevel((data?.thinkingLevel || next) as ThinkingLevel);
+        useStore.getState().setPendingNewSessionThinkingLevel(normalized);
+        onChange(normalized);
+        return;
+      }
+      const res = await hanaFetch('/api/session-thinking-level', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: useSessionThinking
-          ? JSON.stringify({ sessionPath: currentSessionPath, level: next })
-          : JSON.stringify({ thinking_level: next }),
+        body: JSON.stringify({ sessionPath: currentSessionPath, level: next }),
       });
       const data = await res.json();
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.error || 'failed to save thinking level');
       }
       onChange(normalizeThinkingLevel((data?.thinkingLevel || next) as ThinkingLevel));
-      if (!useSessionThinking) invalidateConfigCache();
     } catch (err) {
       console.error('[thinking-level] save failed:', err);
     }

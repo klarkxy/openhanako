@@ -66,12 +66,37 @@ function requestChatInputFocus(path: string | null): void {
   if (shouldRestoreInputFocus(path)) useStore.getState().requestInputFocus?.();
 }
 
+function isPendingNewSessionDraftView(): boolean {
+  const state = useStore.getState() as Record<string, any>;
+  return state.pendingNewSession === true
+    && state.currentSessionPath === null
+    && !state.pendingSessionSwitchPath;
+}
+
 function findSessionProjection(path: string): any | null {
   return useStore.getState().sessions.find((session: any) => session.path === path) || null;
 }
 
 function isDeletedAgentSession(path: string): boolean {
   return findSessionProjection(path)?.agentDeleted === true;
+}
+
+function reconcileStreamingSessionsForPath(streamingSessions: string[] | undefined, path: string, isStreaming: boolean): string[] {
+  const current = Array.isArray(streamingSessions) ? streamingSessions : [];
+  if (isStreaming) {
+    return current.includes(path) ? current : [...current, path];
+  }
+  return current.filter((sessionPath) => sessionPath !== path);
+}
+
+async function requestActiveSessionStreamResume(path: string, isStreaming: boolean): Promise<void> {
+  if (!isStreaming) return;
+  try {
+    const { requestStreamResume } = await import('../services/stream-resume');
+    requestStreamResume(path);
+  } catch (err) {
+    console.warn('[session] stream resume request skipped after switch:', err);
+  }
 }
 
 async function resetDeskForSessionCwd(cwd?: string | null): Promise<void> {
@@ -300,13 +325,9 @@ export async function switchSession(path: string): Promise<void> {
 
     const state = useStore.getState();
 
-    // 同步 streamingSessions：切入的 session 可能正在 streaming
-    let streamingSessions = state.streamingSessions;
-    if (data.isStreaming && path) {
-      if (!streamingSessions.includes(path)) {
-        streamingSessions = [...streamingSessions, path];
-      }
-    }
+    // 以服务端事实对齐当前 session 的流式状态。刷新或重连后，renderer 的本地集合可能已经过期。
+    const isStreaming = data.isStreaming === true;
+    const streamingSessions = reconcileStreamingSessionsForPath(state.streamingSessions, path, isStreaming);
 
     // 同步全局 agent 上下文
     const switchedAgent = data.agentId && data.agentId !== state.currentAgentId;
@@ -407,6 +428,9 @@ export async function switchSession(path: string): Promise<void> {
       await loadMessages(path);
       if (myVersion !== _switchVersion) return;
     }
+
+    await requestActiveSessionStreamResume(path, isStreaming);
+    if (myVersion !== _switchVersion) return;
 
     // 切换会话后刷新 context ring
     useStore.setState({ contextTokens: null, contextWindow: null, contextPercent: null });
@@ -517,6 +541,7 @@ export async function createNewSession(options: CreateNewSessionOptions = {}): P
     selectedAgentId: null,
     pendingNewSession: true,
     pendingProjectId,
+    pendingNewSessionThinkingLevel: null,
     attachedFiles: [],
     deskContextAttached: false,
     docContextAttached: false,
@@ -535,6 +560,17 @@ export async function createNewSession(options: CreateNewSessionOptions = {}): P
     }));
   } catch {
     window.dispatchEvent(new CustomEvent('hana-plan-mode', { detail: { enabled: false, mode: 'ask' } }));
+  }
+
+  try {
+    const res = await hanaFetch('/api/session-thinking-level');
+    const data = await res.json();
+    if (data.thinkingLevel && isPendingNewSessionDraftView()) {
+      useStore.getState().setThinkingLevel(data.thinkingLevel);
+      useStore.getState().setPendingNewSessionThinkingLevel(data.thinkingLevel);
+    }
+  } catch {
+    useStore.getState().setPendingNewSessionThinkingLevel(null);
   }
 
   // pending 状态下刷新 model 列表，让 ModelSelector 显示 agent Chat 默认 model
@@ -562,6 +598,9 @@ export async function ensureSession(): Promise<boolean> {
     if (s.pendingProjectId) {
       body.projectId = s.pendingProjectId;
     }
+    if (s.pendingNewSessionThinkingLevel) {
+      body.thinkingLevel = s.pendingNewSessionThinkingLevel;
+    }
     if (s.selectedAgentId && s.selectedAgentId !== s.currentAgentId) {
       body.agentId = s.selectedAgentId;
     }
@@ -587,6 +626,7 @@ export async function ensureSession(): Promise<boolean> {
       pendingSessionSwitchPath: null,
       selectedFolder: null,
       pendingProjectId: null,
+      pendingNewSessionThinkingLevel: null,
       workspaceFolders: Array.isArray(data.workspaceFolders) ? data.workspaceFolders : [],
       selectedAgentId: null,
     };

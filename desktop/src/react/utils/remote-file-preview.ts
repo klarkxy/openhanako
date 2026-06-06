@@ -15,6 +15,9 @@ import { BINARY_PREVIEW_TYPES, PREVIEWABLE_EXTS, openFilePreview } from './file-
 import { extOfName, inferKindByExt, isMediaKind } from './file-kind';
 import { openMediaViewerForRef } from './open-media-viewer';
 import { showError } from './ui-helpers';
+import { isWebRuntime } from './platform-runtime';
+
+export { isWebRuntime };
 
 export interface WorkbenchPreviewInput {
   file: DeskFile;
@@ -31,11 +34,6 @@ export interface FileRefPreviewContext {
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-export function isWebRuntime(): boolean {
-  return typeof document !== 'undefined'
-    && document.documentElement.getAttribute('data-platform') === 'web';
 }
 
 function encodeWorkbenchContentPath({

@@ -5,7 +5,7 @@ Hana's plugin SDK is split into small packages so plugin authors can choose only
 | Package | Runs In | Purpose |
 | --- | --- | --- |
 | `@hana/plugin-protocol` | iframe / host | Shared protocol constants and message shapes for plugin UI. |
-| `@hana/plugin-sdk` | iframe browser code | Typed helpers for `ready`, resize, toast, external links, clipboard, and lower-level host requests. |
+| `@hana/plugin-sdk` | iframe browser code | Typed helpers for `ready`, asset URLs, resize, toast, external links, clipboard, and lower-level host requests. |
 | `@hana/plugin-runtime` | plugin Node runtime | Helpers for tools, lifecycle plugins, EventBus handlers, SessionFile media details, providers, and Pi SDK extensions. |
 | `@hana/plugin-components` | iframe React UI | Hana-styled React primitives with theme fallback: controls, cards, rows, lists, and empty states. |
 
@@ -29,7 +29,7 @@ Built-in plugins may use the same source patterns, but they should be checked ag
 - Runtime plugins use `index.js` for lifecycle, EventBus handlers, background tasks, schedules, or dynamic tools. They require `trust: "full-access"`.
 - UI plugins use iframe routes plus `@hana/plugin-sdk` and, for React UI, `@hana/plugin-components`. They require `trust: "full-access"` and explicit `ui.hostCapabilities` grants for host calls such as `external.open` or `clipboard.writeText`.
 - Provider contribution plugins use `providers/*.js` declarations. They require `trust: "full-access"` and should declare `capabilities.chat` separately from `capabilities.media.*` so chat selectors stay clean while image, video, or speech tools discover media providers.
-- Pi SDK extension plugins use `extensions/*.js` factories. They require `trust: "full-access"` because they run inside the LLM request pipeline. Hana reloads idle sessions after full-access plugin install/enable/reload so existing chats can pick up new extension handlers without requiring an app restart; busy sessions defer the change until the next safe rebuild.
+- Pi SDK extension plugins use `extensions/*.js` factories. They require `trust: "full-access"` because they run inside the LLM request pipeline. Hana reloads idle sessions after full-access plugin install/enable/reload so existing chats can pick up new extension handlers without requiring an app restart; busy sessions are not reloaded and will retain old extension handlers until the session is naturally rebuilt.
 - Marketplace metadata lives outside the app repo in `OH-Plugins`, the official community plugin catalog. The app reads the generated catalog URL by default, installs `distribution.kind = "release"` entries by downloading the zip package and verifying `sha256`, and keeps `distribution.kind = "source"` for local file marketplace development only. `versions[]` lets the catalog keep multiple SemVer releases; Hana selects the highest app-compatible version, blocks implicit downgrades, backs up old installs, and records successful installs in `${HANA_HOME}/plugin-installs.json`. `readmePath` is resolved relative to the catalog when the official URL is used.
 
 ## Agent Dev Loop
@@ -61,6 +61,22 @@ hana.ready();
 hana.ui.resize({ height: 320 });
 await hana.toast.show({ message: 'Ready' });
 ```
+
+Use `hana.assets.url(path)` for browser-side references to files bundled under the plugin's `assets/` directory:
+
+```ts
+const logoUrl = hana.assets.url('images/logo.svg');
+```
+
+Hana uses a VS Code-like webview resource boundary. The iframe entry route is authenticated by the host, then the host issues a short-lived, HttpOnly cookie scoped only to `/api/plugins/{pluginId}/assets/`. Static JS, CSS, fonts, images, JSON, and wasm files are served from the plugin's own `assets/` directory through that path. Do not rely on `?token` or `pluginIframeTicket` being copied to Vite chunks, `React.lazy()` imports, modulepreload links, or CSS requests.
+
+For a built UI, put compiled files under `assets/` and point the shell at the host-served resource URL:
+
+```html
+<script type="module" src="/api/plugins/my-plugin/assets/dist/app.js"></script>
+```
+
+Keep source files, secrets, config, and private data outside `assets/`. The host rejects path traversal, dotfiles, source maps, and non-web asset extensions by default. Use plugin routes or SDK host requests for dynamic data.
 
 Use `@hana/plugin-components` for iframe UI:
 

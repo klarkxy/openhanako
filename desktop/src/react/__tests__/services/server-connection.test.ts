@@ -9,6 +9,7 @@ import {
   createDeviceServerConnection,
   createLocalServerConnection,
   hasServerConnection,
+  isLocalOwnerConnection,
   mergeServerIdentity,
   persistServerConnectionSelection,
   readPersistedServerConnectionState,
@@ -175,6 +176,28 @@ describe('server connection helpers', () => {
     expect(buildConnectionUrl(remote, '/api/resources/res_1/content', { includeTokenQuery: true }))
       .toBe('https://hana.example/api/resources/res_1/content');
     expect(buildConnectionWsUrl(remote, '/ws')).toBe('wss://hana.example/ws');
+  });
+
+  it('identifies the local owner connection by the same contract as server route security', () => {
+    const local = createLocalServerConnection({
+      serverPort: '3210',
+      serverToken: 'local-token',
+    })!;
+    const remote = {
+      ...local,
+      connectionId: 'lan:node_lan:studio_lan',
+      kind: 'lan' as const,
+      label: 'LAN Studio',
+      baseUrl: 'http://192.168.31.75:14500',
+      wsUrl: 'ws://192.168.31.75:14500',
+      token: 'remote-token',
+      trustState: 'lan' as const,
+      credentialKind: 'device_credential' as const,
+    };
+
+    expect(isLocalOwnerConnection(local)).toBe(true);
+    expect(isLocalOwnerConnection(remote)).toBe(false);
+    expect(isLocalOwnerConnection(null)).toBe(false);
   });
 
   it('builds scoped CSP connect sources for only the active configured remote origin', () => {

@@ -10,7 +10,7 @@
 import { useStore } from './stores';
 import { hanaFetch } from './hooks/use-hana-fetch';
 import { applyAgentIdentity, loadAgents, loadAvatars } from './stores/agent-actions';
-import { loadSessions } from './stores/session-actions';
+import { loadSessions, switchSession } from './stores/session-actions';
 import { initSessionProjectCatalog } from './stores/session-project-actions';
 import { connectWebSocket, getWebSocket } from './services/websocket';
 import { setStatus, loadModels } from './utils/ui-helpers';
@@ -35,10 +35,8 @@ import {
   type ServerConnection,
 } from './services/server-connection';
 import { persistAppearancePreferences } from './services/appearance-sync';
-// @ts-expect-error — shared JS module
-import { errorBus as _errorBus } from '../../../shared/error-bus.js';
-// @ts-expect-error — shared JS module
-import { AppError as _AppError } from '../../../shared/errors.js';
+import { errorBus as _errorBus } from '../../../shared/error-bus.ts';
+import { AppError as _AppError } from '../../../shared/errors.ts';
 
 declare const i18n: {
   locale: string;
@@ -282,6 +280,14 @@ export async function initApp(): Promise<void> {
   // 20. 主进程请求打开设置：托盘 / 外部 IPC 统一落到主窗口 modal
   platform.onOpenSettingsModal?.((tab?: string) => {
     openSettingsModal(tab);
+  });
+
+  // 21. Quick Chat 请求打开后台会话：复用主窗口既有 session 切换路径
+  platform.onQuickChatOpenSession?.((payload: { sessionPath?: string }) => {
+    if (payload?.sessionPath) {
+      void switchSession(payload.sessionPath);
+      loadSessions();
+    }
   });
 
   // 21. Skill Viewer overlay（主进程 / 设置窗口 → 渲染进程）

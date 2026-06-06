@@ -7,11 +7,27 @@
       "defaultModelInvalid": "The default image model is unavailable. Reconfigure it in settings.",
       "imageGenUnavailable": "The image generation tool is disabled. Enable it in settings first.",
       "agentUnavailable": "The main agent is temporarily unavailable, so Agent generation can't start.",
-      "disabled": "Agent generation is currently unavailable."
+      "disabled": "Agent generation is currently unavailable.",
+      "label": "Agent generate"
+    },
+    "gallery": {
+      "title": "Hana Gallery",
+      "upload": "Upload your own",
+      "close": "Close Hana Gallery"
     }
   },
   "selection": {
     "quoteToChat": "Quote to chat"
+  },
+  "quickChat": {
+    "title": "Quick Chat",
+    "close": "Close Quick Chat",
+    "openFullSession": "Open full chat",
+    "waitingReply": "Waiting for reply...",
+    "attachImage": "Add image",
+    "serviceUnavailable": "Could not connect to Hana service",
+    "createSessionFailed": "Failed to create chat",
+    "sendFailed": "Send failed"
   },
   "channel": {
     "tab": "Channels",
@@ -184,7 +200,9 @@
       "deleteConfirm": "Permanently delete this archive? This cannot be undone.",
       "deleteFailed": "Delete failed",
       "daysAgo": "Archived {days} days ago"
-    }
+    },
+    "subagentRunStateUnrecoverable": "Historical sub-session run state is unrecoverable",
+    "subagentLinkUnrecoverable": "Historical sub-session link is unrecoverable"
   },
   "common": {
     "on": "On",
@@ -220,9 +238,7 @@
     "screenshotFailed": "Screenshot save failed",
     "selectedCount": "{count} selected",
     "allDone": "All done",
-    "markAllComplete": "Mark all as complete",
-    "timeout": "Timed out",
-    "other": "Other"
+    "markAllComplete": "Mark all as complete"
   },
   "chat": {
     "send": "Send",
@@ -237,15 +253,32 @@
       "revealInFinder": "Reveal in file manager",
       "copyPath": "Copy file path",
       "downloadToDevice": "Download to this device"
-    }
-  },
-  "askUser": {
-    "otherLabel": "Other",
-    "otherHint": "(type a custom answer)",
-    "otherPlaceholder": "Type your answer…",
-    "submitted": "Submitted",
-    "minHint": "At least {n}",
-    "maxHint": "At most {n}"
+    },
+    "media": {
+      "kindVideo": "Video",
+      "kindImage": "Image",
+      "generationFailed": "{kind} generation failed",
+      "generationInProgress": "{kind} generating",
+      "retryFailed": "Regeneration failed",
+      "submitting": "Submitting",
+      "retryLabel": "Regenerate {kind}"
+    },
+    "subagentPreview": {
+      "historyUnrecoverable": "Historical sub-session link is unrecoverable",
+      "noSession": "No openable sub-agent session",
+      "connecting": "Connecting to sub-agent session...",
+      "loadingSession": "Loading session...",
+      "waitingContent": "Waiting for session content...",
+      "noContent": "No session content"
+    },
+    "timeline": {
+      "navAriaLabel": "Turn navigation",
+      "jumpTo": "Jump to {label}",
+      "fallbackUser": "User message",
+      "fallbackAssistant": "Assistant message"
+    },
+    "modelSwitching": "Switching model, please wait",
+    "unknownCommand": "[Unknown command] {text}"
   },
   "time": {
     "justNow": "Just now",
@@ -336,7 +369,10 @@
     "compactBusy": "Compacting...",
     "stop": "Stop current reply",
     "new": "Start new session (archive history)",
-    "reset": "Reset session (clear history)"
+    "reset": "Reset session (clear history)",
+    "commandError": "[Command error] {message}",
+    "usage": "Usage: {usage}",
+    "commandTimeout": "Command timed out (>{ms}ms)"
   },
   "welcome": {
     "messages": [
@@ -632,7 +668,7 @@
       "done": "🔔 Notification sent",
       "failed": "🔔 Notification didn't go through"
     },
-    "artifact": {
+    "create_artifact": {
       "running": "🖼️ {name} is doodling away",
       "done": "🖼️ Masterpiece ready",
       "failed": "🖼️ Canvas fell apart"
@@ -645,7 +681,9 @@
     "channel": {
       "running": "📢 {name} is posting in a channel",
       "done": "📢 Posted",
-      "failed": "📢 Couldn't post"
+      "failed": "📢 Couldn't post",
+      "heading": "# Channels",
+      "ambiguousName": "Channel name \"{name}\" is not unique. Please use a channel ID instead: {choices}"
     },
     "install_skill": {
       "running": "📥 {name} is installing a skill",
@@ -657,10 +695,115 @@
       "done": "⚙️ Settings updated",
       "failed": "⚙️ Couldn't update"
     },
+    "automation": {
+      "running": "🤖 {name} is dispatching a shortcut",
+      "done": "🤖 Shortcut completed",
+      "failed": "🤖 Shortcut execution failed"
+    },
+    "computer": {
+      "running": "🖥️ {name} is controlling your screen",
+      "done": "🖥️ Screen control done",
+      "failed": "🖥️ Screen control failed"
+    },
+    "terminal": {
+      "running": "💻 {name} is running a command",
+      "done": "💻 Command done",
+      "failed": "💻 Command execution failed"
+    },
+    "current_status": {
+      "running": "🕐 {name} is checking what's going on",
+      "done": "🕐 Got it",
+      "failed": "🕐 Couldn't get the info"
+    },
+    "pin_memory": {
+      "running": "📌 {name} is pinning this down",
+      "done": "📌 Pinned",
+      "failed": "📌 Pinning failed"
+    },
+    "unpin_memory": {
+      "running": "📌 {name} is unpinning this",
+      "done": "📌 Unpinned",
+      "failed": "📌 Unpinning failed"
+    },
+    "recall_experience": {
+      "running": "🧠 {name} is flipping through the experience notes",
+      "done": "🧠 Found something",
+      "failed": "🧠 Nothing relevant in the notes"
+    },
+    "record_experience": {
+      "running": "🧠 {name} is jotting this down",
+      "done": "🧠 Noted",
+      "failed": "🧠 Couldn't save the note"
+    },
+    "session_folders": {
+      "running": "📁 {name} is adjusting folder permissions",
+      "done": "📁 Adjusted",
+      "failed": "📁 Adjustment failed"
+    },
+    "stop_task": {
+      "running": "🛑 {name} is stopping a background task",
+      "done": "🛑 Stopped",
+      "failed": "🛑 Couldn't stop"
+    },
+    "todo_write": {
+      "running": "📝 {name} is writing a checklist",
+      "done": "📝 Checklist ready",
+      "failed": "📝 Checklist write failed"
+    },
+    "generate-image": {
+      "running": "🎨 {name} is creating an image",
+      "done": "🎨 Image ready",
+      "failed": "🎨 Image generation failed"
+    },
+    "generate-video": {
+      "running": "🎬 {name} is generating a video",
+      "done": "🎬 Video ready",
+      "failed": "🎬 Video generation failed"
+    },
+    "create-cover": {
+      "running": "🎨 {name} is designing a cover",
+      "done": "🎨 Cover ready",
+      "failed": "🎨 Cover generation failed"
+    },
+    "apply-cover-candidate": {
+      "running": "🖼️ {name} is applying the cover",
+      "done": "🖼️ Cover applied",
+      "failed": "🖼️ Couldn't apply the cover"
+    },
+    "get-cover-style-guide": {
+      "running": "📖 {name} is looking up the style guide",
+      "done": "📖 Found it",
+      "failed": "📖 Couldn't find the style guide"
+    },
+    "list-capabilities": {
+      "running": "📋 {name} is listing capabilities",
+      "done": "📋 All listed",
+      "failed": "📋 Listing failed"
+    },
     "_fallback": {
       "running": "🔧 {name} is busy working…",
       "done": "🔧 {name} all done",
       "failed": "🔧 {name} that didn't go as planned"
+    },
+    "checkDeferred": {
+      "storeNotInitialized": "Deferred task store not initialized.",
+      "noActiveSession": "No active session.",
+      "noTasks": "No background tasks in current conversation{qualifier}.",
+      "noTasksQualifier": " (status: {status})"
+    },
+    "workflow": {
+      "running": "🔄 {name} is orchestrating a workflow",
+      "done": "🔄 Workflow complete",
+      "failed": "🔄 Workflow execution failed",
+      "scriptInvalid": "Workflow script invalid: {message}",
+      "dispatched": "Workflow \"{summary}\" has been dispatched for background execution (task {taskId}). Results will automatically return to the conversation when complete.",
+      "syncComplete": "Workflow \"{name}\" complete, dispatched {count} agents.\n\nResult:\n{result}",
+      "executionFailed": "Workflow execution failed: {message}",
+      "resumeFromRunIdDesc": "runId (taskId) of a previous workflow, used for checkpoint resume: completed agent nodes whose prompt+opts are unchanged return cached results instantly, re-execution starts from the first changed position.",
+      "journalResuming": "Resuming from {count} cached entries"
+    },
+    "installSkill": {
+      "safetyBlocked": "[Security Policy] Skill safety review failed. Installation blocked.\nReason: {reason}\n\nPlease inform the user that this skill did not pass the safety review and explain the specific reason. The user can disable safety review in settings (not recommended)."
     }
   },
   "file_output": {
@@ -674,7 +817,11 @@
     "unavailable": "Model unavailable",
     "offline": "Offline",
     "switchFailed": "Failed to switch model",
-    "switchWhileStreaming": "Cannot switch models while replying"
+    "switchWhileStreaming": "Cannot switch models while replying",
+    "adaptation": {
+      "compacted": "Conversation history compacted for new model",
+      "truncated": "Earlier conversation truncated for new model"
+    }
   },
   "splash": {
     "lines": [
@@ -702,6 +849,7 @@
     "autoSaved": "Auto-saved ✿",
     "tabs": {
       "interface": "Interface",
+      "general": "General",
       "agent": "Agent",
       "me": "Me",
       "providers": "Providers",
@@ -711,21 +859,28 @@
       "work": "Workspace",
       "skills": "Skills",
       "mcp": "Connectors",
-      "bridge": "Social",
+      "bridge": "Social Platforms",
       "sharing": "Sharing",
       "access": "Access & Devices",
       "plugins": "Plugins",
       "experiments": "Experiments",
       "about": "About",
-      "security": "Security"
+      "security": "Security",
+      "pluginMarketplace": "Plugin Marketplace"
     },
     "experiments": {
       "title": "Experiments",
+      "compactionTitle": "Context Compaction",
+      "compactionSectionDescription": "Choose whether compact prioritizes prompt-cache preservation or broad history compatibility.",
+      "modelPersonaTitle": "Models & Persona",
+      "modelPersonaDescription": "Observe how providers adapt to Hana's persona, mood, and output contracts.",
       "memoryTitle": "Cache Memory",
       "description": "Forward-looking features land here first. Once stable, they move to the settings page where they belong.",
       "empty": "No visible experiments",
       "owner": {
-        "memory": "Memory"
+        "memory": "Memory",
+        "session": "Session",
+        "provider": "Provider"
       },
       "status": {
         "alpha": "Alpha",
@@ -757,7 +912,24 @@
         "summaryTitle": "Rolling Summary Preview",
         "emptyPreview": "No observation yet",
         "clearObservation": "Clear observation"
-      }
+      },
+      "compaction": {
+        "title": "Compaction mode",
+        "description": "Auto prefers cache-preserving compaction. Normal compaction lets Pi SDK run its native summarizer, which is better for unstable history formats.",
+        "auto": "Auto",
+        "cachePreserving": "Cache-preserving compaction",
+        "piCompatible": "Normal compaction"
+      },
+      "deepseekRoleplay": {
+        "title": "DeepSeek persona immersion patch",
+        "description": "When enabled, new DeepSeek V4 thinking sessions temporarily append a persona-immersion marker to the first outbound user message. It is not displayed, saved, or restored in chat history. Turning it off keeps the old behavior."
+      },
+      "proactiveSubagent": {
+        "title": "Proactive subagent delegation",
+        "description": "When enabled, the agent proactively delegates broad exploration and research tasks to subagents, conserving the main chat's context attention. May yield better results for complex tasks."
+      },
+      "subagentTitle": "Subagent",
+      "subagentSectionDescription": "Control how the agent decides when to delegate work to subagents."
     },
     "appearance": {
       "title": "Appearance",
@@ -788,13 +960,6 @@
       "fontHint": "Choose the font used for body reading.",
       "serifFont": "Serif Font",
       "serifFontHint": "Use serif font for body text",
-      "customFont": "Custom Font",
-      "customFontHint": "Type the name of a font installed on your system. Leave empty to use the theme default.",
-      "customFontSerif": "Reading (Serif)",
-      "customFontSerifHint": "Used for body and long-form text, e.g. \"Songti SC\", \"Microsoft YaHei\".",
-      "customFontUi": "Interface (Sans)",
-      "customFontUiHint": "Used for buttons, menus, labels, and other UI surfaces.",
-      "customFontPlaceholder": "Font family name",
       "paperTexture": "Paper Texture",
       "paperTextureHint": "Add a rice paper texture to the background",
       "paperTextureDarkDisabledHint": "Paper texture is unavailable in night themes and will return with your saved setting in light themes",
@@ -806,16 +971,8 @@
       "serifName": "Serif",
       "serifDesc": "For body reading",
       "sansName": "Sans",
-      "sansDesc": "Closer to system UI",
-      "systemPicker": "Pick from system fonts",
-      "systemPickerHint": "Detected {{count}} font(s); selecting one applies to both reading and interface fonts.",
-      "systemPickerPlaceholder": "— System fonts —",
-      "systemPickerLoading": "Scanning system font directories…",
-      "systemPickerError": "Scan failed: {{error}}",
-      "systemPickerRefresh": "Rescan",
-      "customFontReset": "Reset to default",
-      "customFontResetHint": "Clear the reading and interface font overrides and return to the theme default.",
-      "customFontResetAction": "Reset",
+      "sansDesc": "Closer to system UI"
+    },
     "interface": {
       "system": "System",
       "hardwareAcceleration": "Hardware Acceleration",
@@ -852,7 +1009,12 @@
       "language": "Language",
       "languageHint": "Page will reload after switching",
       "timezone": "Timezone",
-      "timezoneHint": "Used for memory timestamps, journal entries, etc."
+      "timezoneHint": "Used for memory timestamps, journal entries, etc.",
+      "zhCN": "简体中文",
+      "zhTW": "繁體中文",
+      "ja": "日本語",
+      "ko": "한국어",
+      "en": "English"
     },
     "computerUse": {
       "title": "Computer Use",
@@ -925,15 +1087,69 @@
         "title": "Tools",
         "description": "Tool switches take effect after restarting or starting a conversation. Active conversations keep using the tool set they started with.",
         "items": {
-          "automation": { "label": "Automation", "summary": "Let the agent create scheduled notifications and plugin actions" },
-          "beautify": { "label": "小花美术", "summary": "Let the agent generate document covers and aesthetic enhancements" },
-          "browser": { "label": "Browser", "summary": "Control a headless browser to navigate web pages" },
-          "cron": { "label": "Scheduled Tasks", "summary": "Run tasks automatically at specified times" },
-          "dm": { "label": "Direct Message", "summary": "Send a one-on-one message to another agent" },
-          "install_skill": { "label": "Install Skill", "summary": "Install new skills from GitHub or the skill library" },
-          "update_settings": { "label": "Update Settings", "summary": "Allow the agent to modify application configuration" },
-          "workflow": { "label": "Workflow", "summary": "Let the agent orchestrate multi-agent workflow scripts as background tasks" }
+          "automation": {
+            "label": "Automation",
+            "summary": "Let the agent create scheduled notifications and plugin actions"
+          },
+          "beautify": {
+            "label": "小花美术",
+            "summary": "Let the agent generate document covers and aesthetic enhancements"
+          },
+          "browser": {
+            "label": "Browser",
+            "summary": "Control a headless browser to navigate web pages"
+          },
+          "cron": {
+            "label": "Scheduled Tasks",
+            "summary": "Run tasks automatically at specified times"
+          },
+          "dm": {
+            "label": "Direct Message",
+            "summary": "Send a one-on-one message to another agent"
+          },
+          "install_skill": {
+            "label": "Install Skill",
+            "summary": "Install new skills from GitHub or the skill library"
+          },
+          "update_settings": {
+            "label": "Update Settings",
+            "summary": "Allow the agent to modify application configuration"
+          },
+          "workflow": {
+            "label": "Workflow",
+            "summary": "Let the agent orchestrate multi-agent workflow scripts as background tasks"
+          }
         }
+      },
+      "generatingPreview": "Generating preview",
+      "exportAgent": "Export Agent",
+      "generatingCardPreview": "Generating character card preview",
+      "exportedTo": "Exported to {path}"
+    },
+    "general": {
+      "title": "General",
+      "startup": {
+        "title": "Startup & Background"
+      },
+      "launchAtLogin": "Launch at login",
+      "keepAwake": "Keep running while locked",
+      "quickChat": {
+        "title": "Quick Chat",
+        "shortcut": "Open shortcut",
+        "shortcutHint": "Click and press a new key combo. Esc cancels recording.",
+        "reuseTimeout": "Keep old input for",
+        "reuseTimeoutHint": "After the mini window stays hidden this long, the shortcut opens a fresh input.",
+        "minutes": "min",
+        "recording": "Press shortcut...",
+        "restoreDefault": "Restore default",
+        "registrationFailed": "Shortcut is already in use"
+      },
+      "notifications": {
+        "title": "Notifications",
+        "turnCompletion": "Turn completion notification",
+        "turnCompletionNever": "Never",
+        "turnCompletionWhenUnfocused": "When HanaAgent is unfocused",
+        "turnCompletionWhenSessionUnfocused": "When not focused on the completed Session"
       }
     },
     "about": {
@@ -958,6 +1174,7 @@
       "updateNeedInstall": "Please move HanaAgent to the Applications folder first",
       "updateDiskSpace": "Not enough disk space to download update",
       "launchAtLogin": "Launch at login",
+      "keepAwake": "Keep running while locked",
       "betaUpdates": "Receive beta updates",
       "autoCheckUpdates": "Check for updates automatically"
     },
@@ -1006,6 +1223,16 @@
       "remoteServerKeyHint": "Enter the computer access key generated on that server",
       "remoteServerConnected": "LAN server connected",
       "remoteServerFailed": "Connection failed",
+      "remoteConnection": "Connected to Remote Hana",
+      "remoteConnectionDesc": "Local account, password, LAN switches, and access keys in Access & Devices belong only to the local Hana instance.",
+      "remoteConnectionName": "Connection Name",
+      "remoteConnectionKind": "Connection Type",
+      "remoteConnectionUrl": "Server URL",
+      "remoteConnectionUnknown": "Unknown",
+      "remoteLocalOnlyNote": "Switch back to local Hana before managing this computer's LAN access, device keys, or local account.",
+      "returnToLocal": "Return to Local Hana",
+      "returnedToLocal": "Returned to local Hana",
+      "localConnectionUnavailable": "Local Hana connection is not ready",
       "pairedDevices": "Paired Devices",
       "noDevices": "No paired devices",
       "revoke": "Revoke",
@@ -1078,7 +1305,8 @@
       "changeAvatar": "Change",
       "userNameHint": "How they address you",
       "userProfile": "User Profile",
-      "userProfileHint": "Help the assistant know you: interests, habits, preferences. Injected into the system prompt"
+      "userProfileHint": "Help the assistant know you: interests, habits, preferences. Injected into the system prompt",
+      "nameLabel": "Name"
     },
     "crop": {
       "title": "Adjust avatar",
@@ -1201,7 +1429,11 @@
       "models": "Image Models",
       "globalDefault": "Global Default",
       "followGlobal": "Follow global default",
-      "default": "Default"
+      "default": "Default",
+      "defaultOption": "Default",
+      "qualityLow": "Low",
+      "qualityMedium": "Medium",
+      "qualityHigh": "High"
     },
     "oauth": {
       "title": "Quick Login",
@@ -1472,7 +1704,42 @@
         "risk3": "Social engineering and privilege escalation attempts",
         "body2": "After disabling, all skills will be installed without review.",
         "confirm": "I understand the risks, disable review"
-      }
+      },
+      "bundleDialog": {
+        "createTitle": "Create Bundle",
+        "renameTitle": "Rename Bundle",
+        "dissolveTitle": "Dissolve Bundle",
+        "cancel": "Cancel",
+        "closeAriaLabel": "Cancel",
+        "dissolveConfirm": "The skills in {name} will be kept in the shared library and shown as loose skills.",
+        "bundleNameLabel": "Bundle name",
+        "cancelBtn": "Cancel",
+        "createBtn": "Create",
+        "saveBtn": "Save",
+        "dissolveBtn": "Dissolve"
+      },
+      "exportedWithSkipped": "Exported {fileName}, skipped {count} missing skills",
+      "exported": "Exported {fileName}",
+      "createBundleBtn": "Create Bundle",
+      "createBundleTitle": "Create Skill Bundle",
+      "createBundleAriaLabel": "Create Skill Bundle",
+      "emptyBundle": "Empty bundle",
+      "skillNotFound": "This skill no longer exists",
+      "noLooseSkills": "No loose skills",
+      "collapseBundleAriaLabel": "Collapse Bundle",
+      "expandBundleAriaLabel": "Expand Bundle",
+      "enableBundleTitle": "Enable entire Bundle",
+      "disableBundleTitle": "Disable entire Bundle",
+      "enableBundleAriaLabel": "Enable {name}",
+      "disableBundleAriaLabel": "Disable {name}",
+      "renameBundleTitle": "Rename Bundle",
+      "renameBundleAriaLabel": "Rename {name}",
+      "exportBundleTitle": "Export Skill Bundle",
+      "exportBundleAriaLabel": "Export {name}",
+      "dissolveBundleTitle": "Dissolve Bundle",
+      "dissolveBundleAriaLabel": "Dissolve {name}",
+      "removeFromBundleTitle": "Remove from bundle, make loose skill",
+      "removeFromBundleAriaLabel": "Remove {name} from bundle"
     },
     "plugins": {
       "title": "Plugins",
@@ -1531,7 +1798,9 @@
       "marketDowngradeTo": "Only compatible version v{version} can be installed",
       "marketDowngradeConfirm": "Installed version is v{from}. Downgrade to v{to}?",
       "marketReadmeLoading": "Loading README…",
-      "marketSelectPlugin": "Select a plugin to view its README"
+      "marketSelectPlugin": "Select a plugin to view its README",
+      "manageTitle": "Manage Plugins",
+      "permissionTitle": "Permissions"
     },
     "mcp": {
       "masterTitle": "Master Switch",
@@ -1631,6 +1900,7 @@
       "wechat": "WeChat",
       "wechatHint": "Connect via WeChat iLink protocol",
       "wechatExclusive": "Each WeChat account can only be bound to one Agent. Binding a new Agent will invalidate the previous one.",
+      "wechatReplyWindowReminder": "Proactive WeChat notifications require a recent incoming message or reply window. If reminders do not arrive, send this Agent a WeChat message to activate that window.",
       "wechatScan": "Scan to Login",
       "wechatRescan": "Re-login",
       "wechatLoggedIn": "Logged in",
@@ -1652,6 +1922,11 @@
       "noCredentials": "Please enter App ID and App Secret first",
       "globalSettings": "Global Settings",
       "agentSettings": "Agents",
+      "permissionMode": "Permission mode",
+      "permissionModeDesc": "Controls whether Bridge bots auto-review tool calls, run with full access, or stay read-only",
+      "permissionModeAuto": "Auto review",
+      "permissionModeOperate": "Full access",
+      "permissionModeReadOnly": "Read-only mode",
       "receiptEnabled": "Reply receipt",
       "receiptEnabledDesc": "Send a short \"received and replying\" notice before the actual response",
       "readOnly": "Read-only mode",
@@ -1685,6 +1960,34 @@
         "Paste the App ID and App Secret into the input fields above and turn on the switch"
       ],
       "whatsappHint": "Coming soon"
+    },
+    "characterCard": {
+      "exportMemory": "Export memory",
+      "importMemory": "Import memory",
+      "noExportableMemory": "No exportable memory",
+      "noImportableMemory": "No importable memory",
+      "confirm": "Confirm",
+      "exporting": "Exporting",
+      "importing": "Importing",
+      "noDescription": "This character card has no description.",
+      "noIshiki": "No Ishiki provided",
+      "viewDetail": "View character card details",
+      "memoryCount": "{count} memory items, optional {action}",
+      "memoryCountExport": "export",
+      "memoryCountImport": "import",
+      "noMemory": "No memory",
+      "factsSectionTitle": "Key Facts",
+      "todaySectionTitle": "Today",
+      "weekSectionTitle": "Earlier This Week",
+      "longtermSectionTitle": "Long-term Context",
+      "emptySection": "None",
+      "noIdentity": "No Identity provided",
+      "noSkills": "No skills included",
+      "cancel": "Cancel",
+      "readingCard": "Reading character card",
+      "dropOrClick": "Drop a character card or click to open",
+      "readFailed": "Character card read failed",
+      "importFailed": "Character card import failed"
     }
   },
   "onboarding": {
@@ -2000,6 +2303,9 @@
     "resetContext": "Reset context",
     "resetContextTip": "Next message will start a new conversation"
   },
+  "notification": {
+    "turnCompletionBody": "This turn is complete"
+  },
   "error": {
     "pathsRequired": "paths array is required",
     "tooManyFiles": "Too many files (max {max}, got {n})",
@@ -2254,7 +2560,8 @@
     "stopTaskNotFound": "Task {taskId} not found — it may have already completed",
     "stopTaskAlready": "Task {taskId} has already been stopped",
     "stopTaskNoHandler": "Task {taskId} does not support stopping",
-    "stopTaskDone": "Task {taskId} has been stopped"
+    "stopTaskDone": "Task {taskId} has been stopped",
+    "regionUnavailable": "This area is temporarily unavailable"
   },
   "main": {
     "tray": {
@@ -2326,154 +2633,11 @@
     "installFailed": "Install failed: "
   },
   "toolDef": {
-    "webSearch": {
-      "label": "Web Search",
-      "description": "Search the internet for real-time information. Use when you need the latest news, technical docs, current events, or any external knowledge not in memory.",
-      "queryDesc": "Search keywords",
-      "maxResultsDesc": "Number of results to return, default 10"
-    },
-    "webFetch": {
-      "label": "Fetch Web Page",
-      "description": "Fetch the content of a given URL and extract text. Useful for reading articles, docs, API responses, etc. Pair with web_search: first search to find a URL, then use web_fetch to read the full content.",
-      "urlDesc": "Full URL to fetch (including https://)",
-      "maxLenDesc": "Maximum characters to return, default {max}"
-    },
-    "browser": {
-      "label": "Browser",
-      "description": "Control a headless browser (navigate, click, type, scroll, screenshot, evaluate JS). Use the action parameter to pick an operation; see its description for per-action parameters. Element [ref] ids from snapshot become stale after any navigate/click/type — those operations auto-return a fresh snapshot, always use refs from the latest one.",
-      "actionDesc": "Which operation to run. Required params per action: navigate→url; click→ref; type→text (optional ref, pressEnter); scroll→direction (optional amount); select→ref+value; key→key; wait→(optional timeout, state); evaluate→expression. start, stop, snapshot, screenshot, show take no extra params.",
-      "urlDesc": "URL (required for navigate)",
-      "refDesc": "Element ref number (used for click/type/select)",
-      "textDesc": "Input text (required for type)",
-      "directionDesc": "Scroll direction (required for scroll)",
-      "amountDesc": "Scroll amount (optional for scroll, default 3)",
-      "valueDesc": "Option value (required for select)",
-      "keyDesc": "Key name (required for key), e.g. Enter, Escape, Tab, Control+a",
-      "expressionDesc": "JavaScript expression (required for evaluate)",
-      "timeoutDesc": "Timeout in milliseconds (optional for wait, default 5000)",
-      "stateDesc": "Wait state (optional for wait): domcontentloaded / load / stable / networkidle (idle is accepted)",
-      "pressEnterDesc": "Press Enter after typing (optional for type)"
-    },
-    "channel": {
-      "label": "Channel",
-      "description": "Manage channel messages (for broadcasts and group discussions).\nActions:\n- read(channel, count?): View recent messages in a channel\n- post(channel, content): Send a message to a channel\n- create(name, members, intro?): Create a new channel\n- list: View channels you have joined\nNote: For one-on-one messaging with an agent, use the dm tool instead of simulating a private chat via channels.",
-      "actionDesc": "Action type",
-      "channelDesc": "Channel name (required for read/post)",
-      "contentDesc": "Message content (required for post)",
-      "nameDesc": "New channel name (required for create)",
-      "membersDesc": "Member list (required for create), e.g. [\"hana\", \"butter\"]",
-      "introDesc": "Channel description (optional for create)",
-      "countDesc": "Number of messages to read (optional for read, default 20)"
-    },
-    "artifact": {
-      "label": "Create Preview",
-      "description": "Call this tool when you need to show the user an HTML page, code snippet, or long-form Markdown content.\nContent is rendered in a standalone preview panel where the user can view results in real time.\nGood for: runnable HTML/CSS/JS pages, interactive visualizations, SVG charts, complete code files, long formatted documents.\nNot for: short text replies, conversational answers, one-line code snippets (just show those inline).",
-      "typeDesc": "Content type: html (rendered page), code (syntax highlighted), markdown (document)",
-      "titleDesc": "Display title, a short description of the content",
-      "contentDesc": "Full content (HTML source / code / Markdown text)",
-      "languageDesc": "Programming language (only for type=code), e.g. javascript, python, css"
-    },
-    "dm": {
-      "label": "Direct Message",
-      "description": "Send a single direct message to another agent to inform them of something.\nDo not use this tool to assign tasks or get results; that is subagent's job.",
-      "toDesc": "Target agent's id field value (the one in parentheses in the team roster, not the bold display name)",
-      "messageDesc": "Message content"
-    },
-    "cron": {
-      "label": "Scheduled Tasks",
-      "description": "Create and manage scheduled tasks. Scheduled tasks run automatically in the background, spawning an independent session to execute the specified prompt when triggered.\nActions:\n- list: View all tasks\n- add(scheduleType, schedule, prompt, label?, model?): Create a task\n  - scheduleType \"at\": One-time, schedule is an ISO time string\n  - scheduleType \"every\": Interval, schedule is minutes (e.g. 60 = hourly)\n  - scheduleType \"cron\": Cron expression (e.g. \"0 7 * * *\" = every day at 7 AM)\n  - model: Optional, specify the model for task execution (defaults to the chat model)\n- remove(id): Delete a task\n- toggle(id): Enable/disable a task",
-      "actionDesc": "Action type",
-      "scheduleTypeDesc": "Schedule type (required for add)",
-      "scheduleDesc": "Schedule: ISO time (at), minutes (every, e.g. 60=hourly), cron expression (cron)",
-      "promptDesc": "Prompt to execute when triggered (required for add)",
-      "labelDesc": "Task display label (optional)",
-      "modelDesc": "Specify execution model as provider/id (optional, defaults to the chat model)",
-      "idDesc": "Task ID (required for remove/toggle)"
-    },
-    "notify": {
-      "label": "Notification",
-      "description": "Send a notification to the user. Choose desktop popup, Bridge owner chat, or the default channel according to the task; pass bridgePlatforms when delivery must stay on WeChat, Feishu, or another Bridge platform.\nUse cases:\n- The user says 'remind me about xxx', 'notify me when...', 'don't let me forget xxx'\n- A scheduled task prompt explicitly includes notification intent or asks to send it through Bridge/WeChat\n- A monitoring/scheduled task discovers something requiring user attention\nIf everything is normal with no issues, do not call this tool. Successful Bridge notifications can be appended to that conversation context according to contextPolicy.",
-      "titleDesc": "Notification title (brief)",
-      "bodyDesc": "Notification content"
-    },
     "todoWrite": {
-      "label": "Todo",
-      "description": "Manage the todo list for the current session. Use it to break down and track multi-step work: when you receive a complex or multi-step task, decompose it into sub-tasks before executing step by step. Simple single-step tasks (answering questions, single lookups, simple edits) do not need it. Pass the complete todos array each call to replace the current state (replacement style).\nEach todo needs:\n- content: static description (e.g. 'Read spec')\n- activeForm: in-progress description (e.g. 'Reading spec')\n- status: pending | in_progress | completed\nConvention: at most one in_progress at a time. Mark a todo in_progress when starting it, immediately change it to completed when done and set the next one to in_progress; do not batch up completions.",
-      "contentDesc": "Static description of the todo",
-      "activeFormDesc": "In-progress form description (shown in UI while in_progress)",
-      "statusDesc": "One of: pending / in_progress / completed",
-      "todosDesc": "Complete todo list; each call replaces the previous list",
       "summaryEmpty": "Cleared todos",
       "summaryStats": "{total} todos: {completed} completed, {in_progress} in progress, {pending} pending"
     },
-    "currentStatus": {
-      "label": "Current Status",
-      "description": "Lightweight current-environment status. Use it to check fresh state such as time, logical date, agent identity, user/agent avatar appearance, model identity, current session folder scope, Bridge platform context, open sub-agent instances, and the user's visible UI context. IMPORTANT: The date/time shown in the system prompt is a snapshot from when the session was created and may be outdated. For precise current time, scheduling, reminders, date calculations that need clock time, greetings, or any case where hour/minute matters, call this tool with action=\"get\", key=\"time\". Use key=\"logical_date\" only when you need to know which calendar day Hana should treat as today under the 4:00 boundary; it does not return hour/minute/second. Use key=\"appearance\" when the user asks what the user or current agent looks like. Use key=\"session_folders\" to inspect which folders the current session can access. When the user refers to this file, here, the current/open/visible/selected item, the pinned window, current Bridge chat/platform, or the current folder, call this tool with action=\"get\", key=\"ui_context\" first to resolve the reference.",
-      "actionDesc": "list returns available status keys; get returns one status key value.",
-      "keyDesc": "Status key to fetch when action=get. Common keys: time, logical_date, agent, appearance, model, ui_context, session_files, session_folders, bridge_context, subagents. Use bridge_context for references to the current Bridge platform/chat; use subagents before continuing or closing a sub-agent."
-    },
-    "pinnedMemory": {
-      "pinLabel": "Pin Memory",
-      "pinDescription": "Save an item to pinned memory. Use when the user says 'remember this', 'note this down', 'don't forget this later'. Pinned memories are always kept in context.",
-      "pinContentDesc": "Content to remember",
-      "unpinLabel": "Unpin Memory",
-      "unpinDescription": "Remove an item from pinned memory. Use when the user says 'forget xxx' or 'delete this memory'. Supports fuzzy matching: any line containing the keyword you provide will be removed.",
-      "unpinKeywordDesc": "Keyword of the memory to remove, matched fuzzily"
-    },
-    "experience": {
-      "recallLabel": "Recall Experience",
-      "recallDescription": "Browse the experience library. Without parameters, returns an overview of all categories. With a category name, returns specific experiences in that category. When the user asks you to do a concrete task (write code, research, create documents, analyze problems, etc.), check this tool first for relevant experience before starting. Not needed for casual chat, Q&A, or everyday conversation.",
-      "recallCategoryDesc": "Category name. Omit to get an overview of all categories",
-      "recordLabel": "Record Experience",
-      "recordDescription": "Record a lesson learned to the experience library. Use when: the user points out a mistake and explains the correct approach, the user shows frustration or repeatedly emphasizes something, you discover an effective method after trying multiple approaches, the user explicitly says 'from now on do/don't do this', or you hit a pitfall during patrol or autonomous work. Each entry should be concise and direct, one sentence.",
-      "recordCategoryDesc": "Category for the experience, a 2-4 word phrase, e.g. 'tool usage', 'search tips', 'response style'",
-      "recordContentDesc": "The specific experience content, concise and direct, one sentence"
-    },
-    "outputFile": {
-      "label": "Stage Files",
-      "description": "Call this tool when you need to hand one or more local files to the user, present them on desktop, or send them through Bridge/remote platforms. Use it after creating a file, finding a requested local file, receiving a browser screenshot, installer/package source, or file contribution from a plugin or sub-agent. Only call it when the file really exists and the path is a local absolute path. Do not merely mention file paths in text, and do not decide how the target platform should render or send the file; consumers choose the platform-specific delivery.",
-      "filepathsDesc": "Local absolute file paths to deliver. After locating files, pass them here so StageFile can register them for desktop, Bridge, or future mobile consumers.",
-      "filePathDesc": "(Compat) Single local absolute file path. Prefer filepaths for new calls.",
-      "labelDesc": "(Compat) File name shown to the user. Usually omit this; the filename is used by default."
-    },
-    "subagent": {
-      "label": "Launch Sub-agent",
-      "description": "Create a continuable sub-agent instance for a delegated task. Returns immediately with taskId and threadId; results are delivered back in the background. Use agent to target an agent, or agent=\"?\" to list agents.",
-      "taskDesc": "Complete instructions and required context for the subagent. The subagent cannot see the current conversation history unless you include it here.",
-      "agentDesc": "Target agent id from the team roster, using the value shown in backticks. Choose the agent whose persona, strengths, and model best fit the task; the roster shows each model and summary. Omit for the current agent; pass \"?\" to list agents.",
-      "labelDesc": "Optional display label, such as \"research 1\" or \"draft 2\". Display-only; resume by passing the returned threadId to subagent_reply.",
-      "instanceDesc": "Legacy field, accepted only as label compatibility. New calls should use label; resume with threadId.",
-      "accessDesc": "Optional permission tier: \"read\" for read-only research, exploration, or review; \"write\" for execution, edits, or commands. Omit to inherit the current session permission.",
-      "modelDesc": "Optional model override as provider/id. Omit to use the target agent's configured chat model."
-    },
-    "subagentReply": {
-      "label": "Continue Sub-agent",
-      "description": "Append a task to an open sub-agent instance in the current session. Use current_status with subagents first to see available threadIds.",
-      "threadIdDesc": "The threadId of the sub-agent instance to continue. It must be an open subagent instance in the current session.",
-      "taskDesc": "Complete instructions and required context to append to that sub-agent.",
-      "accessDesc": "Optional permission tier: \"read\" or \"write\". Omit to reuse the instance access, still bounded by the current session permission."
-    },
-    "subagentClose": {
-      "label": "Close Sub-agent",
-      "description": "Close a no-longer-needed sub-agent instance in the current session and free a continuable instance slot.",
-      "threadIdDesc": "The threadId of the open sub-agent instance to close.",
-      "reasonDesc": "Optional closing reason, saved as the instance's final summary."
-    },
-    "installSkill": {
-      "label": "Install Skill",
-      "description": "Install a new skill into the shared skill pool, enabled only for the current Agent by default. Mode A: Provide a GitHub repo URL (containing SKILL.md) to auto-fetch and install. Mode B: Directly provide skill_content + skill_name, for self-authored skills.",
-      "githubUrlDesc": "GitHub repo URL (Mode A)",
-      "skillContentDesc": "Full content of SKILL.md (Mode B)",
-      "skillNameDesc": "Skill name (required for Mode B)",
-      "reasonDesc": "Explain why this skill is needed (for audit, required)"
-    },
     "updateSettings": {
-      "label": "Settings",
-      "description": "Modify HanaAgent's settings. When the user mentions changing settings without naming a specific app, assume this application. For preferences like appearance/theme, language/region, model selection, security/permissions, memory, personal info, working directory, or MCP connectors, use this tool, and do not search the web or edit config files directly. Two actions available:\n- search + query: Search settings by keyword, see current values and options\n- apply + key + value: Change a setting (requires user confirmation)\n\nIf you already know the exact key, you can apply directly. When intent is clear, apply directly and report the result in one sentence; when unsure, search first.",
-      "actionDesc": "Action: search to find settings / apply to change a setting",
-      "queryDesc": "Search keyword (required for search)",
-      "keyDesc": "Setting key (found via search)",
-      "valueDesc": "Proposed new value",
       "searchResult": "Found {count} matching setting(s):\n\n{results}\n\nUse action \"apply\" with key and value to change a setting.",
       "searchNoResults": "No settings matching \"{query}\". Try a broader keyword.",
       "searchMissingQuery": "The search action requires a query parameter.",
@@ -2504,10 +2668,72 @@
       "fileBackup": "File Backup",
       "fileBackupDesc": "Auto-backup files before AI modifications"
     },
-    "stopTask": {
-      "label": "Stop background task",
-      "description": "Stop a running background task. Pass the task_id to terminate it. Supported task types include sub-agent tasks, image/video generation tasks, etc.",
-      "taskIdDesc": "The task ID to stop"
+    "generateImage": {
+      "description": "Generate images from text descriptions. Non-blocking: returns immediately after submission, displays automatically when complete.",
+      "promptDesc": "Image description (Chinese or English)",
+      "countDesc": "Number of concurrent generations, default 1, max 9",
+      "imageDesc": "Reference image path (image-to-image)",
+      "ratioDesc": "Aspect ratio: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 21:9",
+      "resolutionDesc": "Unified resolution tier: 1k, 2k, 4k; adapter maps to the closest vendor size",
+      "qualityDesc": "Quality tier: low, medium, high, auto (adapter maps to vendor parameters)",
+      "modelDesc": "Model ID or short name (e.g. 5.0, dall-e-3). Uses configured default when omitted",
+      "providerDesc": "Specify provider (optional)",
+      "submitted": "Submitted {count} image generation(s); results will appear in the card below when complete."
+    },
+    "generateVideo": {
+      "description": "Generate videos from text descriptions. Non-blocking: returns immediately after submission, displays automatically when complete.",
+      "promptDesc": "Video description (Chinese or English)",
+      "imageDesc": "Reference image path (image-to-video)",
+      "durationDesc": "Video duration 4-15 seconds (default 5)",
+      "ratioDesc": "Aspect ratio: 1:1, 16:9, 9:16, 4:3, 3:4, 21:9",
+      "modelDesc": "Model version: seedance2.0, seedance2.0fast (default seedance2.0)",
+      "providerDesc": "Specify provider (optional)",
+      "notInitialized": "Video generation plugin not initialized",
+      "noProvider": "No available video generation provider",
+      "submitFailed": "Video submission failed: {error}",
+      "submitFailedUnknown": "Video submission failed: unknown error",
+      "submitted": "Video generation submitted; result will appear in the card below when complete."
+    },
+    "getCoverStyleGuide": {
+      "description": "When the user wants to generate, replace, or optimize a cover/header image for a Markdown document, call this tool first to read Hana's cover aesthetic guidelines; then write an image prompt or select an image based on the article content.",
+      "themeToneDesc": "Current UI theme brightness; pass light when unsure.",
+      "userGuidanceDesc": "Additional style direction from the user, optional.",
+      "workflow": {
+        "step1": "Confirm target Markdown path",
+        "step2": "Call beautify_get-cover-style-guide",
+        "step3": "Read the article and write an image prompt or select an image per the style guide",
+        "step4": "Prepare existing images",
+        "step5": "Call beautify_create-cover to apply the image"
+      }
+    },
+    "applyCoverCandidate": {
+      "description": "Apply an existing image file as a Markdown cover and write it back to frontmatter.",
+      "targetFilePathDesc": "Absolute path to the Markdown file.",
+      "generatedFilePathDesc": "Absolute path to an existing image, which can come from image generation tools, built-in covers, or user local images.",
+      "pixelWidthDesc": "Image pixel width, optional.",
+      "pixelHeightDesc": "Image pixel height, optional.",
+      "targetFilePathRequired": "targetFilePath must be an absolute path to a Markdown file.",
+      "generatedFilePathRequired": "generatedFilePath must be an absolute path to an image file.",
+      "applied": "Cover applied and written to Markdown frontmatter.",
+      "failed": "Failed to apply cover: {error}"
+    },
+    "createCover": {
+      "description": "Apply an existing image as a Markdown Notion-like cover. To generate a new cover, first call beautify_get-cover-style-guide, then call the image generation tool to prepare the image, and finally use this tool to write it into the Markdown.",
+      "targetFilePathDesc": "Absolute path to the Markdown file. Confirm with the user first if the path is uncertain.",
+      "filePathDesc": "Compatibility alias for targetFilePath.",
+      "generatedFilePathDesc": "Absolute path to an existing image, which can come from image generation tools, built-in covers, or user local images.",
+      "imageFilePathDesc": "Compatibility alias for generatedFilePath.",
+      "pixelWidthDesc": "Image pixel width, optional; the tool will try to read it from the image header if not provided.",
+      "pixelHeightDesc": "Image pixel height, optional; the tool will try to read it from the image header if not provided.",
+      "targetFilePathRequired": "An explicit absolute path to a Markdown file is required; if initiated from a regular chat, please confirm the target file path first.",
+      "mustBeMarkdown": "Target file must be a .md Markdown file.",
+      "generatedFilePathRequired": "An absolute path to an existing image (generatedFilePath) is required. Please call image-gen_generate-image first and wait for the task to complete, or select a built-in/local image, then pass the image filePath to this tool.",
+      "applied": "Image applied as Markdown cover and written to frontmatter.",
+      "failed": "Failed to apply cover: {error}"
+    },
+    "listCapabilities": {
+      "description": "List the aesthetic enhancement capabilities currently supported by the Beautify tool.",
+      "text": "Beautify currently supports the Markdown cover workflow: first read the cover style guide, then prepare an image (from image generation tools, future built-in cover library, or user local images), and finally copy the image to the attachment folder and write it into the cover frontmatter."
     }
   },
   "cli": {
@@ -2617,5 +2843,163 @@
   "preview.exitMarkdownPreview": "Back to editing",
   "preview.markdownEditorStatus": "Selected {selected} chars · Total {total} chars",
   "preview.markdownAttachmentInsertFailed": "Failed to insert attachment",
+  "subagent": {
+    "status": {
+      "interrupted": "Interrupted",
+      "aborted": "Stopped",
+      "done": "Done",
+      "failed": "Failed",
+      "dispatched": "Dispatched",
+      "preparing": "Preparing...",
+      "thinking": "Thinking...",
+      "callingTool": "Calling {name}...",
+      "executing": "Executing..."
+    }
+  },
+  "computerUse": {
+    "overlay": {
+      "foregroundTakeover": "Foreground Takeover",
+      "foregroundMessage": "The target app does not support background operation; foreground takeover is active. Press Esc to force quit."
+    }
+  },
+  "plugin": {
+    "widget": {
+      "loadFailed": "Load failed",
+      "retry": "Retry",
+      "hiddenPlugins": "Hidden plugins",
+      "show": "Show",
+      "desk": "Desk",
+      "hideTitle": "Hide \"{title}\""
+    },
+    "page": {
+      "notFound": "Plugin not found",
+      "loadFailed": "Plugin load failed",
+      "retry": "Retry"
+    },
+    "tab": {
+      "pinToBar": "Pin to tab bar"
+    },
+    "imageGen": {
+      "notInitialized": "Image generation plugin not initialized",
+      "noSessionPath": "Image generation requires an explicit session context; the current tool call is missing sessionPath",
+      "noProvider": "No available image generation provider",
+      "noTaskIdOrFile": "Image generation provider returned neither taskId nor files",
+      "unknownError": "unknown error",
+      "providerUnavailable": "Specified image generation provider \"{providerId}\" is unavailable",
+      "providerUnavailableDetail": "Specified image generation provider \"{providerId}\" is unavailable: {detail}",
+      "modelUnavailable": "Specified image generation model \"{modelId}\" is unavailable",
+      "modelUnavailableDetail": "Specified image generation model \"{modelId}\" is unavailable: {detail}",
+      "noConfiguredModel": "no configured image generation model available",
+      "modelNotFound": "model not found: {modelId}",
+      "noRegisteredProtocol": "no registered protocol: {protocolId}",
+      "multipleProvidersSameModel": "multiple providers have the same model name; please also specify provider",
+      "modelNotInMediaProvider": "model not found in any media provider",
+      "providerNoApiKey": "Provider \"{providerId}\" has no API Key configured. Please configure it in Settings → Providers.",
+      "providerNotLoggedIn": "Provider \"{providerId}\" is not logged in. Please log in to OpenAI Codex in Settings → Providers.",
+      "apiKeyNotConfigured": "API Key not configured",
+      "volcengineUnsupportedFormat": "Volcengine Seedream only supports png/jpeg output format, not \"{format}\"",
+      "volcengineAdapterName": "Volcengine Seedream"
+    },
+    "beautify": {
+      "coverStyleGuide": "Hana Markdown cover default aesthetic guidelines:\n\n1. Art style: modern Anime / animated movie key visual; do not use traditional Eastern stereotypical symbols as the default style.\n2. Texture: strong paper texture, print grain, fine particles, warm material feel; like a frame bound into a paper book.\n3. Narrative: cinematic, story-driven, literary atmosphere; prefer real scenes, character actions, lighting, prop relationships, and environmental traces to express the theme.\n4. Content: extract imagery themes after reading the article; visualize the article's temperament rather than illustrating the summary word-for-word.\n5. Fantasy: starry skies, fantasy, and literary imagery may appear, but must be naturally carried by the scene with real-world weight and emotional justification.\n6. Restraint: avoid cheap AI-style floating symbol accumulation; surreal elements appear only when narratively necessary.\n7. Theme: light mode uses soft warm light, low contrast, clean whitespace, visible paper fiber; dark mode uses low illumination, restrained highlights, dark areas preserving material layers.\n8. Output: default to landscape 3:2 from the image generation tool; if the vendor doesn't support it, a close landscape ratio is acceptable, but never stretch the image.",
+      "themeTone": {
+        "dark": "Dark theme: low illumination, restrained highlights, dark areas still preserving paper fiber and material layers.",
+        "light": "Light theme: soft warm light, low contrast, clean whitespace, visible paper fiber."
+      },
+      "userGuidancePrefix": "User additional direction: {guidance}",
+      "attachmentDirName": "Attachments"
+    }
+  },
+  "preview": {
+    "cover": {
+      "saveImage": "Save image",
+      "regenerateWithPrompt": "Generate image with custom prompt",
+      "deleteCover": "Delete cover"
+    }
+  },
+  "mediaViewer": {
+    "ariaLabel": "Media preview",
+    "close": "Close",
+    "prev": "Previous",
+    "next": "Next"
+  },
+  "action": {
+    "retry": "Retry"
+  },
+  "mobile": {
+    "auth": {
+      "scopeError": "Current login lacks workspace access. Please re-enter the access key.",
+      "loginFailed": "Login failed",
+      "title": "Mobile Access to Hana",
+      "deviceHelp": "Enter the access key generated by the desktop app for this device. After login, an HttpOnly session cookie takes over.",
+      "passwordHelp": "Sign in with the local account set up on the desktop app. Plaintext HTTP on LAN will be rejected by the server; use localhost, HTTPS, or a trusted tunnel.",
+      "tabLabel": "Login method",
+      "deviceTab": "Access Key",
+      "passwordTab": "Username & Password",
+      "deviceField": "Access Key",
+      "usernameField": "Username",
+      "passwordField": "Password",
+      "plaintextWarning": "Remote plaintext connections do not accept username/password, to avoid exposing long-lived credentials on LAN or tunnels.",
+      "submit": "Sign In"
+    },
+    "loading": "Connecting to Hana...",
+    "closeSidebar": "Close sidebar",
+    "update": {
+      "available": "A new Hana version is ready",
+      "reload": "Refresh"
+    }
+  },
+  "approval": {
+    "toolAction": {
+      "title": "Allow Hana to perform this action",
+      "body": "The current session is in ask-first mode. This action would modify local or external state."
+    },
+    "confirm": "Approve",
+    "reject": "Deny",
+    "computerApp": {
+      "title": "Allow Hana to use the computer",
+      "body": "Hana wants to control this app to continue the current task."
+    },
+    "sessionFolders": {
+      "title": "Allow Hana to modify folder authorization for this conversation",
+      "body": "Once confirmed, this folder will become an additional sandbox directory for the current conversation. It will not change the working directory or modify prompts.",
+      "addLabel": "Add authorized directory",
+      "removeLabel": "Remove authorized directory"
+    }
+  },
+  "auth": {
+    "oauthTimeout": "OAuth timed out: no browser callback received. Please check whether port 1455 is blocked by a firewall or already in use. Windows users should also verify that localhost is not resolving to IPv6.",
+    "oauthConnectFailed": "Cannot connect to OAuth server{detail}. Please configure the global outbound proxy in Settings > Security, or check the HTTPS_PROXY environment variable."
+  },
+  "deferred": {
+    "typeLabel": {
+      "subagent": "Sub-assistant",
+      "imageGeneration": "Image generation",
+      "videoGeneration": "Video generation",
+      "backgroundTask": "Background task"
+    },
+    "interlude": {
+      "subagent": {
+        "success": "{receiver} received a reply from {source}",
+        "failed": "{receiver} received a failed reply from {source}",
+        "aborted": "{receiver} stopped the reply from {source}"
+      },
+      "workflow": {
+        "success": "{receiver} received a reply from {source} workflow",
+        "failed": "{receiver} received a failed reply from {source} workflow",
+        "aborted": "{receiver} stopped {source} workflow"
+      },
+      "tool": {
+        "success": "{receiver} got results from {source} tool",
+        "failed": "{receiver} did not get results from {source} tool",
+        "aborted": "{receiver} stopped results from {source} tool"
+      }
+    },
+    "noReason": "The background task did not return a displayable reason.",
+    "noPreviewText": "The background task completed but did not return previewable text.",
+    "fileSummaryMore": "- {count} more files",
+    "fileSummaryHeader": "Generated files:",
+    "mediaNoDisplayableFiles": "Generation result has no displayable files"
+  },
   "preview.refreshFromDisk": "Reload from disk"
 }

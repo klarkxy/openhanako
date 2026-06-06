@@ -13,7 +13,6 @@ import { selectPreviewItems, selectActiveTabId } from '../stores/preview-slice';
 import { selectSessionFiles } from '../stores/selectors/file-refs';
 import { isImageFile, isVideoFile } from '../utils/format';
 import { isAudioFileName } from '../utils/file-kind';
-import { fetchConfig } from '../hooks/use-config';
 import { useI18n } from '../hooks/use-i18n';
 import { continueDeletedAgentSession, ensureSession, loadSessions } from '../stores/session-actions';
 import { revealDeskDirectory, toggleJianSidebar } from '../stores/desk-actions';
@@ -1175,10 +1174,9 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     };
   }, [surface]);
 
-  // ── Paste image ──
-  // 与拖拽对齐：剪贴板图片同样落盘到 uploads 目录，入 store 的形态和拖拽完全一致
-  // （只有 path/name/isDirectory，没有 base64Data）。是否走 vision 桥由发送阶段的
-  // visionAuxiliary 标记统一决定，handlePaste 不再做能力判断。
+  // ── Paste attachments ──
+  // 剪贴板里能解析出文件系统路径的 file item 直接复用拖拽附件注册。
+  // 无路径图片 blob 才上传到 session-files，入 store 时保持 path-backed 附件形态。
   const handlePaste = useCallback((e: ClipboardEvent): boolean => {
     if (inputLocked) {
       e.preventDefault();
@@ -1186,7 +1184,26 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     }
     const items = e.clipboardData?.items;
     if (items) {
-      for (const item of items) {
+      const pathItems: string[] = [];
+      const nameMap: Record<string, string> = {};
+      for (const item of Array.from(items)) {
+        if (item.kind && item.kind !== 'file') continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        const filePath = window.platform?.getFilePath?.(file);
+        if (!filePath) continue;
+        pathItems.push(filePath);
+        nameMap[filePath] = file.name;
+      }
+      if (pathItems.length > 0) {
+        e.preventDefault();
+        void Promise.resolve(attachFilesFromPaths(pathItems, nameMap)).catch((err) => {
+          console.warn('[paste] attach clipboard file paths failed', err);
+        });
+        return true;
+      }
+
+      for (const item of Array.from(items)) {
         if (!item.type.startsWith('image/')) continue;
         e.preventDefault();
         const file = item.getAsFile();
@@ -1243,9 +1260,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const activeServerConnection = useStore(s => s.activeServerConnection);
   useEffect(() => {
     if (activeServerConnection && surface !== 'mobile') {
-      fetchConfig()
-        .then(d => { if (d.thinking_level) setThinkingLevel(d.thinking_level as ThinkingLevel); })
-        .catch((err: unknown) => console.warn('[InputArea] load config failed', err));
+      hanaFetch('/api/session-thinking-level')
+        .then(r => r.json())
+        .then(d => { if (d.thinkingLevel) setThinkingLevel(d.thinkingLevel as ThinkingLevel); })
+        .catch((err: unknown) => console.warn('[InputArea] load thinking level failed', err));
     }
 
     const handler = (e: Event) => {

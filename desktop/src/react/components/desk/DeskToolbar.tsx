@@ -7,6 +7,7 @@ import { useStore } from '../../stores';
 import { jumpToDeskSearchResult, loadDeskFiles, searchDeskFiles } from '../../stores/desk-actions';
 import { togglePreviewPanel } from '../../stores/preview-actions';
 import type { DeskSearchResult } from '../../types';
+import { isWebRuntime } from '../../utils/platform-runtime';
 import {
   ICONS,
   getSortOptions,
@@ -28,6 +29,8 @@ export function DeskOpenButton() {
     window.platform?.openFolder?.(s.deskBasePath);
   }, []);
 
+  if (isWebRuntime()) return null;
+
   return (
     <button className={s.openBtn} onClick={handleClick}>
       <span dangerouslySetInnerHTML={{ __html: ICONS.finderOpen }} />
@@ -44,6 +47,8 @@ export function DeskOpenIconButton() {
     if (!s.deskBasePath) return;
     window.platform?.openFolder?.(s.deskBasePath);
   }, []);
+
+  if (isWebRuntime()) return null;
 
   return (
     <button className={`${s.sortBtn} ${s.iconBtn}`} onClick={handleClick} title={label} aria-label={label} disabled={!hasDesk}>

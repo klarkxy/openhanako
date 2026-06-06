@@ -8,7 +8,7 @@
  * app-ws-shim 直接调用 streamBufferManager.handle(msg)。
  */
 
-import type { ChatMessage, ContentBlock } from '../stores/chat-types';
+import type { ChatListItem, ChatMessage, ContentBlock } from '../stores/chat-types';
 import { useStore } from '../stores';
 import { renderMarkdown } from '../utils/markdown';
 import { cleanMoodText } from '../utils/message-parser';
@@ -131,17 +131,20 @@ class StreamBufferManager {
     const session = store.chatSessions[buf.sessionPath];
     if (!session) return; // session 未初始化（loadMessages 尚未完成）
 
-    const existingId = buf.messageId;
-    const existing = existingId
+    const targetId = buf.messageId || trailingDeferredTextRebindTargetId(session.items);
+    const existing = targetId
       ? session.items.find((item) =>
         item.type === 'message' &&
-        item.data.id === existingId &&
+        item.data.id === targetId &&
         item.data.role === 'assistant',
       )
       : null;
-    if (existing) return;
+    if (existing) {
+      buf.messageId = targetId;
+      return;
+    }
 
-    const id = existingId || nextStreamMessageId();
+    const id = targetId || nextStreamMessageId();
     const msg: ChatMessage = { id, role: 'assistant', blocks: [], timestamp: Date.now() };
     store.appendItem(buf.sessionPath, { type: 'message', data: msg });
     bumpMessageLiveVersion(buf.sessionPath);
@@ -381,13 +384,14 @@ class StreamBufferManager {
           }
         }
 
-        if (isInterludeBlock(block) && block.taskId) {
+        if (isInterludeBlock(block)) {
           if (this.hasTurnState(buf)) this.flush(buf);
-          const consumed = useStore.getState().insertInterludeNearTaskResult(buf.sessionPath, block.taskId, block);
+          const consumed = useStore.getState().insertInterludeItemNearTaskResult(buf.sessionPath, block.taskId || null, block);
           if (consumed) {
             bumpMessageLiveVersion(buf.sessionPath);
             break;
           }
+          break;
         }
 
         const taskId = replacementTaskId(block);
@@ -477,14 +481,7 @@ class StreamBufferManager {
 export const streamBufferManager = new StreamBufferManager();
 
 function mergeContentBlock(blocks: ContentBlock[], block: ContentBlock): ContentBlock[] {
-  if (isInterludeBlock(block) && block.taskId) {
-    if (hasEquivalentInterludeBlock(blocks, block)) return blocks;
-    const idx = blocks.findIndex((existing) => isInterludeResultAnchorBlock(existing, block.taskId!));
-    if (idx < 0) return [...blocks, block];
-    const next = [...blocks];
-    next.splice(idx, 0, block);
-    return next;
-  }
+  if (isInterludeBlock(block)) return blocks;
   if (block.type === 'media_generation' && block.status === 'pending') {
     const resolved = blocks.some((existing) => isResolvedTaskBlock(existing, block.taskId));
     if (resolved) return blocks;
@@ -518,27 +515,34 @@ function isInterludeBlock(block: ContentBlock): block is Extract<ContentBlock, {
   return block.type === 'interlude';
 }
 
-function hasEquivalentInterludeBlock(blocks: ContentBlock[], block: ContentBlock): boolean {
-  if (!isInterludeBlock(block)) return false;
-  return blocks.some((existing) => (
-    isInterludeBlock(existing) &&
-    (
-      (block.id && existing.id === block.id) ||
-      (!!block.taskId && existing.taskId === block.taskId && existing.status === block.status)
-    )
+function trailingDeferredTextRebindTargetId(items: ChatListItem[]): string | null {
+  const taskIds = new Set<string>();
+  let idx = items.length - 1;
+
+  while (idx >= 0 && items[idx]?.type === 'interlude') {
+    const item = items[idx];
+    if (item.type === 'interlude' && item.data.taskId) {
+      taskIds.add(item.data.taskId);
+    }
+    idx -= 1;
+  }
+
+  if (taskIds.size === 0) return null;
+
+  const candidate = items[idx];
+  if (!candidate || candidate.type !== 'message' || candidate.data.role !== 'assistant') {
+    return null;
+  }
+
+  const hasDeferredTextAnchor = (candidate.data.blocks || []).some((block) => (
+    (block.type === 'workflow' || block.type === 'subagent') &&
+    !!block.taskId &&
+    taskIds.has(block.taskId)
   ));
+
+  return hasDeferredTextAnchor ? candidate.data.id : null;
 }
 
-function isMediaTaskAnchorBlock(block: ContentBlock, taskId: string): boolean {
-  return (
-    (block.type === 'media_generation' && block.taskId === taskId) ||
-    (block.type === 'file' && block.replacesTaskId === taskId)
-  );
-}
-
-function isInterludeResultAnchorBlock(block: ContentBlock, taskId: string): boolean {
-  return isMediaTaskAnchorBlock(block, taskId);
-}
 
 // 让 chat-slice / session-actions 通过桥接模块触达 manager，打破循环依赖。
 registerStreamBufferInvalidator((sessionPath) => {

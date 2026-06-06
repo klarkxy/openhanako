@@ -41,17 +41,17 @@
     flex: 1;
     min-height: 0;
     position: relative;
-    margin: 5px 10px 10px;
+    margin: var(--panel-edge-gap);
 }
 
 .previewPanelBody {
     height: 100%;
     overflow: auto;
     position: relative;
-    border-radius: var(--radius-lg);
-    background: var(--bg-card, var(--bg));
-    border: 1px solid var(--overlay-light);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    border-radius: var(--panel-card-radius);
+    background: var(--panel-card-bg);
+    border: var(--panel-card-border);
+    box-shadow: var(--panel-card-shadow);
 }
 
 /* iframe 预览（HTML previewItem） */

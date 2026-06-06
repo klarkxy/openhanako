@@ -15,12 +15,17 @@ const deskActionMocks = vi.hoisted(() => ({
   activateWorkspaceDesk: vi.fn(),
 }));
 
+const streamResumeMocks = vi.hoisted(() => ({
+  requestStreamResume: vi.fn(),
+}));
+
 const mockState: MockState = {};
 const initialStateFactory = (): MockState => ({
   currentSessionPath: null,
   pendingSessionSwitchPath: null,
   pendingNewSession: false,
   pendingProjectId: null,
+  pendingNewSessionThinkingLevel: null,
   sessions: [] as Array<{ path: string }>,
   chatSessions: {} as Record<string, unknown>,
   sessionRegistryFilesByPath: {} as Record<string, unknown>,
@@ -64,6 +69,7 @@ const initialStateFactory = (): MockState => ({
   workspaceFolders: [] as string[],
   cwdHistory: [] as string[],
   selectedAgentId: null,
+  thinkingLevel: 'medium',
 });
 
 const dispatchedEvents: CustomEvent[] = [];
@@ -130,6 +136,10 @@ vi.mock('../../utils/markdown', () => ({
 
 vi.mock('../../services/websocket', () => ({
   getWebSocket: () => null,
+}));
+
+vi.mock('../../services/stream-resume', () => ({
+  requestStreamResume: streamResumeMocks.requestStreamResume,
 }));
 
 // Stub window.dispatchEvent / CustomEvent for jsdom-less runs
@@ -202,6 +212,8 @@ function installStoreMethods() {
   s.clearQuotedSelection = vi.fn();
   s.setActivePanel = vi.fn((v: unknown) => { mockState.activePanel = v; });
   s.requestInputFocus = vi.fn();
+  s.setThinkingLevel = vi.fn((level: string) => { mockState.thinkingLevel = level; });
+  s.setPendingNewSessionThinkingLevel = vi.fn((level: string | null) => { mockState.pendingNewSessionThinkingLevel = level; });
   s.setDeskBasePath = vi.fn((path: string) => { mockState.deskBasePath = path; });
   s.setDeskCurrentPath = vi.fn((path: string) => { mockState.deskCurrentPath = path; });
   s.setDeskFiles = vi.fn((files: unknown[]) => { mockState.deskFiles = files; });
@@ -234,6 +246,7 @@ function jsonResponse(body: unknown, ok = true): Response {
     mockFetch.mockReset();
     mockClearChat.mockReset();
     mockLoadDeskFiles.mockReset();
+    streamResumeMocks.requestStreamResume.mockReset();
     deskActionMocks.activateWorkspaceDesk.mockReset();
     deskActionMocks.activateWorkspaceDesk.mockImplementation(async (root?: string | null) => {
       const normalized = root || '';
@@ -471,6 +484,25 @@ function jsonResponse(body: unknown, ok = true): Response {
       expect(permissionEvent?.detail).toEqual({ enabled: true, mode: 'read_only' });
     });
 
+    it('initializes pending new-session thinking from the server default', async () => {
+      (mockState as Record<string, unknown>).thinkingLevel = 'high';
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url === '/api/session-permission-mode') {
+          return jsonResponse({ mode: 'ask', defaultMode: 'ask' });
+        }
+        if (url === '/api/session-thinking-level') {
+          return jsonResponse({ thinkingLevel: 'medium' });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+      await createNewSession();
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/session-thinking-level');
+      expect(mockState.thinkingLevel).toBe('medium');
+      expect(mockState.pendingNewSessionThinkingLevel).toBe('medium');
+    });
+
     it('does not restore focus when a stale new-session continuation is no longer pending', async () => {
       let resolveDesk!: () => void;
       deskActionMocks.activateWorkspaceDesk.mockImplementationOnce(() => new Promise<void>((resolve) => {
@@ -524,6 +556,40 @@ function jsonResponse(body: unknown, ok = true): Response {
         }),
       );
       expect(mockState.workspaceFolders).toEqual(['/reference-a']);
+    });
+
+    it('carries the pending new-session thinking draft into session creation', async () => {
+      Object.assign(mockState, {
+        pendingNewSession: true,
+        memoryEnabled: true,
+        selectedFolder: '/workspace-a',
+        pendingNewSessionThinkingLevel: 'high',
+      });
+      mockFetch.mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        path: '/session/new.jsonl',
+        cwd: '/workspace-a',
+        workspaceFolders: [],
+        thinkingLevel: 'high',
+      }));
+      mockFetch.mockResolvedValueOnce(jsonResponse([]));
+
+      await expect(ensureSession()).resolves.toBe(true);
+
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        '/api/sessions/new',
+        expect.objectContaining({
+          body: JSON.stringify({
+            memoryEnabled: true,
+            cwd: '/workspace-a',
+            thinkingLevel: 'high',
+            currentSessionPath: null,
+          }),
+        }),
+      );
+      expect(mockState.pendingNewSessionThinkingLevel).toBeNull();
+      expect(mockState.thinkingLevel).toBe('high');
     });
 
     it('carries an explicit project id from the new-session draft into session creation', async () => {
@@ -878,6 +944,51 @@ function jsonResponse(body: unknown, ok = true): Response {
       // 只应该有一次 /api/sessions/switch，不应该有 /api/sessions/messages
       const calls = mockFetch.mock.calls.map(c => String(c[0]));
       expect(calls.filter(u => u.startsWith('/api/sessions/messages'))).toHaveLength(0);
+    });
+
+    it('后端确认目标 session 已结束时，清掉刷新前遗留的 streaming 标记', async () => {
+      (mockState.chatSessions as Record<string, unknown>)['/a'] = {
+        items: [{ type: 'message', data: { id: '0', text: 'cached' } }],
+        hasMore: false,
+        loadingMore: false,
+      };
+      Object.assign(mockState, {
+        streamingSessions: ['/a', '/background'],
+      });
+
+      mockFetch.mockResolvedValueOnce(jsonResponse({
+        agentId: null,
+        currentModelId: null,
+        currentModelName: null,
+        currentModelProvider: null,
+        isStreaming: false,
+      }));
+
+      await switchSession('/a');
+
+      expect(mockState.streamingSessions).toEqual(['/background']);
+      expect(streamResumeMocks.requestStreamResume).not.toHaveBeenCalled();
+    });
+
+    it('后端确认目标 session 仍在输出时，切入后主动请求恢复该 session 的流', async () => {
+      (mockState.chatSessions as Record<string, unknown>)['/a'] = {
+        items: [{ type: 'message', data: { id: '0', text: 'cached' } }],
+        hasMore: false,
+        loadingMore: false,
+      };
+
+      mockFetch.mockResolvedValueOnce(jsonResponse({
+        agentId: null,
+        currentModelId: null,
+        currentModelName: null,
+        currentModelProvider: null,
+        isStreaming: true,
+      }));
+
+      await switchSession('/a');
+
+      expect(mockState.streamingSessions).toEqual(['/a']);
+      expect(streamResumeMocks.requestStreamResume).toHaveBeenCalledWith('/a');
     });
 
     it('切换完成后仍在 chat surface 时恢复输入焦点', async () => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolGroupBlock } from '../../components/chat/ToolGroupBlock';
 
@@ -35,7 +35,7 @@ describe('ToolGroupBlock', () => {
     expect(detail.textContent).toBe('rm -rf /Users/jason/.claude/plugins/mar…');
   });
 
-  it('syncs a multi-tool group to collapsed when the completed block updates', () => {
+  it('syncs a multi-tool group to collapsed when the completed block updates', async () => {
     const { rerender } = render(
       <ToolGroupBlock
         collapsed={false}
@@ -46,9 +46,8 @@ describe('ToolGroupBlock', () => {
       />,
     );
 
-    const content = screen.getByText('npm test').closest('div')?.parentElement;
-    expect(content).toBeTruthy();
-    expect(content?.className).not.toContain('toolGroupContentCollapsed');
+    // 展开时工具内容可见
+    expect(screen.getByText('npm test')).toBeInTheDocument();
 
     rerender(
       <ToolGroupBlock
@@ -60,7 +59,11 @@ describe('ToolGroupBlock', () => {
       />,
     );
 
-    expect(content?.className).toContain('toolGroupContentCollapsed');
+    // 折叠后，Collapse 组件通过 AnimatePresence 退场动画后移除内容。
+    // jsdom 下 requestAnimationFrame 可能延迟执行退场，用 waitFor 等待。
+    await waitFor(() => {
+      expect(screen.queryByText('npm test')).not.toBeInTheDocument();
+    });
   });
 
   it('keeps a single tool as a plain indicator without a fold summary', () => {

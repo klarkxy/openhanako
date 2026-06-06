@@ -4,7 +4,7 @@ import { nodeFileTrace } from "@vercel/nft";
 
 export const BUNDLED_PLUGIN_ALLOWED_HOST_DIRS = ["core", "lib", "shared"];
 
-const PLUGIN_RUNTIME_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
+const PLUGIN_RUNTIME_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts"]);
 const IGNORED_RUNTIME_DIRS = new Set(["tests", "__tests__", "node_modules"]);
 
 function toPosixPath(value) {

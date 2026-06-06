@@ -6,7 +6,7 @@ import { useSettingsStore } from '../../store';
 import { hanaFetch } from '../../api';
 import { loadSettingsConfig } from '../../actions';
 import { t } from '../../helpers';
-import type { KnownUser } from './BridgeWidgets';
+import type { BridgePermissionMode, KnownUser } from './BridgeWidgets';
 
 // ── Types ──
 
@@ -28,6 +28,7 @@ export interface BridgeStatus {
   whatsapp: PlatformStatusBase;
   qq: QQStatus;
   wechat: WechatStatus;
+  permissionMode: BridgePermissionMode;
   readOnly: boolean;
   receiptEnabled: boolean;
   knownUsers: { telegram?: KnownUser[]; feishu?: KnownUser[]; whatsapp?: KnownUser[]; qq?: KnownUser[]; wechat?: KnownUser[] };
@@ -103,7 +104,10 @@ export function useBridgeState() {
       const res = await hanaFetch(`/api/bridge/status${query}`, signal ? { signal } : undefined);
       const data = await res.json();
       if (signal?.aborted) return;
-      setStatus(data);
+      setStatus({
+        ...data,
+        permissionMode: data.permissionMode || (data.readOnly === true ? 'read_only' : 'auto'),
+      });
       setTgToken(data.telegram?.token || '');
       setFsAppId(data.feishu?.appId || '');
       setFsAppSecret(data.feishu?.appSecret || '');
@@ -186,7 +190,7 @@ export function useBridgeState() {
     }
   };
 
-  const saveGlobalSettings = async (partial: { readOnly?: boolean; receiptEnabled?: boolean }) => {
+  const saveGlobalSettings = async (partial: { permissionMode?: BridgePermissionMode; readOnly?: boolean; receiptEnabled?: boolean }) => {
     setGlobalSettingsSaving(true);
     try {
       const res = await hanaFetch('/api/bridge/settings', {
@@ -196,9 +200,10 @@ export function useBridgeState() {
       });
       const saved = await res.json();
       if (saved.error) throw new Error(saved.error);
-      if (typeof saved.readOnly === 'boolean' && typeof saved.receiptEnabled === 'boolean') {
+      if (typeof saved.permissionMode === 'string' && typeof saved.readOnly === 'boolean' && typeof saved.receiptEnabled === 'boolean') {
         setStatus(prev => prev ? {
           ...prev,
+          permissionMode: saved.permissionMode,
           readOnly: saved.readOnly,
           receiptEnabled: saved.receiptEnabled,
         } : prev);

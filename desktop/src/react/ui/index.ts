@@ -8,3 +8,17 @@ export { Tooltip } from './Tooltip';
 export type { TooltipAlign, TooltipPlacement, TooltipTriggerProps, TooltipVariant } from './Tooltip';
 export { useAnimatePresence } from '../hooks/use-animate-presence';
 export type { AnimateStage } from '../hooks/use-animate-presence';
+
+// ── 动画系统 ──
+export { spring, motionDuration } from './motion';
+export {
+  FadeIn,
+  Collapse,
+  SlideIn,
+  AnimatedList,
+  AnimatedListItem,
+  motion,
+  AnimatePresence,
+  LayoutGroup,
+} from './AnimationPrimitives';
+export type { Transition } from './AnimationPrimitives';

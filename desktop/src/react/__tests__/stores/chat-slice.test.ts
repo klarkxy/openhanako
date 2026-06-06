@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createChatSlice, type ChatSlice } from '../../stores/chat-slice';
-import type { SessionModel } from '../../stores/chat-types';
+import type { ChatListItem, SessionModel } from '../../stores/chat-types';
 import { registerStreamBufferInvalidator } from '../../stores/stream-invalidator';
 
 function makeSlice(): ChatSlice {
@@ -24,6 +24,20 @@ const MODEL: SessionModel = {
   reasoning: true,
   contextWindow: 1_000_000,
 };
+
+function interludeItem(id: string): ChatListItem {
+  return {
+    type: 'interlude',
+    id,
+    data: {
+      type: 'interlude',
+      id,
+      variant: 'deferred_result',
+      status: 'success',
+      text: '后台回复已抵达',
+    },
+  };
+}
 
 describe('chat-slice', () => {
   let slice: ChatSlice;
@@ -79,6 +93,15 @@ describe('chat-slice', () => {
         loadingMore: false,
         oldestId: undefined,
       });
+    });
+
+    it('oldestId 取第一条 message，不被前置幕间条目占位', () => {
+      slice.initSession('/a', [
+        interludeItem('deferred:task-1:success'),
+        { type: 'message', data: { id: 'a1', role: 'assistant', blocks: [] } },
+      ], true);
+
+      expect(slice.chatSessions['/a']?.oldestId).toBe('a1');
     });
 
     it('LRU 淘汰只影响 chatSessions，不动 sessionModelsByPath', () => {
@@ -151,6 +174,85 @@ describe('chat-slice', () => {
       // 第 9 次 initSession 会淘汰最老的 /s0（keys.find(k => k !== path)）
       expect(invalidator).toHaveBeenCalledWith('/s0');
       expect(slice.scrollPositions['/s0']).toBeUndefined();
+    });
+  });
+
+  describe('insertInterludeItemNearTaskResult', () => {
+    it('workflow 幕间插到同一轮连续 assistant 片段之后', () => {
+      slice.initSession('/a', [
+        { type: 'message', data: { id: 'u1', role: 'user', text: 'run workflow' } },
+        {
+          type: 'message',
+          data: {
+            id: 'a-card',
+            role: 'assistant',
+            blocks: [{
+              type: 'workflow',
+              taskId: 'workflow-1',
+              taskTitle: '冒烟测试',
+              streamStatus: 'running',
+            }],
+          },
+        },
+        {
+          type: 'message',
+          data: {
+            id: 'a-text',
+            role: 'assistant',
+            blocks: [{ type: 'text', html: '<p>Workflow 已经提交后台运行了。</p>' }],
+          },
+        },
+      ], false);
+
+      const inserted = slice.insertInterludeItemNearTaskResult('/a', 'workflow-1', {
+        type: 'interlude',
+        id: 'deferred:workflow-1:success',
+        variant: 'deferred_result',
+        taskId: 'workflow-1',
+        status: 'success',
+        sourceKind: 'workflow',
+        text: 'Hanako收到了来自 冒烟测试 workflow 的回复',
+      });
+
+      expect(inserted).toBe(true);
+      expect(slice.chatSessions['/a']?.items.map((item) => (
+        item.type === 'message' ? item.data.id : item.id
+      ))).toEqual(['u1', 'a-card', 'a-text', 'deferred:workflow-1:success']);
+    });
+
+    it('媒体结果幕间仍然插到结果文件前', () => {
+      slice.initSession('/a', [
+        { type: 'message', data: { id: 'u1', role: 'user', text: 'draw' } },
+        {
+          type: 'message',
+          data: {
+            id: 'a-media',
+            role: 'assistant',
+            blocks: [{
+              type: 'file',
+              replacesTaskId: 'task-img',
+              filePath: '/tmp/image.png',
+              label: 'image.png',
+              ext: 'png',
+            }],
+          },
+        },
+      ], false);
+
+      const inserted = slice.insertInterludeItemNearTaskResult('/a', 'task-img', {
+        type: 'interlude',
+        id: 'deferred:task-img:success',
+        variant: 'deferred_result',
+        taskId: 'task-img',
+        status: 'success',
+        sourceKind: 'tool',
+        text: '图片结果已抵达',
+      });
+
+      expect(inserted).toBe(true);
+      expect(slice.chatSessions['/a']?.items.map((item) => (
+        item.type === 'message' ? item.data.id : item.id
+      ))).toEqual(['u1', 'deferred:task-img:success', 'a-media']);
     });
   });
 

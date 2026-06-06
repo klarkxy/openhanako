@@ -50,8 +50,8 @@ export function SelectWidget({
 
     setPanelStyle({
       position: 'fixed',
-      left: rect.left,
-      width: rect.width,
+      right: window.innerWidth - rect.right,
+      minWidth: rect.width,
       ...(openAbove
         ? { bottom: window.innerHeight - rect.top + 2 }
         : { top: rect.bottom + 2 }),
@@ -148,7 +148,9 @@ export function SelectWidget({
             <span className={[styles.value, isPlaceholder && styles.placeholder].filter(Boolean).join(' ')}>
               {displayText}
             </span>
-            <span className={styles.arrow}>▾</span>
+            <svg className={styles.arrow} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 6l4 4 4-4" />
+            </svg>
           </>
         )}
       </button>

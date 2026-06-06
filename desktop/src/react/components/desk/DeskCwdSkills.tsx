@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../stores';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
+import { isWebRuntime } from '../../utils/platform-runtime';
 import type { CwdSkillInfo } from '../../stores/desk-slice';
 import css from './Desk.module.css';
 
@@ -226,13 +227,15 @@ export function DeskCwdSkillsPanel() {
         )}
         {cmPos && (
           <div className={css.cwdCtxMenu} style={{ position: 'fixed', left: cmPos.x, top: cmPos.y, zIndex: 9999 }}>
-            <button onClick={() => {
-              const target = cmSkill?.baseDir || (useStore.getState().deskBasePath + '/.agents/skills');
-              window.platform?.showInFinder?.(target);
-              setCmPos(null);
-            }}>
-              {t('desk.openInFinder')}
-            </button>
+            {!isWebRuntime() && (
+              <button onClick={() => {
+                const target = cmSkill?.baseDir || (useStore.getState().deskBasePath + '/.agents/skills');
+                window.platform?.showInFinder?.(target);
+                setCmPos(null);
+              }}>
+                {t('desk.openInFinder')}
+              </button>
+            )}
             {cmSkill && (
               <button className={css.cwdCtxDanger} onClick={() => {
                 deleteSkill(cmSkill);

@@ -110,6 +110,18 @@ function upsertCreatedSession(msg: any): void {
   });
 }
 
+function resolveNotificationDesktopFocusPolicy(msg: any): 'always' | 'when_unfocused' {
+  if (msg.desktopFocusPolicy === 'when_session_unfocused') {
+    const completedSessionPath = typeof msg.sessionPath === 'string' && msg.sessionPath.trim()
+      ? msg.sessionPath.trim()
+      : null;
+    const currentSessionPath = useStore.getState().currentSessionPath || null;
+    if (completedSessionPath && currentSessionPath !== completedSessionPath) return 'always';
+    return 'when_unfocused';
+  }
+  return msg.desktopFocusPolicy === 'when_unfocused' ? 'when_unfocused' : 'always';
+}
+
 function hasOptimisticCurrentSession(): boolean {
   const state = useStore.getState();
   const sessionPath = state.currentSessionPath;
@@ -512,7 +524,9 @@ export function handleServerMessage(msg: any): void {
       if (window.hana?.showNotification) {
         // agentId 标识触发通知的助手，主进程据此读取该 agent 头像作为通知 icon。
         // 缺失时透传 null，主进程退回无 icon，禁止从当前焦点 agent 兜底。
-        window.hana.showNotification(msg.title, msg.body, msg.agentId ?? null);
+        window.hana.showNotification(msg.title, msg.body, msg.agentId ?? null, {
+          desktopFocusPolicy: resolveNotificationDesktopFocusPolicy(msg),
+        });
       }
       break;
 
@@ -599,6 +613,34 @@ export function handleServerMessage(msg: any): void {
             ? { ...session, rcAttachment: null }
             : session),
         }));
+      }
+      break;
+    }
+
+    case 'session_metadata_updated': {
+      const sp = msg.sessionPath;
+      const metadata = msg.metadata && typeof msg.metadata === 'object' ? msg.metadata : {};
+      if (!sp) { console.warn('[ws] event missing sessionPath:', msg.type); break; }
+      const hasPinnedAt = Object.prototype.hasOwnProperty.call(metadata, 'pinnedAt');
+      const hasProjectId = Object.prototype.hasOwnProperty.call(metadata, 'projectId');
+      if (hasPinnedAt || hasProjectId) {
+        useStore.setState((s) => ({
+          sessions: s.sessions.map((session) => {
+            if (session.path !== sp) return session;
+            return {
+              ...session,
+              ...(hasPinnedAt
+                ? { pinnedAt: typeof metadata.pinnedAt === 'string' ? metadata.pinnedAt : null }
+                : {}),
+              ...(hasProjectId
+                ? { projectId: typeof metadata.projectId === 'string' && metadata.projectId.trim() ? metadata.projectId.trim() : null }
+                : {}),
+            };
+          }),
+        }));
+      }
+      if (sp === useStore.getState().currentSessionPath && typeof metadata.thinkingLevel === 'string') {
+        useStore.getState().setThinkingLevel(metadata.thinkingLevel);
       }
       break;
     }

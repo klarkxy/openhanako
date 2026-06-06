@@ -686,6 +686,75 @@ describe('desk-actions workspace roots', () => {
     });
   });
 
+  it('safe-deletes tree items through the mobile workbench route in the PWA shell', async () => {
+    (globalThis as any).document = {
+      documentElement: {
+        getAttribute: (name: string) => (name === 'data-platform' ? 'web' : null),
+      },
+    };
+    useStore.setState({
+      deskBasePath: '/workspace',
+      deskTreeFilesByPath: {
+        notes: [{ name: 'chapter.md', isDir: false }],
+      },
+    } as never);
+    mockHanaFetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      files: [],
+    }));
+
+    const { deskTrashTreeItems } = await import('../../stores/desk-actions');
+    const ok = await deskTrashTreeItems([{ sourceSubdir: 'notes', name: 'chapter.md', isDirectory: false }]);
+
+    expect(ok).toBe(true);
+    expect(mockHanaFetch).toHaveBeenCalledWith('/api/mobile/workbench/actions', expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'safeDelete',
+        rootId: 'default',
+        subdir: 'notes',
+        name: 'chapter.md',
+      }),
+    }));
+    expect(useStore.getState().deskTreeFilesByPath.notes).toEqual([]);
+  });
+
+  it('uploads browser File objects through the mobile workbench upload route', async () => {
+    useStore.setState({
+      deskBasePath: '/workspace',
+      deskTreeFilesByPath: {
+        notes: [],
+      },
+    } as never);
+    mockHanaFetch.mockResolvedValueOnce(jsonResponse({
+      ok: true,
+      files: [{ name: 'note.md', isDir: false }],
+    }));
+    const file = new File(['hello'], 'note.md', { type: 'text/markdown' });
+
+    const { deskUploadBrowserFilesToSubdir } = await import('../../stores/desk-actions');
+    const ok = await deskUploadBrowserFilesToSubdir([file], 'notes');
+
+    expect(ok).toBe(true);
+    const call = mockHanaFetch.mock.calls[0];
+    expect(call[0]).toBe('/api/mobile/workbench/upload');
+    expect(call[1]).toMatchObject({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(JSON.parse(call[1].body)).toEqual({
+      rootId: 'default',
+      subdir: 'notes',
+      files: [{
+        name: 'note.md',
+        type: 'text/markdown',
+        contentBase64: 'aGVsbG8=',
+      }],
+    });
+    expect(useStore.getState().deskTreeFilesByPath.notes).toEqual([{ name: 'note.md', isDir: false }]);
+  });
+
   it('moves tree items by explicit source and destination subdirs without relying on the current folder', async () => {
     useStore.setState({
       deskBasePath: '/workspace',

@@ -3,9 +3,12 @@ import { hanaFetch, hanaUrl } from '../api';
 import { t } from '../helpers';
 import { useSettingsStore } from '../store';
 import {
+  LOCAL_CONNECTION_ID,
   connectDeviceServerConnection,
+  isLocalOwnerConnection,
   persistServerConnectionSelection,
   upsertServerConnection,
+  writePersistedServerConnectionState,
 } from '../../services/server-connection';
 import { Toggle } from '../widgets/Toggle';
 import { SettingsSection } from '../components/SettingsSection';
@@ -63,6 +66,11 @@ const DEFAULT_SCOPES = ['chat', 'resources.read', 'files.read', 'files.write'];
 
 export function AccessTab() {
   const showToast = useSettingsStore(s => s.showToast);
+  const activeConnection = useSettingsStore(s => s.activeServerConnection);
+  const serverConnections = useSettingsStore(s => s.serverConnections);
+  const localConnection = serverConnections[LOCAL_CONNECTION_ID] ?? null;
+  const effectiveConnection = activeConnection ?? localConnection;
+  const isLocalOwner = isLocalOwnerConnection(effectiveConnection);
   const [summary, setSummary] = useState<AccessSummary | null>(null);
   const [mode, setMode] = useState<AccessMode>('loopback');
   const [port, setPort] = useState('14500');
@@ -79,6 +87,11 @@ export function AccessTab() {
   const [passwordDraft, setPasswordDraft] = useState('');
 
   const loadSummary = useCallback(async () => {
+    if (!isLocalOwner) {
+      setSummary(null);
+      setLoadingSummary(false);
+      return;
+    }
     setLoadingSummary(true);
     try {
       const res = await hanaFetch('/api/access/summary');
@@ -93,7 +106,7 @@ export function AccessTab() {
     } finally {
       setLoadingSummary(false);
     }
-  }, []);
+  }, [isLocalOwner]);
 
   useEffect(() => {
     loadSummary().catch((err) => {
@@ -247,6 +260,25 @@ export function AccessTab() {
     }
   }, [remoteServerKey, remoteServerUrl, showToast]);
 
+  const returnToLocalServer = useCallback(() => {
+    const current = useSettingsStore.getState();
+    const local = current.serverConnections[LOCAL_CONNECTION_ID];
+    if (!isLocalOwnerConnection(local)) {
+      showToast(t('settings.access.localConnectionUnavailable'), 'error');
+      return;
+    }
+    current.set({
+      activeServerConnectionId: local.connectionId,
+      activeServerConnection: local,
+    });
+    writePersistedServerConnectionState({
+      serverConnections: current.serverConnections,
+      activeServerConnectionId: null,
+    });
+    showToast(t('settings.access.returnedToLocal'), 'success');
+    window.hana?.reloadMainWindow?.();
+  }, [showToast]);
+
   const saveAccount = useCallback(async () => {
     try {
       const res = await hanaFetch('/api/access/account/profile', {
@@ -309,6 +341,47 @@ export function AccessTab() {
       showToast(`${t('settings.access.credentialRevokeFailed')}: ${err.message}`, 'error');
     }
   }, [loadSummary, showToast]);
+
+  if (!isLocalOwner) {
+    const connectionLabel = effectiveConnection?.label || t('settings.access.remoteConnectionUnknown');
+    const connectionUrl = effectiveConnection?.baseUrl || '';
+    return (
+      <div className={`${styles['settings-tab-content']} ${styles.active}`} data-tab="access">
+        <SettingsSection
+          title={t('settings.access.remoteConnection')}
+          description={t('settings.access.remoteConnectionDesc')}
+        >
+          <div className={styles['access-remote-panel']}>
+            <div className={styles['access-status-grid']}>
+              <div className={styles['access-status-item']}>
+                <span>{t('settings.access.remoteConnectionName')}</span>
+                <strong>{connectionLabel}</strong>
+              </div>
+              <div className={styles['access-status-item']}>
+                <span>{t('settings.access.remoteConnectionKind')}</span>
+                <strong>{effectiveConnection?.kind || t('settings.access.remoteConnectionUnknown')}</strong>
+              </div>
+              <div className={styles['access-status-item']}>
+                <span>{t('settings.access.remoteConnectionUrl')}</span>
+                <strong>{connectionUrl || t('settings.access.remoteConnectionUnknown')}</strong>
+              </div>
+            </div>
+            <SettingsSection.Note>{t('settings.access.remoteLocalOnlyNote')}</SettingsSection.Note>
+          </div>
+          <SettingsSection.Footer>
+            <button
+              className={styles['settings-btn-secondary']}
+              type="button"
+              onClick={returnToLocalServer}
+              disabled={!isLocalOwnerConnection(localConnection)}
+            >
+              {t('settings.access.returnToLocal')}
+            </button>
+          </SettingsSection.Footer>
+        </SettingsSection>
+      </div>
+    );
+  }
 
   return (
     <div className={`${styles['settings-tab-content']} ${styles.active}`} data-tab="access">

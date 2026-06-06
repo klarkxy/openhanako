@@ -15,8 +15,8 @@ import {
   schedulePersistCurrentWorkspaceUiState,
 } from './workspace-ui-state-actions';
 import { hasServerConnection } from '../services/server-connection';
-// @ts-expect-error — shared JS module
-import { mergeWorkspaceHistory, normalizeWorkspacePath, removeWorkspaceHistoryEntries } from '../../../../shared/workspace-history.js';
+import { isWebRuntime } from '../utils/platform-runtime';
+import { mergeWorkspaceHistory, normalizeWorkspacePath, removeWorkspaceHistoryEntries } from '../../../../shared/workspace-history.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- store setState 回调及 IPC callback data */
 
@@ -330,6 +330,17 @@ function joinDeskPath(basePath: string, subdir: string, name: string): string {
   return [base, ...parts, name].join(separator);
 }
 
+async function blobToBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
 export async function loadDeskTreeFiles(subdir = '', options: { force?: boolean; overrideDir?: string | null } = {}): Promise<void> {
   const s = useStore.getState();
   if (!hasServerConnection(s)) return;
@@ -517,6 +528,38 @@ export async function deskUploadFilesToSubdir(paths: string[], subdir: string): 
   }
 }
 
+export async function deskUploadBrowserFilesToSubdir(files: File[], subdir: string): Promise<boolean> {
+  const s = useStore.getState();
+  const normalizedSubdir = normalizeSubdir(subdir);
+  if (!s.deskBasePath || files.length === 0) return false;
+  try {
+    const payloadFiles = await Promise.all(files.map(async file => ({
+      name: file.name,
+      type: file.type || '',
+      contentBase64: await blobToBase64(file),
+    })));
+    const res = await hanaFetch('/api/mobile/workbench/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rootId: 'default',
+        subdir: normalizedSubdir,
+        files: payloadFiles,
+      }),
+    });
+    const data = await res.json();
+    if (data.error || data.ok === false) {
+      console.error('[jian-desk] mobile upload error:', data.error || data.results);
+      return false;
+    }
+    if (data.files) applyFilesForSubdir(normalizedSubdir, data.files);
+    return true;
+  } catch (err) {
+    console.error('[jian-desk] mobile upload failed:', err);
+    return false;
+  }
+}
+
 function applyFilesForSubdir(subdir: string, files: DeskFile[]): void {
   const normalizedSubdir = normalizeSubdir(subdir);
   const st = useStore.getState();
@@ -696,6 +739,9 @@ export async function deskRenameTreeItem(sourceSubdir: string, oldName: string, 
 
 export async function deskTrashTreeItems(items: DeskTreeMoveItem[]): Promise<boolean> {
   const s = useStore.getState();
+  if (isWebRuntime()) {
+    return deskSafeDeleteMobileWorkbenchItems(items);
+  }
   const trashItem = window.platform?.trashItem;
   if (!trashItem) {
     console.error('[desk] system trash is not available');
@@ -730,6 +776,45 @@ export async function deskTrashTreeItems(items: DeskTreeMoveItem[]): Promise<boo
     }
   }
   return trashedCount === paths.length;
+}
+
+async function deskSafeDeleteMobileWorkbenchItems(items: DeskTreeMoveItem[]): Promise<boolean> {
+  const s = useStore.getState();
+  if (!s.deskBasePath || items.length === 0) return false;
+
+  const paths = items.map(item => ({
+    ...item,
+    sourceSubdir: normalizeSubdir(item.sourceSubdir),
+  }));
+  const removedDirs: string[] = [];
+  let deletedCount = 0;
+
+  try {
+    for (const item of paths) {
+      if (!isPlainFileName(item.name)) break;
+      const res = await hanaFetch('/api/mobile/workbench/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'safeDelete',
+          rootId: 'default',
+          subdir: item.sourceSubdir,
+          name: item.name,
+        }),
+      });
+      const data = await res.json();
+      if (data.error || data.ok === false) break;
+      deletedCount += 1;
+      if (data.files) applyFilesForSubdir(item.sourceSubdir, data.files);
+      if (item.isDirectory) removedDirs.push(childSubdir(item.sourceSubdir, item.name));
+    }
+  } catch (err) {
+    console.error('[desk] mobile safe delete failed:', err);
+  } finally {
+    pruneRemovedDirectoryCache(removedDirs);
+  }
+
+  return deletedCount === paths.length;
 }
 
 export async function deskRemoveFile(name: string): Promise<void> {

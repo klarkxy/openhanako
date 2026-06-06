@@ -14,6 +14,7 @@ import {
   deskMoveTreeFiles,
   deskRenameTreeItem,
   deskTrashTreeItems,
+  deskUploadBrowserFilesToSubdir,
   deskUploadFilesToSubdir,
   loadDeskTreeFiles,
 } from '../../stores/desk-actions';
@@ -385,7 +386,9 @@ function TreeNode({
           { label: t('desk.ctx.newMdFile'), action: () => { void onStartCreate(subdir, 'markdown'); } },
           { label: t('desk.ctx.newFolder'), action: () => { void onStartCreate(subdir, 'folder'); } },
         ] : []),
-        { label: t('desk.ctx.openInFinder'), action: () => window.platform?.showInFinder?.(path) },
+        ...(!isWebRuntime() ? [
+          { label: t('desk.ctx.openInFinder'), action: () => window.platform?.showInFinder?.(path) },
+        ] : []),
         { label: t('desk.ctx.copyPath'), action: () => navigator.clipboard.writeText(path).catch(() => {}) },
         { divider: true },
         {
@@ -396,7 +399,7 @@ function TreeNode({
         {
           label: deleteLabel,
           danger: true,
-          disabled: actionEntries.length === 0 || !window.platform?.trashItem,
+          disabled: actionEntries.length === 0 || (!isWebRuntime() && !window.platform?.trashItem),
           action: async () => {
             const confirmed = window.confirm?.(
               actionEntries.length > 1
@@ -480,6 +483,11 @@ function TreeNode({
 
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
+      if (isWebRuntime()) {
+        await deskUploadBrowserFilesToSubdir(Array.from(files), subdir);
+        setDropTarget(false);
+        return;
+      }
       const paths: string[] = [];
       for (const f of Array.from(files)) {
         const p = window.platform?.getFilePath?.(f);

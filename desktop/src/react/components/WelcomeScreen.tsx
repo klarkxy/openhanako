@@ -16,8 +16,7 @@ import { openSettingsModal } from '../stores/settings-modal-actions';
 import type { Agent } from '../types';
 import { AgentAvatar, refreshAgentAvatarVersion, resolveAgentDisplayInfo, type AgentDisplayInfo } from '../utils/agent-display';
 import styles from './Welcome.module.css';
-// @ts-expect-error — shared JS module
-import { buildWorkspacePickerItems, normalizeWorkspacePath } from '../../../../shared/workspace-history.js';
+import { buildWorkspacePickerItems, normalizeWorkspacePath } from '../../../../shared/workspace-history.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- store setState 回调 (s: any) */
 

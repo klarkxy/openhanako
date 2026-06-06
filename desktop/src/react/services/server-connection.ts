@@ -512,6 +512,10 @@ export function hasServerConnection(source: ServerConnectionSource): boolean {
   return !!resolveServerConnection(source);
 }
 
+export function isLocalOwnerConnection(connection: ServerConnection | null | undefined): boolean {
+  return connection?.kind === 'local' && connection.credentialKind === 'loopback_token';
+}
+
 export function upsertServerConnection(
   registry: ServerConnectionRegistry | null | undefined,
   connection: ServerConnection,
