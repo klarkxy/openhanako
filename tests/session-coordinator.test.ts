@@ -4072,6 +4072,7 @@ describe("SessionCoordinator", () => {
     const confirmStore = { abortBySession: vi.fn() };
     const deferredStore = { clearBySession: vi.fn() };
     const closeTerminalsForSession = vi.fn();
+    const onSessionRuntimeDiscarded = vi.fn();
     const coordinator = new SessionCoordinator({
       agentsDir: path.join(tempDir, "agents"),
       getAgent: () => agent,
@@ -4093,6 +4094,7 @@ describe("SessionCoordinator", () => {
       getConfirmStore: () => confirmStore,
       getDeferredResultStore: () => deferredStore,
       closeTerminalsForSession,
+      onSessionRuntimeDiscarded,
     });
 
     coordinator._sessions.set(livePath, { session, agentId: "hana", unsub });
@@ -4103,6 +4105,7 @@ describe("SessionCoordinator", () => {
 
     await expect(coordinator.discardSessionRuntime(livePath, "archive")).resolves.toBe(true);
     await expect(coordinator.discardSessionRuntime(hibernatedPath, "archive")).resolves.toBe(true);
+    await expect(coordinator.discardSessionRuntime(path.join(agent.sessionDir, "missing.jsonl"), "archive")).resolves.toBe(false);
 
     expect(coordinator._sessions.has(livePath)).toBe(false);
     expect(coordinator._hibernatedSessionMeta.has(hibernatedPath)).toBe(false);
@@ -4116,5 +4119,58 @@ describe("SessionCoordinator", () => {
     expect(deferredStore.clearBySession).toHaveBeenCalledWith(hibernatedPath);
     expect(closeTerminalsForSession).toHaveBeenCalledWith(livePath);
     expect(closeTerminalsForSession).toHaveBeenCalledWith(hibernatedPath);
+    expect(onSessionRuntimeDiscarded).toHaveBeenCalledTimes(2);
+    expect(onSessionRuntimeDiscarded).toHaveBeenNthCalledWith(1, livePath, "archive");
+    expect(onSessionRuntimeDiscarded).toHaveBeenNthCalledWith(2, hibernatedPath, "archive");
+  });
+
+  it("discardSessionRuntime keeps a completed discard successful when the discard hook rejects", async () => {
+    const agent = {
+      id: "hana",
+      agentName: "小花",
+      sessionDir: path.join(tempDir, "agents", "hana", "sessions"),
+    };
+    const hibernatedPath = path.join(agent.sessionDir, "hook-reject.jsonl");
+    fs.mkdirSync(agent.sessionDir, { recursive: true });
+
+    const confirmStore = { abortBySession: vi.fn() };
+    const deferredStore = { clearBySession: vi.fn() };
+    const closeTerminalsForSession = vi.fn();
+    const onSessionRuntimeDiscarded = vi.fn(async () => {
+      throw new Error("cleanup failed");
+    });
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({ authStorage: {}, modelRegistry: {}, resolveThinkingLevel: () => "medium" }),
+      getResourceLoader: () => ({ getSystemPrompt: () => "BASE" }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: () => {},
+      getHomeCwd: () => "/tmp/home",
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [{ id: "hana", name: "小花" }],
+      getConfirmStore: () => confirmStore,
+      getDeferredResultStore: () => deferredStore,
+      closeTerminalsForSession,
+      onSessionRuntimeDiscarded,
+    });
+
+    coordinator._hibernatedSessionMeta.set(hibernatedPath, { agentId: "hana" });
+
+    await expect(coordinator.discardSessionRuntime(hibernatedPath, "archive")).resolves.toBe(true);
+
+    expect(coordinator._hibernatedSessionMeta.has(hibernatedPath)).toBe(false);
+    expect(confirmStore.abortBySession).toHaveBeenCalledWith(hibernatedPath);
+    expect(deferredStore.clearBySession).toHaveBeenCalledWith(hibernatedPath);
+    expect(closeTerminalsForSession).toHaveBeenCalledWith(hibernatedPath);
+    expect(onSessionRuntimeDiscarded).toHaveBeenCalledWith(hibernatedPath, "archive");
   });
 });

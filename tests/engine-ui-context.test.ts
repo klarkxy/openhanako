@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { HanaEngine } from "../core/engine.ts";
 
 /**
@@ -7,9 +7,17 @@ import { HanaEngine } from "../core/engine.ts";
  */
 
 function makeFakeEngine() {
-  const fake: any = { _uiContextBySession: new Map() };
+  const fake: any = {
+    _uiContextBySession: new Map(),
+    _imageStripNotified: new Set(),
+    _videoStripNotified: new Set(),
+    _currentTurnNativeMedia: { clearSession: vi.fn() },
+    _sessionFiles: { unloadSession: vi.fn() },
+    _computerHost: { abortSession: vi.fn() },
+  };
   fake.setUiContext = HanaEngine.prototype.setUiContext;
   fake.getUiContext = HanaEngine.prototype.getUiContext;
+  fake.clearSessionRuntimeState = HanaEngine.prototype.clearSessionRuntimeState;
   return fake;
 }
 
@@ -63,5 +71,26 @@ describe("HanaEngine uiContext", () => {
     engine.setUiContext("/s/a", { activeFile: "/old" });
     engine.setUiContext("/s/a", { activeFile: "/new" });
     expect(engine.getUiContext("/s/a").activeFile).toBe("/new");
+  });
+
+  it("clearSessionRuntimeState removes only runtime caches for the discarded session", () => {
+    engine.setUiContext("/s/a", { activeFile: "/a" });
+    engine.setUiContext("/s/b", { activeFile: "/b" });
+    engine._imageStripNotified.add("/s/a");
+    engine._imageStripNotified.add("/s/b");
+    engine._videoStripNotified.add("/s/a");
+    engine._videoStripNotified.add("/s/b");
+
+    engine.clearSessionRuntimeState("/s/a", "archive");
+
+    expect(engine.getUiContext("/s/a")).toBeNull();
+    expect(engine.getUiContext("/s/b")).toEqual({ activeFile: "/b" });
+    expect(engine._imageStripNotified.has("/s/a")).toBe(false);
+    expect(engine._imageStripNotified.has("/s/b")).toBe(true);
+    expect(engine._videoStripNotified.has("/s/a")).toBe(false);
+    expect(engine._videoStripNotified.has("/s/b")).toBe(true);
+    expect(engine._currentTurnNativeMedia.clearSession).toHaveBeenCalledWith("/s/a");
+    expect(engine._sessionFiles.unloadSession).toHaveBeenCalledWith("/s/a");
+    expect(engine._computerHost.abortSession).toHaveBeenCalledWith("/s/a");
   });
 });

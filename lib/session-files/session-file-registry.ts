@@ -182,6 +182,35 @@ export class SessionFileRegistry {
     return ids.map(id => this._byId.get(id)).filter(Boolean);
   }
 
+  unloadSession(sessionPath) {
+    if (!sessionPath) throw new Error("sessionPath is required to unload session files");
+    const ids = new Set(this._idsBySession.get(sessionPath) || []);
+    const sidecar = this._sidecarsBySession.get(sessionPath);
+    for (const file of Object.values(sidecar?.files || {}) as any) {
+      if ((file as any)?.id) ids.add((file as any).id);
+    }
+    const hadSession = this._loadedSessions.has(sessionPath)
+      || this._sidecarsBySession.has(sessionPath)
+      || this._idsBySession.has(sessionPath);
+
+    for (const [indexedSessionPath, indexedIds] of this._idsBySession) {
+      const retainedIds = indexedIds.filter(id => !ids.has(id));
+      if (retainedIds.length === indexedIds.length) continue;
+      if (retainedIds.length) {
+        this._idsBySession.set(indexedSessionPath, retainedIds);
+      } else {
+        this._idsBySession.delete(indexedSessionPath);
+      }
+    }
+    this._sidecarsBySession.delete(sessionPath);
+    this._loadedSessions.delete(sessionPath);
+
+    for (const id of ids) {
+      if (!this._isFileIdReferencedByLoadedSession(id)) this._byId.delete(id);
+    }
+    return hadSession;
+  }
+
   cleanupColdSessionFiles({ sessionPath, maxInactiveMs = SESSION_FILE_CACHE_INACTIVE_TTL_MS }: any = {}) {
     if (!sessionPath) throw new Error("sessionPath is required to clean session files");
     this._hydrateSession(sessionPath);
@@ -278,6 +307,13 @@ export class SessionFileRegistry {
       const ids = this._idsBySession.get(sessionPath);
       if (!ids.includes(entry.id)) ids.push(entry.id);
     }
+  }
+
+  _isFileIdReferencedByLoadedSession(fileId) {
+    for (const ids of this._idsBySession.values()) {
+      if (ids.includes(fileId)) return true;
+    }
+    return false;
   }
 
   _readSidecar(sessionPath) {

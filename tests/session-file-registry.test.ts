@@ -373,6 +373,51 @@ describe("SessionFileRegistry", () => {
     expect(raw.refs.map(ref => ref.origin)).toEqual(["agent_write", "agent_edit", "stage_files"]);
   });
 
+  it("unloads one session from in-memory indexes while preserving sidecar and other sessions", () => {
+    const fileA = makeTempFile("unload/a.txt", "a");
+    const fileB = makeTempFile("unload/b.txt", "b");
+    const sessionA = makeSessionPath("unload-a.jsonl");
+    const sessionB = makeSessionPath("unload-b.jsonl");
+    const registry = new SessionFileRegistry({ now: () => 1234 });
+    const entryA = registry.registerFile({ sessionPath: sessionA, filePath: fileA, origin: "stage_files" });
+    const entryB = registry.registerFile({ sessionPath: sessionB, filePath: fileB, origin: "stage_files" });
+
+    expect(registry.unloadSession(sessionA)).toBe(true);
+
+    expect(registry.get(entryA.id)).toBeNull();
+    expect(registry.get(entryB.id)).toEqual(entryB);
+    expect(fs.existsSync(`${sessionA}.files.json`)).toBe(true);
+    expect(fs.existsSync(fileA)).toBe(true);
+    expect(registry.get(entryA.id, { sessionPath: sessionA })).toEqual(entryA);
+  });
+
+  it("unloads stale old-path indexes when a moved sidecar still contains the previous sessionPath", () => {
+    const filePath = makeTempFile("moved-sidecar/a.txt", "a");
+    const oldSessionPath = makeSessionPath("old-sidecar-owner.jsonl");
+    const newSessionPath = makeSessionPath("new-sidecar-owner.jsonl");
+    const writer = new SessionFileRegistry({ now: () => 1234 });
+    const entry = writer.registerFile({
+      sessionPath: oldSessionPath,
+      filePath,
+      origin: "stage_files",
+    });
+
+    fs.renameSync(`${oldSessionPath}.files.json`, `${newSessionPath}.files.json`);
+    const registry = new SessionFileRegistry({ now: () => 5678 });
+
+    expect(registry.get(entry.id, { sessionPath: newSessionPath })).toEqual({
+      ...entry,
+      sessionPath: oldSessionPath,
+    });
+    expect(registry.unloadSession(newSessionPath)).toBe(true);
+
+    expect(registry.get(entry.id)).toBeNull();
+    expect(registry.get(entry.id, { sessionPath: newSessionPath })).toEqual({
+      ...entry,
+      sessionPath: oldSessionPath,
+    });
+  });
+
   it("rejects registration without an explicit sessionPath", () => {
     const filePath = makeTempFile("a.txt", "a");
     const registry = new SessionFileRegistry();

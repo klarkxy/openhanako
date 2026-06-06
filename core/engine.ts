@@ -344,6 +344,7 @@ export class HanaEngine {
       getUsageLedger: () => this._usageLedger,
       closeTerminalsForSession: (sessionPath) => this._terminalSessions.closeForSession(sessionPath),
       closeAllTerminals: () => this._terminalSessions.closeAll(),
+      onSessionRuntimeDiscarded: (sessionPath, reason) => this.clearSessionRuntimeState(sessionPath, reason),
       onBeforeSessionCreate: async (cwd) => {
         await this.syncWorkspaceSkillPaths(cwd, { reload: true, emitEvent: false });
       },
@@ -629,6 +630,23 @@ export class HanaEngine {
   updateSessionFileTranscription(fileId, transcription, options) { return this._sessionFiles.updateTranscription(fileId, transcription, options); }
   beginCurrentTurnNativeMedia(sessionPath, opts) { return this._currentTurnNativeMedia.begin(sessionPath, opts); }
   endCurrentTurnNativeMedia(token) { return this._currentTurnNativeMedia.end(token); }
+  clearSessionRuntimeState(sessionPath, reason = "discard") {
+    if (!sessionPath) return false;
+    void reason;
+    this._uiContextBySession?.delete(sessionPath);
+    this._imageStripNotified?.delete(sessionPath);
+    this._videoStripNotified?.delete(sessionPath);
+    if (typeof this._currentTurnNativeMedia?.clearSession === "function") {
+      this._currentTurnNativeMedia.clearSession(sessionPath);
+    }
+    if (typeof this._sessionFiles?.unloadSession === "function") {
+      this._sessionFiles.unloadSession(sessionPath);
+    }
+    if (typeof this._computerHost?.abortSession === "function") {
+      this._computerHost.abortSession(sessionPath);
+    }
+    return true;
+  }
   get speechRecognition() { return this._speechRecognition; }
   get resources() { return this._resources; }
   getResourceService() {

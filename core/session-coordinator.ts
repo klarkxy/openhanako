@@ -593,6 +593,7 @@ export class SessionCoordinator {
    * @param {(agentId) => object|null} deps.getAgentById
    * @param {() => object} deps.listAgents - 列出所有 agent
    * @param {(cwd: string) => Promise<void>} [deps.onBeforeSessionCreate]
+   * @param {(sessionPath: string, reason: string) => void|Promise<void>} [deps.onSessionRuntimeDiscarded]
    */
   constructor(deps: any) {
     this._d = deps;
@@ -2737,7 +2738,15 @@ export class SessionCoordinator {
       this._currentSessionPath = null;
       this._sessionStarted = false;
     }
-    return !!entry || hadHibernated;
+    const discarded = !!entry || hadHibernated;
+    if (discarded && typeof this._d.onSessionRuntimeDiscarded === "function") {
+      try {
+        await this._d.onSessionRuntimeDiscarded(sessionPath, reason);
+      } catch (err) {
+        log.warn(`discardSessionRuntime ${path.basename(sessionPath)}: runtime state cleanup failed: ${(err as any).message}`);
+      }
+    }
+    return discarded;
   }
 
   async discardSessionsForAgent(agentId: any, reason = "agent deleted") {
