@@ -95,6 +95,10 @@ function markdownPostContent(text) {
   });
 }
 
+function parseMessageContent(callIndex = 0) {
+  return JSON.parse(mockMessageCreate.mock.calls[callIndex][0].data.content);
+}
+
 async function flushPromises() {
   await Promise.resolve();
   await Promise.resolve();
@@ -731,6 +735,40 @@ describe("createFeishuAdapter", () => {
     });
   });
 
+  it("sends markdown tables as Feishu interactive card messages", async () => {
+    const adapter = createFeishuAdapter({
+      appId: "app-id",
+      appSecret: "app-secret",
+      agentId: "hana",
+      onMessage: vi.fn(),
+    });
+    const table = [
+      "| Issue | Status |",
+      "| --- | --- |",
+      "| #1516 | open |",
+    ].join("\n");
+
+    await adapter.sendReply("oc_chat", table);
+
+    expect(mockMessageCreate).toHaveBeenCalledWith({
+      params: { receive_id_type: "chat_id" },
+      data: {
+        receive_id: "oc_chat",
+        msg_type: "interactive",
+        content: expect.any(String),
+      },
+    });
+    expect(parseMessageContent()).toMatchObject({
+      schema: "2.0",
+      config: { update_multi: true },
+      body: {
+        elements: [
+          { tag: "markdown", content: table },
+        ],
+      },
+    });
+  });
+
   it("renders explicit Feishu at tokens as post at elements", async () => {
     const adapter = createFeishuAdapter({
       appId: "app-id",
@@ -770,7 +808,7 @@ describe("createFeishuAdapter", () => {
     await adapter.updateStreamReply("oc_chat", state, "second");
     await adapter.finishStreamReply("oc_chat", state, "final");
 
-    expect(state).toEqual({ messageId: "om_stream_001" });
+    expect(state).toEqual({ messageId: "om_stream_001", renderKind: "post" });
     expect(mockMessageCreate).toHaveBeenCalledWith({
       params: { receive_id_type: "chat_id" },
       data: {
@@ -795,6 +833,59 @@ describe("createFeishuAdapter", () => {
     });
   });
 
+  it("moves Feishu streams from post to interactive card when markdown tables appear", async () => {
+    mockMessageCreate
+      .mockResolvedValueOnce({ data: { message_id: "om_stream_post" } })
+      .mockResolvedValueOnce({ data: { message_id: "om_stream_card" } });
+    const adapter = createFeishuAdapter({
+      appId: "app-id",
+      appSecret: "app-secret",
+      agentId: "hana",
+      onMessage: vi.fn(),
+    });
+    const table = [
+      "result",
+      "",
+      "| Issue | Status |",
+      "| --- | --- |",
+      "| #1516 | open |",
+    ].join("\n");
+
+    const state = await adapter.startStreamReply("oc_chat", "working");
+    await adapter.updateStreamReply("oc_chat", state, table);
+    await adapter.finishStreamReply("oc_chat", state, `${table}\n\nfinal`);
+
+    expect(state).toEqual({
+      messageId: "om_stream_card",
+      previousMessageId: "om_stream_post",
+      renderKind: "interactive",
+    });
+    expect(mockMessageUpdate).toHaveBeenNthCalledWith(1, {
+      path: { message_id: "om_stream_post" },
+      data: {
+        msg_type: "post",
+        content: markdownPostContent("已切换为表格卡片。"),
+      },
+    });
+    expect(mockMessageCreate).toHaveBeenNthCalledWith(2, {
+      params: { receive_id_type: "chat_id" },
+      data: {
+        receive_id: "oc_chat",
+        msg_type: "interactive",
+        content: expect.any(String),
+      },
+    });
+    expect(mockMessageUpdate).toHaveBeenNthCalledWith(2, {
+      path: { message_id: "om_stream_card" },
+      data: {
+        msg_type: "interactive",
+        content: expect.any(String),
+      },
+    });
+    expect(JSON.parse(mockMessageUpdate.mock.calls[1][0].data.content).body.elements[0].content)
+      .toContain("final");
+  });
+
   it("parses Feishu stream message ids from every SDK response shape", async () => {
     mockMessageCreate.mockResolvedValueOnce({ message_id: "om_stream_direct" });
     const adapter = createFeishuAdapter({
@@ -806,6 +897,7 @@ describe("createFeishuAdapter", () => {
 
     await expect(adapter.startStreamReply("oc_chat", "first")).resolves.toEqual({
       messageId: "om_stream_direct",
+      renderKind: "post",
     });
   });
 
