@@ -851,6 +851,7 @@
     "tabs": {
       "interface": "界面",
       "general": "通用",
+      "browser": "浏览器",
       "agent": "助手",
       "me": "我",
       "providers": "供应商",
@@ -868,6 +869,20 @@
       "about": "关于",
       "security": "安全",
       "pluginMarketplace": "插件市场"
+    },
+    "browser": {
+      "cookiesTitle": "Cookies",
+      "acceptCookies": "接受 Cookies",
+      "acceptCookiesHint": "打开后，内置浏览器会像普通浏览器一样保存和发送网站 Cookies。",
+      "clearCookies": "清除 Cookies",
+      "clearCookiesHint": "清除内置浏览器已经保存的 Cookies 和站点数据。",
+      "clearCookiesButton": "清除",
+      "clearCookiesSuccess": "已清除 Cookies",
+      "agentTitle": "Agent 默认行为",
+      "agentOpenBehavior": "打开网页时",
+      "agentOpenBehaviorHint": "控制 Agent 使用浏览器时默认复用当前标签页，还是每次新开标签页。",
+      "agentOpenBehaviorCurrentTab": "在当前标签页操作",
+      "agentOpenBehaviorNewTab": "新开标签页"
     },
     "experiments": {
       "title": "实验",
@@ -2351,6 +2366,8 @@
     "back": "后退",
     "forward": "前进",
     "reload": "刷新",
+    "newTab": "新标签页",
+    "closeTab": "关闭标签页",
     "emergencyStop": "紧急停止 AI 控制",
     "backgroundHint": "后台浏览器运行中，点击查看",
     "background": "后台浏览器"

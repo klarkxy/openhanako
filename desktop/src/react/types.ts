@@ -305,6 +305,28 @@ export interface PluginUiHostCapabilityGrant {
   hostCapabilities: string[];
 }
 
+export interface BrowserViewerTab {
+  tabId: string;
+  title?: string;
+  url?: string | null;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface BrowserViewerUpdate {
+  title?: string;
+  url?: string | null;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  running?: boolean;
+  reason?: string | null;
+  sessionPath?: string | null;
+  activeTabId?: string | null;
+  tabs?: BrowserViewerTab[];
+}
+
 // ── Platform API 类型声明 ──
 export interface PlatformApi {
   getServerPort(): Promise<string>;
@@ -375,12 +397,15 @@ export interface PlatformApi {
     thumbnailUrl?: string | null;
     thumbnailFresh?: boolean;
   }): void;
-  onBrowserUpdate?(callback: (data: { title?: string; canGoBack?: boolean; canGoForward?: boolean; running?: boolean }) => void): void;
+  onBrowserUpdate?(callback: (data: BrowserViewerUpdate) => void): void | (() => void);
   closeBrowserViewer?(): void;
   closeBrowser?(): void;
   browserGoBack?(): void;
   browserGoForward?(): void;
   browserReload?(): void;
+  browserNewTab?(): void;
+  browserSwitchTab?(tabId: string): void;
+  browserCloseTab?(tabId: string): void;
 
   // ── Skill viewer (preload) ──
   listSkillFiles?(baseDir: string): Promise<unknown[]>;

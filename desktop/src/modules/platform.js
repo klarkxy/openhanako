@@ -112,6 +112,9 @@
     browserGoBack: () => {},
     browserGoForward: () => {},
     browserReload: () => {},
+    browserNewTab: () => {},
+    browserSwitchTab: () => {},
+    browserCloseTab: () => {},
     browserEmergencyStop: () => {},
 
     // Skill 查看器 → Web 环境暂不支持

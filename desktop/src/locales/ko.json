@@ -794,6 +794,7 @@
     "tabs": {
       "interface": "인터페이스",
       "general": "일반",
+      "browser": "브라우저",
       "agent": "에이전트",
       "me": "나",
       "providers": "제공자",
@@ -809,6 +810,20 @@
       "plugins": "플러그인",
       "about": "소개",
       "security": "보안"
+    },
+    "browser": {
+      "cookiesTitle": "Cookies",
+      "acceptCookies": "Cookies 허용",
+      "acceptCookiesHint": "켜면 내장 브라우저가 일반 브라우저처럼 사이트 Cookies를 저장하고 전송합니다.",
+      "clearCookies": "Cookies 지우기",
+      "clearCookiesHint": "내장 브라우저에 저장된 Cookies와 사이트 데이터를 지웁니다.",
+      "clearCookiesButton": "지우기",
+      "clearCookiesSuccess": "Cookies를 지웠어요",
+      "agentTitle": "Agent 기본 동작",
+      "agentOpenBehavior": "웹페이지를 열 때",
+      "agentOpenBehaviorHint": "Agent가 브라우저를 사용할 때 현재 탭을 쓸지 새 탭을 열지 선택합니다.",
+      "agentOpenBehaviorCurrentTab": "현재 탭에서 작업",
+      "agentOpenBehaviorNewTab": "새 탭 열기"
     },
     "general": {
       "title": "일반",
@@ -2150,6 +2165,8 @@
     "back": "뒤로",
     "forward": "앞으로",
     "reload": "새로고침",
+    "newTab": "새 탭",
+    "closeTab": "탭 닫기",
     "emergencyStop": "AI 제어 긴급 중지",
     "backgroundHint": "백그라운드 브라우저 실행 중, 클릭하여 보기",
     "background": "백그라운드 브라우저"

@@ -794,6 +794,7 @@
     "tabs": {
       "interface": "介面",
       "general": "通用",
+      "browser": "瀏覽器",
       "agent": "助手",
       "me": "我",
       "providers": "供應商",
@@ -809,6 +810,20 @@
       "plugins": "插件",
       "about": "關於",
       "security": "安全"
+    },
+    "browser": {
+      "cookiesTitle": "Cookies",
+      "acceptCookies": "接受 Cookies",
+      "acceptCookiesHint": "開啟後，內置瀏覽器會像普通瀏覽器一樣儲存和傳送網站 Cookies。",
+      "clearCookies": "清除 Cookies",
+      "clearCookiesHint": "清除內置瀏覽器已經儲存的 Cookies 和站點資料。",
+      "clearCookiesButton": "清除",
+      "clearCookiesSuccess": "已清除 Cookies",
+      "agentTitle": "Agent 預設行為",
+      "agentOpenBehavior": "打開網頁時",
+      "agentOpenBehaviorHint": "控制 Agent 使用瀏覽器時預設沿用目前標籤頁，還是每次新開標籤頁。",
+      "agentOpenBehaviorCurrentTab": "在目前標籤頁操作",
+      "agentOpenBehaviorNewTab": "新開標籤頁"
     },
     "general": {
       "title": "通用",
@@ -2142,6 +2157,8 @@
     "back": "後退",
     "forward": "前進",
     "reload": "重新整理",
+    "newTab": "新標籤頁",
+    "closeTab": "關閉標籤頁",
     "emergencyStop": "緊急停止 AI 控制",
     "backgroundHint": "後台瀏覽器運行中，點擊查看",
     "background": "後台瀏覽器"

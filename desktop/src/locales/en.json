@@ -851,6 +851,7 @@
     "tabs": {
       "interface": "Interface",
       "general": "General",
+      "browser": "Browser",
       "agent": "Agent",
       "me": "Me",
       "providers": "Providers",
@@ -868,6 +869,20 @@
       "about": "About",
       "security": "Security",
       "pluginMarketplace": "Plugin Marketplace"
+    },
+    "browser": {
+      "cookiesTitle": "Cookies",
+      "acceptCookies": "Accept Cookies",
+      "acceptCookiesHint": "When enabled, the in-app browser saves and sends website Cookies like a normal browser.",
+      "clearCookies": "Clear Cookies",
+      "clearCookiesHint": "Clear Cookies and site data saved by the in-app browser.",
+      "clearCookiesButton": "Clear",
+      "clearCookiesSuccess": "Cookies cleared",
+      "agentTitle": "Agent Default Behavior",
+      "agentOpenBehavior": "When opening webpages",
+      "agentOpenBehaviorHint": "Choose whether the agent reuses the current tab or opens a new tab by default.",
+      "agentOpenBehaviorCurrentTab": "Use current tab",
+      "agentOpenBehaviorNewTab": "Open new tab"
     },
     "experiments": {
       "title": "Experiments",
@@ -2351,6 +2366,8 @@
     "back": "Back",
     "forward": "Forward",
     "reload": "Reload",
+    "newTab": "New Tab",
+    "closeTab": "Close tab",
     "emergencyStop": "Emergency stop AI control",
     "backgroundHint": "Background browser running, click to view",
     "background": "Background browser"

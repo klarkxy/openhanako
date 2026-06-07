@@ -794,6 +794,7 @@
     "tabs": {
       "interface": "インターフェース",
       "general": "一般",
+      "browser": "ブラウザ",
       "agent": "エージェント",
       "me": "自分",
       "providers": "プロバイダー",
@@ -809,6 +810,20 @@
       "plugins": "プラグイン",
       "about": "概要",
       "security": "セキュリティ"
+    },
+    "browser": {
+      "cookiesTitle": "Cookies",
+      "acceptCookies": "Cookies を受け入れる",
+      "acceptCookiesHint": "オンにすると、内蔵ブラウザは通常のブラウザのようにサイトの Cookies を保存して送信します。",
+      "clearCookies": "Cookies を消去",
+      "clearCookiesHint": "内蔵ブラウザに保存された Cookies とサイトデータを消去します。",
+      "clearCookiesButton": "消去",
+      "clearCookiesSuccess": "Cookies を消去しました",
+      "agentTitle": "Agent の既定動作",
+      "agentOpenBehavior": "Web ページを開く時",
+      "agentOpenBehaviorHint": "Agent がブラウザを使う時に、現在のタブを使うか新しいタブを開くかを選びます。",
+      "agentOpenBehaviorCurrentTab": "現在のタブで操作",
+      "agentOpenBehaviorNewTab": "新しいタブを開く"
     },
     "general": {
       "title": "一般",
@@ -2150,6 +2165,8 @@
     "back": "戻る",
     "forward": "進む",
     "reload": "再読み込み",
+    "newTab": "新しいタブ",
+    "closeTab": "タブを閉じる",
     "emergencyStop": "AI制御の緊急停止",
     "backgroundHint": "バックグラウンドブラウザ実行中、クリックして表示",
     "background": "バックグラウンドブラウザ"

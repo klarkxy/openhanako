@@ -41,6 +41,10 @@ import {
   mergeQuickChatPreferences,
   normalizeQuickChatPreferences,
 } from "../shared/quick-chat-preferences.ts";
+import {
+  mergeBrowserPreferences,
+  normalizeBrowserPreferences,
+} from "../shared/browser-preferences.ts";
 import { createModuleLogger } from "../lib/debug-log.ts";
 import { normalizeSessionThinkingLevel } from "./session-thinking-level.ts";
 
@@ -456,6 +460,19 @@ export class PreferencesManager {
     prefs.quick_chat = mergeQuickChatPreferences(prefs.quick_chat || {}, partial || {});
     this.savePreferences(prefs);
     return prefs.quick_chat;
+  }
+
+  /** 读取内置浏览器偏好。 */
+  getBrowserPreferences() {
+    return normalizeBrowserPreferences(this._cache.browser || {});
+  }
+
+  /** 合并写入内置浏览器偏好。 */
+  setBrowserPreferences(partial) {
+    const prefs = this._mutableCopy();
+    prefs.browser = mergeBrowserPreferences(prefs.browser || {}, partial || {});
+    this.savePreferences(prefs);
+    return prefs.browser;
   }
 
   /** 读取指定工作区的 UI 状态（文件夹展开、预览 tabs 等）。 */

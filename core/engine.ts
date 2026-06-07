@@ -1120,6 +1120,8 @@ export class HanaEngine {
   setNotificationPreferences(p) { return this._prefs.setNotificationPreferences(p); }
   getQuickChatPreferences() { return this._prefs.getQuickChatPreferences(); }
   setQuickChatPreferences(p) { return this._prefs.setQuickChatPreferences(p); }
+  getBrowserPreferences() { return this._prefs.getBrowserPreferences(); }
+  setBrowserPreferences(p) { return this._prefs.setBrowserPreferences(p); }
   getWorkspaceUiState(workspaceRoot, surface) { return this._prefs.getWorkspaceUiState(workspaceRoot, surface); }
   setWorkspaceUiState(workspaceRoot, surface, state) { return this._prefs.setWorkspaceUiState(workspaceRoot, surface, state); }
   gcWorkspacePersistence( options: any = {}) {

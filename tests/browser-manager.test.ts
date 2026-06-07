@@ -9,6 +9,110 @@ const SP5 = "/sessions/session-5.json";
 const SP6 = "/sessions/session-6.json";
 
 describe("BrowserManager URL tracking (per-session)", () => {
+  it("tracks tab workspaces per session and returns the active tab URL", async () => {
+    const manager = new BrowserManager();
+    manager._sendCmd = vi.fn()
+      .mockResolvedValueOnce({
+        activeTabId: "tab-1",
+        tabs: [{ tabId: "tab-1", title: "One", url: "https://one.example.com" }],
+      })
+      .mockResolvedValueOnce({
+        activeTabId: "tab-2",
+        tabs: [
+          { tabId: "tab-1", title: "One", url: "https://one.example.com" },
+          { tabId: "tab-2", title: "Two", url: "https://two.example.com" },
+        ],
+      })
+      .mockResolvedValueOnce({
+        activeTabId: "tab-1",
+        tabs: [
+          { tabId: "tab-1", title: "One", url: "https://one.example.com" },
+          { tabId: "tab-2", title: "Two", url: "https://two.example.com" },
+        ],
+      });
+
+    await manager.launch(SP1);
+    await manager.newTab(SP1, "https://two.example.com");
+
+    expect(manager.getTabs(SP1).map(tab => tab.tabId)).toEqual(["tab-1", "tab-2"]);
+    expect(manager.activeTab(SP1)?.tabId).toBe("tab-2");
+    expect(manager.currentUrl(SP1)).toBe("https://two.example.com");
+
+    await manager.switchTab(SP1, "tab-1");
+
+    expect(manager.activeTab(SP1)?.tabId).toBe("tab-1");
+    expect(manager.currentUrl(SP1)).toBe("https://one.example.com");
+  });
+
+  it("closeTab activates the neighboring tab and removes the closed tab from session state", async () => {
+    const manager = new BrowserManager();
+    manager._sessions.set(SP1, {
+      running: true,
+      url: "https://two.example.com",
+      activeTabId: "tab-2",
+      headless: false,
+      tabs: [
+        { tabId: "tab-1", title: "One", url: "https://one.example.com" },
+        { tabId: "tab-2", title: "Two", url: "https://two.example.com" },
+      ],
+    });
+    manager._sendCmd = vi.fn().mockResolvedValue({
+      activeTabId: "tab-1",
+      tabs: [{ tabId: "tab-1", title: "One", url: "https://one.example.com" }],
+    });
+    manager._saveColdWorkspace = vi.fn();
+
+    await manager.closeTab(SP1, "tab-2");
+
+    expect(manager._sendCmd).toHaveBeenCalledWith("closeTab", { sessionPath: SP1, tabId: "tab-2" });
+    expect(manager.getTabs(SP1)).toEqual([
+      expect.objectContaining({ tabId: "tab-1", url: "https://one.example.com" }),
+    ]);
+    expect(manager.activeTab(SP1)?.tabId).toBe("tab-1");
+    expect(manager.currentUrl(SP1)).toBe("https://one.example.com");
+  });
+
+  it("navigate honors the Agent new-tab browser preference", async () => {
+    const manager = new BrowserManager();
+    manager.setBrowserPreferences({ agentOpenBehavior: "new_tab" });
+    manager._sessions.set(SP1, {
+      running: true,
+      url: "https://one.example.com",
+      activeTabId: "tab-1",
+      headless: false,
+      tabs: [{ tabId: "tab-1", title: "One", url: "https://one.example.com" }],
+    });
+    manager._sendCmd = vi.fn()
+      .mockResolvedValueOnce({
+        activeTabId: "tab-2",
+        tabs: [
+          { tabId: "tab-1", title: "One", url: "https://one.example.com" },
+          { tabId: "tab-2", title: "New Tab", url: null },
+        ],
+      })
+      .mockResolvedValueOnce({
+        url: "https://two.example.com",
+        title: "Two",
+        snapshot: "Page: Two",
+        tabId: "tab-2",
+      });
+    manager._saveColdUrl = vi.fn();
+
+    const result = await manager.navigate("https://two.example.com", SP1);
+
+    expect(result.tabId).toBe("tab-2");
+    expect(manager._sendCmd).toHaveBeenNthCalledWith(1, "newTab", {
+      sessionPath: SP1,
+      url: undefined,
+    });
+    expect(manager._sendCmd).toHaveBeenNthCalledWith(2, "navigate", {
+      url: "https://two.example.com",
+      sessionPath: SP1,
+      tabId: "tab-2",
+    });
+    expect(manager.currentUrl(SP1)).toBe("https://two.example.com");
+  });
+
   it.each([
     ["scroll", (manager, sp) => manager.scroll("down", 2, sp)],
     ["select", (manager, sp) => manager.select(7, "next", sp)],
@@ -80,6 +184,7 @@ describe("BrowserManager explicit sessionPath", () => {
     expect(manager._sendCmd).toHaveBeenCalledWith("launch", {
       sessionPath: SP1,
       headless: false,
+      acceptCookies: true,
     });
   });
 
@@ -205,6 +310,7 @@ describe("BrowserManager explicit sessionPath", () => {
     expect(manager._sendCmd).toHaveBeenNthCalledWith(2, "launch", {
       sessionPath: SP1,
       headless: false,
+      acceptCookies: true,
     });
     expect(manager.isRunning(SP1)).toBe(true);
     expect(manager.sessionUnavailableReason(SP1)).toBeNull();
@@ -343,7 +449,7 @@ describe("BrowserManager multi-instance", () => {
 
   it("close/suspend/resume are isolated per session", async () => {
     const manager = new BrowserManager();
-    manager._sendCmd = vi.fn().mockImplementation(async (cmd, params) => {
+    manager._sendCmd = vi.fn().mockImplementation(async (cmd) => {
       if (cmd === "resume") return { found: true, url: "https://resumed.com" };
       return {};
     });
@@ -376,6 +482,43 @@ describe("BrowserManager multi-instance", () => {
 
     expect(manager.isRunning(SP1)).toBe(true);
     expect(manager.currentUrl(SP1)).toBe("https://resumed.com");
+  });
+
+  it("cold resume restores the tab workspace even when the active tab is blank", async () => {
+    const manager = new BrowserManager();
+    manager._loadColdState = vi.fn().mockReturnValue({
+      [SP1]: {
+        activeTabId: "tab-blank",
+        tabs: [
+          { tabId: "tab-blank", title: "New Tab", url: null },
+          { tabId: "tab-page", title: "Page", url: "https://page.example.com" },
+        ],
+      },
+    });
+    manager._sendCmd = vi.fn().mockImplementation(async (cmd, params) => {
+      if (cmd === "resume") return { found: false };
+      if (cmd === "launch") return {
+        activeTabId: params.activeTabId,
+        tabs: params.tabs,
+      };
+      return {};
+    });
+
+    await manager.resumeForSession(SP1);
+
+    expect(manager._sendCmd).toHaveBeenNthCalledWith(1, "resume", { sessionPath: SP1 });
+    expect(manager._sendCmd).toHaveBeenNthCalledWith(2, "launch", {
+      sessionPath: SP1,
+      tabs: [
+        expect.objectContaining({ tabId: "tab-blank", url: null }),
+        expect.objectContaining({ tabId: "tab-page", url: "https://page.example.com" }),
+      ],
+      activeTabId: "tab-blank",
+      acceptCookies: true,
+    });
+    expect(manager.isRunning(SP1)).toBe(true);
+    expect(manager.activeTab(SP1)?.tabId).toBe("tab-blank");
+    expect(manager.getTabs(SP1).map(tab => tab.tabId)).toEqual(["tab-blank", "tab-page"]);
   });
 
   it("hasAnyRunning returns true when at least one session is running", async () => {
@@ -419,17 +562,23 @@ describe("BrowserManager multi-instance", () => {
     expect(manager.runningSessions).not.toContain(SP2);
   });
 
-  it("suspendForSession saves cold URL and marks not running", async () => {
+  it("suspendForSession saves the cold tab workspace and marks not running", async () => {
     const manager = new BrowserManager();
     manager._sendCmd = vi.fn().mockResolvedValue({});
-    manager._saveColdUrl = vi.fn();
+    manager._saveColdWorkspace = vi.fn();
 
     await manager.launch(SP1);
-    manager._sessions.get(SP1).url = "https://example.com/page";
+    const entry = manager._sessions.get(SP1);
+    entry.url = "https://example.com/page";
+    entry.activeTabId = "tab-1";
+    entry.tabs = [{ tabId: "tab-1", title: "Page", url: "https://example.com/page" }];
 
     await manager.suspendForSession(SP1);
 
-    expect(manager._saveColdUrl).toHaveBeenCalledWith(SP1, "https://example.com/page");
+    expect(manager._saveColdWorkspace).toHaveBeenCalledWith(
+      SP1,
+      expect.objectContaining({ activeTabId: "tab-1", url: "https://example.com/page" }),
+    );
     expect(manager.isRunning(SP1)).toBe(false);
     // suspend 后 entry 从 Map 中移除（冷状态已写磁盘，避免僵尸条目累积）
     expect(manager._sessions.has(SP1)).toBe(false);
