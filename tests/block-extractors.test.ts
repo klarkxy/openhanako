@@ -52,6 +52,49 @@ describe('stage_files', () => {
     });
   });
 
+  it('restores one file block per delivered SessionFile', () => {
+    const details = {
+      files: [
+        {
+          fileId: 'sf_cover',
+          filePath: '/cache/cover.png',
+          label: 'cover.png',
+          ext: 'png',
+          mime: 'image/png',
+          kind: 'image',
+          storageKind: 'external',
+          status: 'available',
+        },
+        {
+          fileId: 'sf_alt',
+          filePath: '/cache/alt.png',
+          label: 'alt.png',
+          ext: 'png',
+          mime: 'image/png',
+          kind: 'image',
+          storageKind: 'external',
+          status: 'available',
+        },
+      ],
+    };
+    const result = extractor(details);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({
+      type: 'file',
+      fileId: 'sf_cover',
+      filePath: '/cache/cover.png',
+      label: 'cover.png',
+      status: 'available',
+    });
+    expect(result[1]).toMatchObject({
+      type: 'file',
+      fileId: 'sf_alt',
+      filePath: '/cache/alt.png',
+      label: 'alt.png',
+      status: 'available',
+    });
+  });
+
   it('preserves session file lifecycle metadata', () => {
     const details = {
       files: [

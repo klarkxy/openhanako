@@ -9,8 +9,8 @@
  * agent 声明持有文件，框架按上下文投递（桌面渲染 / bridge 发送）。
  * 服务端拦截 tool_execution_end 事件，通过 WebSocket 推送 file_output 事件给前端。
  *
- * 参数：{ filepaths: string[] }
- * 同时向下兼容旧的单文件调用：{ filePath: string, label?: string }
+ * 参数：{ filepaths: string[] } 或 { fileIds: string[] }
+ * 同时向下兼容旧的单文件调用：{ filePath: string, fileId?: string, label?: string }
  */
 import fs from "fs";
 import path from "path";
@@ -28,39 +28,81 @@ function sanitizePath(p: any) {
   return p;
 }
 
-export function createStageFilesTool({ registerSessionFile, getSessionPath }: { registerSessionFile?: any; getSessionPath?: any } = {}) {
+export function createStageFilesTool({ registerSessionFile, resolveSessionFile, getSessionPath }: { registerSessionFile?: any; resolveSessionFile?: any; getSessionPath?: any } = {}) {
   return {
     name: "stage_files",
     label: "Stage Files",
-    description: "Call this tool when you need to hand one or more local files to the user, present them on desktop, or send them through Bridge/remote platforms. Use it after creating a file, finding a requested local file, receiving a browser screenshot, installer/package source, or file contribution from a plugin or sub-agent. Only call it when the file really exists and the path is a local absolute path. Do not merely mention file paths in text, and do not decide how the target platform should render or send the file; consumers choose the platform-specific delivery.",
+    description: "Call this tool when you need to hand one or more files to the user, present them on desktop, or send them through Bridge/remote platforms. Prefer fileIds for files already registered in the current session. Use local absolute filepaths only for files that are not yet SessionFiles. Do not merely mention file paths in text, and do not decide how the target platform should render or send the file; consumers choose the platform-specific delivery.",
     parameters: Type.Object({
+      fileIds: Type.Optional(Type.Array(Type.String(), {
+        minItems: 1,
+        description: "SessionFile ids to deliver. Prefer this for files already shown by current_status or returned by another tool.",
+      })),
+      fileId: Type.Optional(Type.String({ description: "(Compat) Single SessionFile id to deliver. Prefer fileIds for new calls." })),
       filepaths: Type.Optional(Type.Array(Type.String(), {
         minItems: 1,
-        description: "Local absolute file paths to deliver. After locating files, pass them here so StageFile can register them for desktop, Bridge, or future mobile consumers.",
+        description: "Local absolute file paths to deliver when no SessionFile id is available. StageFile will register them for desktop, Bridge, or future mobile consumers.",
       })),
       // 向下兼容旧接口
       filePath: Type.Optional(Type.String({ description: "(Compat) Single local absolute file path. Prefer filepaths for new calls." })),
       label: Type.Optional(Type.String({ description: "(Compat) File name shown to the user. Usually omit this; the filename is used by default." })),
     }),
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-      // 统一为路径数组：优先使用 filepaths，兼容 filePath
+      const results = [];
+      const errors = [];
+      const sessionPath = getToolSessionPath(ctx) || ctx?.sessionPath || getSessionPath?.() || null;
+
+      // 优先交付已登记 SessionFile：用 fileId 找真相源，再复用 stage_files 的交付语义。
+      let fileIds = params.fileIds;
+      if (!fileIds || fileIds.length === 0) {
+        fileIds = params.fileId ? [params.fileId] : [];
+      }
+      for (const fileId of fileIds || []) {
+        if (!fileId || typeof fileId !== "string") continue;
+        if (typeof resolveSessionFile !== "function") {
+          errors.push("stage_files requires a SessionFile resolver to deliver fileIds");
+          continue;
+        }
+        try {
+          const sessionFile = await resolveSessionFile(fileId, { sessionPath });
+          if (!sessionFile) {
+            errors.push(`SessionFile not found: ${fileId}`);
+            continue;
+          }
+          const resolvedPath = sessionFile.filePath || sessionFile.realPath || "";
+          const label = params.label || sessionFile.label || sessionFile.displayName || sessionFile.filename || fileId;
+          const ext = sessionFile.ext || path.extname(sessionFile.filename || resolvedPath || "").toLowerCase().replace(".", "");
+          const effectiveSessionPath = sessionPath || sessionFile.sessionPath || null;
+          let deliveredFile = sessionFile;
+          if (
+            typeof registerSessionFile === "function"
+            && effectiveSessionPath
+            && resolvedPath
+            && path.isAbsolute(resolvedPath)
+            && fs.existsSync(resolvedPath)
+          ) {
+            deliveredFile = await registerSessionFile({
+              sessionPath: effectiveSessionPath,
+              filePath: resolvedPath,
+              label,
+              origin: "stage_files",
+            });
+          }
+          results.push(toStageFileResult(deliveredFile, { filePath: resolvedPath, label, ext }));
+        } catch (err) {
+          errors.push(err?.message || String(err));
+        }
+      }
+
+      // 统一为路径数组：优先使用 filepaths，兼容 filePath。
       let paths = params.filepaths;
       if (!paths || paths.length === 0) {
         if (params.filePath) {
           paths = [params.filePath];
         } else {
-          return {
-            content: [{ type: "text", text: t("error.outputFileNeedPaths") }],
-            details: {},
-          };
+          paths = [];
         }
       }
-
-      const results = [];
-      const errors = [];
-      const sessionPath = registerSessionFile
-        ? getToolSessionPath(ctx) || ctx?.sessionPath || getSessionPath?.() || null
-        : null;
 
       for (const raw of paths) {
         const fp = sanitizePath(raw);
@@ -100,7 +142,7 @@ export function createStageFilesTool({ registerSessionFile, getSessionPath }: { 
 
       if (results.length === 0) {
         return {
-          content: [{ type: "text", text: errors.join("\n") }],
+          content: [{ type: "text", text: errors.join("\n") || t("error.outputFileNeedPaths") }],
           details: {},
         };
       }

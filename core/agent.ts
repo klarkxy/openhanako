@@ -458,6 +458,7 @@ export class Agent {
     });
     this._stageFilesTool = createStageFilesTool({
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
+      resolveSessionFile: (fileId, options = {}) => this._cb?.getEngine?.()?.getSessionFile?.(fileId, options) || null,
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
     });
     this._fileTool = createFileTool({
@@ -1276,8 +1277,8 @@ export class Agent {
         "当你需要使用本轮会话已经产生或登记过的文件时，先调用 current_status 获取 session_files。它会返回当前 session 的文件清单、fileId、来源、状态和本机路径。不要猜测 session-files 缓存路径。\n\n" +
         "当你需要查看文件元信息或把已有 SessionFile 复制到当前项目目录时，使用 file 工具。查看用 action=stat；复制用 action=copy，并优先传 fileId；它会把原文件复制到当前 cwd 内的目标路径并重新登记为 external SessionFile。不要移动、编辑或删除原 SessionFile。\n\n" +
         "write/edit 成功后会由工具层自动记录为 session 相关文件；这只表示文件和本次会话有关，不等于已经交付给用户。\n\n" +
-        "当用户要求你把文件发给他、呈现给他、交付给他，或者你创建/修改了一个明确需要用户查看或拿走的文件时，使用 stage_files 标记为已交付。stage 表示把这个 session 相关文件提升为消费端可展示/可发送的文件。\n\n" +
-        "- 只传真实存在的本机绝对路径\n" +
+        "当用户要求你把文件发给他、呈现给他、交付给他，或者你创建/修改了一个明确需要用户查看或拿走的文件时，使用 stage_files 标记为已交付。stage 表示把这个 session 相关文件提升为消费端可展示/可发送的文件；已有 SessionFile 时优先传 fileId，不要为了交付而猜真实路径。\n\n" +
+        "- 已有 SessionFile 时优先传 fileId；只有还没有 SessionFile 记录的本机文件才传真实存在的本机绝对路径\n" +
         "- 已经 stage 过的同一个文件不需要反复 stage；如文件内容后来又被修改，并且用户需要查看最新版本，再 stage 一次\n" +
         "- 不要只在文本里写文件路径\n" +
         "- 不要在 Agent 层判断具体平台怎么展示或发送，消费端会处理"
@@ -1287,8 +1288,8 @@ export class Agent {
         "When you need to use a file that has already been produced or registered in this conversation, call current_status with the session_files key first. It returns the current session file list, fileId, origin, status, and local path. Do not guess session-files cache paths.\n\n" +
         "When you need to inspect file metadata or copy an existing SessionFile into the current project folder, use the file tool. Use action=stat for metadata; use action=copy and prefer passing fileId for copies. This copies the original into the current cwd target and registers the copy as an external SessionFile. Do not move, edit, or delete the original SessionFile.\n\n" +
         "After write/edit succeeds, the tool layer records the file as session-related automatically; this only means the file belongs to this session, not that it has been delivered to the user.\n\n" +
-        "When the user asks you to send, present, or hand over a file, or when you create/modify a file the user clearly needs to see or take away, use stage_files to mark it as delivered. Staging promotes this session-related file to something consumers can display/send.\n\n" +
-        "- Pass only real local absolute paths\n" +
+        "When the user asks you to send, present, or hand over a file, or when you create/modify a file the user clearly needs to see or take away, use stage_files to mark it as delivered. Staging promotes this session-related file to something consumers can display/send; when a SessionFile already exists, prefer passing fileId and do not guess the real path just to deliver it.\n\n" +
+        "- Prefer fileId for existing SessionFiles; pass real local absolute paths only for local files that do not have a SessionFile record yet\n" +
         "- Do not repeatedly stage the same file once it has already been staged; if the file is modified later and the user needs the latest version, stage it again\n" +
         "- Do not merely write file paths in text\n" +
         "- Do not decide platform-specific display or sending behavior in the Agent layer; consumers handle it"

@@ -1621,7 +1621,7 @@ describe("sessions route", () => {
     })]);
   });
 
-  it("hydrates legacy file blocks without fileId from the session file sidecar by path", async () => {
+  it("hydrates every legacy file block without fileId from the session file sidecar by path", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.ts");
     const msgUtils = await import("../core/message-utils.ts");
     const app = new Hono();
@@ -1637,6 +1637,7 @@ describe("sessions route", () => {
         details: {
           files: [
             { filePath: "/cache/legacy.png", label: "legacy.png", ext: "png" },
+            { filePath: "/cache/second.png", label: "second.png", ext: "png" },
           ],
         },
       },
@@ -1648,19 +1649,34 @@ describe("sessions route", () => {
       deferredResults: null,
       getSessionFile: vi.fn(),
       getSessionFileByPath: vi.fn((filePath, options) => {
-        expect(filePath).toBe("/cache/legacy.png");
         expect(options).toEqual({ sessionPath });
-        return {
-          id: "sf_legacy",
-          filePath,
-          label: "legacy.png",
-          ext: "png",
-          mime: "image/png",
-          kind: "image",
-          storageKind: "managed_cache",
-          status: "expired",
-          missingAt: 4321,
-        };
+        if (filePath === "/cache/legacy.png") {
+          return {
+            id: "sf_legacy",
+            filePath,
+            label: "legacy.png",
+            ext: "png",
+            mime: "image/png",
+            kind: "image",
+            storageKind: "managed_cache",
+            status: "expired",
+            missingAt: 4321,
+          };
+        }
+        if (filePath === "/cache/second.png") {
+          return {
+            id: "sf_second",
+            filePath,
+            label: "second.png",
+            ext: "png",
+            mime: "image/png",
+            kind: "image",
+            storageKind: "managed_cache",
+            status: "available",
+            missingAt: null,
+          };
+        }
+        return null;
       }),
     };
 
@@ -1676,6 +1692,12 @@ describe("sessions route", () => {
       filePath: "/cache/legacy.png",
       status: "expired",
       missingAt: 4321,
+    });
+    expect(data.blocks[1]).toMatchObject({
+      type: "file",
+      fileId: "sf_second",
+      filePath: "/cache/second.png",
+      status: "available",
     });
   });
 

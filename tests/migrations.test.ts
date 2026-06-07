@@ -713,14 +713,21 @@ describe("migration #12: backfill legacy session files into sidecars", () => {
     writeAgentConfig(agentsDir, "hana", { agent: { name: "Hana" } });
     const sessionPath = path.join(agentsDir, "hana", "sessions", "legacy.jsonl");
     const stagePath = path.join(tmpDir, "legacy-image.png");
+    const presentPath = path.join(tmpDir, "legacy-present.txt");
     const artifactPath = path.join(tmpDir, "legacy-artifact.md");
     fs.writeFileSync(stagePath, "png-bytes");
+    fs.writeFileSync(presentPath, "present");
     fs.writeFileSync(artifactPath, "# Artifact\n");
     writeSessionJsonl(sessionPath, [
       {
         role: "toolResult",
         toolName: "stage_files",
         details: { files: [{ filePath: stagePath, label: "Legacy Image" }] },
+      },
+      {
+        role: "toolResult",
+        toolName: "present_files",
+        details: { filePath: presentPath, label: "Legacy Present" },
       },
       {
         role: "toolResult",
@@ -742,6 +749,7 @@ describe("migration #12: backfill legacy session files into sidecars", () => {
     const files = Object.values(sidecar.files);
     expect(files).toEqual(expect.arrayContaining([
       expect.objectContaining({ filePath: stagePath, origin: "stage_files", status: "available" }),
+      expect.objectContaining({ filePath: presentPath, origin: "stage_files", status: "available" }),
       expect.objectContaining({ filePath: artifactPath, origin: "agent_artifact", status: "available" }),
     ]));
     expect(fs.readFileSync(sessionPath, "utf-8")).toBe(before);
