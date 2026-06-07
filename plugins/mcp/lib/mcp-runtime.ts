@@ -1005,7 +1005,12 @@ export class McpRuntime {
   async saveConnectorOAuth(connectorId, token, { clientRegistration = null } = {}) {
     this._writeConnectorOAuth(connectorId, token, clientRegistration);
     const saved = await this.stopConnector(connectorId).then(() => this.getConfig());
-    return saved.connectors.find((item) => item.id === connectorId);
+    const connector = saved.connectors.find((item) => item.id === connectorId);
+    if (!connector) throw new Error(`MCP connector "${connectorId}" not found after OAuth save`);
+    if (!stringOrEmpty(connector.oauth?.accessToken)) {
+      throw new Error(`OAuth token was not persisted for MCP connector "${connectorId}"`);
+    }
+    return connector;
   }
 
   // Pure persistence of OAuth credentials onto a connector. No client lifecycle

@@ -309,10 +309,18 @@ describe("HTTP route security policy", () => {
   });
 
   it("gates built-in MCP connector settings by settings scopes", async () => {
-    const { authorizeHttpRoute } = await import("../server/http/route-security.ts");
+    const { authorizeHttpRoute, classifyHttpRoute } = await import("../server/http/route-security.ts");
     const reader = devicePrincipal(["settings.read"]);
     const writer = devicePrincipal(["settings.read", "settings.write"]);
     const chatOnly = devicePrincipal(["chat"]);
+
+    expect(classifyHttpRoute({ method: "GET", path: "/api/plugins/mcp/oauth/callback" }))
+      .toMatchObject({ kind: "public" });
+    expect(authorizeHttpRoute({
+      method: "GET",
+      path: "/api/plugins/mcp/oauth/callback",
+      principal: null,
+    })).toMatchObject({ allowed: true });
 
     for (const [method, path] of [
       ["GET", "/api/plugins/mcp/state"],
