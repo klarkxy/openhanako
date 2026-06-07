@@ -441,10 +441,6 @@
     animation: hana-stream-tail-in 100ms var(--ease-out) both;
 }
 
-.streamPlainText {
-    white-space: normal;
-}
-
 .streamMarkdownBlockEnter {
     animation: hana-stream-tail-in 110ms var(--ease-out) both;
 }
