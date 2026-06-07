@@ -134,6 +134,7 @@ export default [
       'no-empty': 'warn',
       'prefer-const': 'warn',
       'no-useless-escape': 'warn',
+      'no-control-regex': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
     },
