@@ -535,14 +535,14 @@ export function createQQAdapter({ appID, appSecret, agentId, onMessage, dmGuildM
 
   function scheduleReconnect() {
     if (stopped) return;
-    // 如果上次连接保活超过 5 分钟，说明不是启动阶段频繁失败，重置计数
-    if (lastConnectedAt && Date.now() - lastConnectedAt > 5 * 60 * 1000) {
-      reconnectAttempts = 0;
-    }
-    const delays = [1000, 2000, 5000, 10000, 30000, 60000];
-    const delay = delays[Math.min(reconnectAttempts, delays.length - 1)];
+    // backoff计数器只在 ws.on("open")成功时归零（新会话起点）。
+    // 不要在重连失败路径上因「上次成功连接是几分钟前」就清零，
+    // 否则一旦 fetch一直失败、之前的连接又保活过5 分钟，
+    // backoff 会永远停在 delays[0] =1s，一小时刷几百条日志。
+    const delays = [1000,2000,5000,10000,30000,60000];
+    const delay = delays[Math.min(reconnectAttempts, delays.length -1)];
     reconnectAttempts++;
-    debugLog()?.log("bridge", `[qq] ${delay / 1000}s 后重连（第 ${reconnectAttempts} 次）`);
+    debugLog()?.log("bridge", `[qq] ${delay /1000}s 后重连（第 ${reconnectAttempts} 次）`);
     setTimeout(() => connect(), delay);
   }
 
