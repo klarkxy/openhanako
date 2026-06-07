@@ -31,9 +31,17 @@ interface CustomFontStorage {
  *  即便绕过 IPC 写入 localStorage，渲染端也兜底一次。 */
 function safeFamily(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  const cleaned = value
-    .replace(/[\u0000-\u001F\u007F;{}<>\\]/g, '')
-    .trim();
+  // 避开 no-control-regex：手动按 charCodeAt 过滤。
+  // 拒绝：控制字符（≤0x1F 或 0x7F），以及 ; { } < > \ 这几个会逃逸出 CSS 声明的字符。
+  let cleaned = '';
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    const code = value.charCodeAt(i);
+    if (code <= 0x1F || code === 0x7F) continue;
+    if (ch === ';' || ch === '{' || ch === '}' || ch === '<' || ch === '>' || ch === '\\') continue;
+    cleaned += ch;
+  }
+  cleaned = cleaned.trim();
   if (!cleaned || cleaned.length > 200) return null;
   return cleaned;
 }

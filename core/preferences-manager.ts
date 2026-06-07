@@ -752,8 +752,11 @@ function sanitizeFontFamily(value) {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (trimmed.length > 200) return undefined;
-  // 多行 / 控制字符一律拒绝
-  if (/[\r\n\u0000-\u001F\u007F]/.test(trimmed)) return undefined;
+  // 多行 / 控制字符一律拒绝。避开 no-control-regex：手动逐字符 charCodeAt 检查。
+  for (let i = 0; i < trimmed.length; i++) {
+    const code = trimmed.charCodeAt(i);
+    if (code <= 0x1F || code === 0x7F) return undefined;
+  }
   if (!FONT_FAMILY_ALLOWED.test(trimmed)) return undefined;
   return trimmed;
 }
