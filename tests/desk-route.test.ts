@@ -1,9 +1,9 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { upsertStudioMount } from "../core/studio-mounts.ts";
 
 const extractZipMock = vi.fn(async (zipPath, destDir) => {
   const skillDir = path.join(destDir, "sample-skill");
@@ -105,6 +105,77 @@ describe("desk route", () => {
     }
   });
 
+  it("manages workspace skills through a mounted Studio workspace", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
+    try {
+      const hanakoHome = path.join(tempRoot, "hana");
+      const workspace = path.join(tempRoot, "mounted-workspace");
+      const existingSkillDir = path.join(workspace, ".agents", "skills", "existing-skill");
+      fs.mkdirSync(existingSkillDir, { recursive: true });
+      fs.writeFileSync(path.join(existingSkillDir, "SKILL.md"), "---\nname: existing-skill\n---\n", "utf-8");
+      upsertStudioMount(hanakoHome, {
+        schemaVersion: 1,
+        mountId: "mount_docs",
+        hostStudioId: "studio-main",
+        sourceKind: "storage",
+        provider: "local_fs",
+        label: "Docs",
+        presentation: "folder",
+        capabilities: ["list", "read", "write"],
+        rootLocator: { path: workspace },
+      });
+
+      const syncWorkspaceSkillPaths = vi.fn(async () => {});
+      const engine = {
+        hanakoHome,
+        deskCwd: path.join(tempRoot, "default-workspace"),
+        homeCwd: path.join(tempRoot, "default-workspace"),
+        getRuntimeContext: () => ({ studioId: "studio-main" }),
+        syncWorkspaceSkillPaths,
+      };
+
+      const { createDeskRoute } = await import("../server/routes/desk.ts");
+      const app = new Hono();
+      app.route("/api", createDeskRoute(engine, null));
+
+      const listed = await app.request("/api/desk/skills?mountId=mount_docs");
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toMatchObject({
+        skills: [{ name: "existing-skill", workspaceMountId: "mount_docs" }],
+      });
+
+      const installed = await app.request("/api/desk/install-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mountId: "mount_docs",
+          file: {
+            filename: "sample-skill.zip",
+            contentBase64: Buffer.from("placeholder").toString("base64"),
+          },
+        }),
+      });
+      expect(installed.status).toBe(200);
+      expect(await installed.json()).toMatchObject({ ok: true, name: "sample-skill" });
+      expect(fs.existsSync(path.join(workspace, ".agents", "skills", "sample-skill", "SKILL.md"))).toBe(true);
+      expect(syncWorkspaceSkillPaths).toHaveBeenCalledWith(fs.realpathSync(workspace), { reload: true, emitEvent: true, force: true });
+
+      const deleted = await app.request("/api/desk/delete-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mountId: "mount_docs",
+          skillDir: path.join(workspace, ".agents", "skills", "sample-skill"),
+        }),
+      });
+      expect(deleted.status).toBe(200);
+      expect(await deleted.json()).toEqual({ ok: true });
+      expect(fs.existsSync(path.join(workspace, ".agents", "skills", "sample-skill"))).toBe(false);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("allows explicit desk dirs from workspace scope and rejects arbitrary siblings", async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
     try {
@@ -199,6 +270,101 @@ describe("desk route", () => {
     }
   });
 
+  it("returns route errors for missing activity session lookups", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
+    try {
+      const activityStore = {
+        get: vi.fn((id) => {
+          if (id === "no-session") {
+            return {
+              id,
+              type: "beautify",
+              label: "No session",
+              summary: "missing session file",
+              startedAt: 1,
+              finishedAt: null,
+              sessionFile: null,
+            };
+          }
+          if (id === "missing-file") {
+            return {
+              id,
+              type: "beautify",
+              label: "Missing file",
+              summary: "missing file",
+              startedAt: 1,
+              finishedAt: null,
+              sessionFile: "missing.jsonl",
+            };
+          }
+          return null;
+        }),
+      };
+      const engine = {
+        agentsDir: tempRoot,
+        listAgents: () => [{ id: "agent-a", name: "Agent A" }],
+        getActivityStore: () => activityStore,
+      };
+
+      const { createDeskRoute } = await import("../server/routes/desk.ts");
+      const app = new Hono();
+      app.route("/api", createDeskRoute(engine, null));
+
+      const notFound = await app.request("/api/desk/activities/missing/session");
+      expect(notFound.status).toBe(404);
+      expect(await notFound.json()).toEqual({
+        error: {
+          code: "activity_not_found",
+          message: "activity not found",
+        },
+      });
+
+      const noSession = await app.request("/api/desk/activities/no-session/session");
+      expect(noSession.status).toBe(404);
+      expect(await noSession.json()).toEqual({
+        error: {
+          code: "activity_session_unavailable",
+          message: "no session file",
+        },
+      });
+
+      const missingFile = await app.request("/api/desk/activities/missing-file/session");
+      expect(missingFile.status).toBe(404);
+      expect(await missingFile.json()).toEqual({
+        error: {
+          code: "activity_session_missing",
+          message: "session file missing",
+        },
+      });
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a route error when heartbeat is unavailable", async () => {
+    const { createDeskRoute } = await import("../server/routes/desk.ts");
+    const app = new Hono();
+    app.route("/api", createDeskRoute({
+      listAgents: () => [],
+    }, {
+      scheduler: {
+        getHeartbeat: vi.fn(() => null),
+      },
+    }));
+
+    const res = await app.request("/api/desk/heartbeat?agentId=agent-a", {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "heartbeat_unavailable",
+        message: "Heartbeat not initialized",
+      },
+    });
+  });
+
   it("moves workspace tree items by explicit subdir and reports affected folders", async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
     try {
@@ -282,6 +448,73 @@ describe("desk route", () => {
     }
   });
 
+  it("returns route errors for workspace file action validation misses", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
+    try {
+      const cwd = path.join(tempRoot, "workspace");
+      fs.mkdirSync(cwd, { recursive: true });
+
+      const engine = {
+        deskCwd: cwd,
+        homeCwd: cwd,
+      };
+
+      const { createDeskRoute } = await import("../server/routes/desk.ts");
+      const app = new Hono();
+      app.use("*", async (c, next) => {
+        (c as any).set("authPrincipal", Object.freeze({
+          kind: "local_user",
+          connectionKind: "local",
+          credentialKind: "loopback_token",
+          scopes: ["*"],
+        }));
+        await next();
+      });
+      app.route("/api", createDeskRoute(engine, null));
+
+      const uploadMissingPaths = await app.request("/api/desk/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "upload", paths: [] }),
+      });
+      expect(uploadMissingPaths.status).toBe(400);
+      expect(await uploadMissingPaths.json()).toEqual({
+        error: {
+          code: "workspace_file_validation_failed",
+          message: "paths required",
+        },
+      });
+
+      const createMissingFields = await app.request("/api/desk/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", content: "" }),
+      });
+      expect(createMissingFields.status).toBe(400);
+      expect(await createMissingFields.json()).toEqual({
+        error: {
+          code: "workspace_file_validation_failed",
+          message: "name and content required",
+        },
+      });
+
+      const unknownAction = await app.request("/api/desk/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "compress" }),
+      });
+      expect(unknownAction.status).toBe(400);
+      expect(await unknownAction.json()).toEqual({
+        error: {
+          code: "unknown_workspace_file_action",
+          message: "unknown action: compress",
+        },
+      });
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("searches workspace file names recursively without exposing hidden or dependency folders", async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-route-"));
     try {
@@ -340,7 +573,7 @@ describe("desk route", () => {
       const { createDeskRoute } = await import("../server/routes/desk.ts");
       const app = new Hono();
       app.use("*", async (c, next) => {
-        c.set("authPrincipal", Object.freeze({
+        (c as any).set("authPrincipal", Object.freeze({
           kind: "device",
           connectionKind: "lan",
           credentialKind: "device_credential",
@@ -384,7 +617,7 @@ describe("desk route", () => {
       const { createDeskRoute } = await import("../server/routes/desk.ts");
       const app = new Hono();
       app.use("*", async (c, next) => {
-        c.set("authPrincipal", Object.freeze({
+        (c as any).set("authPrincipal", Object.freeze({
           kind: "local_user",
           connectionKind: "local",
           credentialKind: "loopback_token",

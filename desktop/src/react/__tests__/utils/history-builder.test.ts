@@ -371,7 +371,7 @@ describe('buildItemsFromHistory user image restoration', () => {
         status: 'success',
         sourceKind: 'subagent',
         sourceLabel: '明 · 大纲评估',
-        text: '小花收到了来自 明 · 大纲评估 的回复',
+        text: '小花 收到了来自 明 · 大纲评估 的回复',
         detailMarkdown: '完成了',
       }],
     });
@@ -388,7 +388,7 @@ describe('buildItemsFromHistory user image restoration', () => {
     expect(second.data).toMatchObject({
       type: 'interlude',
       taskId: 'subagent-1',
-      text: '小花收到了来自 明 · 大纲评估 的回复',
+      text: '小花 收到了来自 明 · 大纲评估 的回复',
     });
   });
 

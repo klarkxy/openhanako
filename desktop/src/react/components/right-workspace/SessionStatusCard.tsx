@@ -36,6 +36,8 @@ export function SessionStatusCard() {
   const [addingFolder, setAddingFolder] = useState(false);
   const sessionPath = useStore((s) => s.currentSessionPath);
   const deskBasePath = useStore((s) => s.deskBasePath);
+  const deskWorkspaceMountId = useStore((s) => s.deskWorkspaceMountId);
+  const deskWorkspaceLabel = useStore((s) => s.deskWorkspaceLabel);
   const currentModel = useStore((s) => s.currentModel);
   const sessionModel = useStore((s) => (sessionPath ? s.sessionModelsByPath[sessionPath] : null));
   const filesCount = useStore((s) => (sessionPath ? (s.sessionRegistryFilesByPath[sessionPath]?.length ?? 0) : 0));
@@ -51,7 +53,10 @@ export function SessionStatusCard() {
   if (!sessionPath) return null;
 
   const modelId = sessionModel?.id || currentModel?.id || '—';
-  const cwd = deskBasePath ? workspaceDisplayName(deskBasePath, '—') : '—';
+  const cwd = deskWorkspaceMountId
+    ? (deskWorkspaceLabel || deskWorkspaceMountId)
+    : (deskBasePath ? workspaceDisplayName(deskBasePath, '—') : '—');
+  const cwdTitle = deskWorkspaceMountId ? cwd : (deskBasePath || undefined);
   const authorizedFolderTitle = authorizedFolders.length > 0 ? authorizedFolders.join('\n') : undefined;
   const authorizedFolderValue = authorizedFolders.length === 0
     ? '0'
@@ -125,7 +130,7 @@ export function SessionStatusCard() {
         <dl className={styles.body}>
           <div className={styles.row}>
             <dt className={styles.label}>{t('rightWorkspace.session.cwd')}</dt>
-            <dd className={styles.value} title={deskBasePath || undefined}>{cwd}</dd>
+            <dd className={styles.value} title={cwdTitle}>{cwd}</dd>
           </div>
           <div className={styles.row}>
             <dt className={styles.label}>{t('rightWorkspace.session.authorizedFolders')}</dt>

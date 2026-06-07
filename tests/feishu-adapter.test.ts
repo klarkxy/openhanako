@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,7 +11,7 @@ const mockFileCreate = vi.fn();
 const mockWsStart = vi.fn();
 const mockWsClose = vi.fn();
 
-let registeredHandlers = {};
+let registeredHandlers: any = {};
 let mockWsInstances = [];
 
 vi.mock("@larksuiteoapi/node-sdk", () => {
@@ -24,6 +23,7 @@ vi.mock("@larksuiteoapi/node-sdk", () => {
   }
 
   class MockWSClient {
+    declare wsConfig: any;
     constructor() {
       this.wsConfig = { wsInstance: { readyState: 1 } };
       mockWsInstances.push(this);
@@ -39,6 +39,8 @@ vi.mock("@larksuiteoapi/node-sdk", () => {
   }
 
   class MockClient {
+    declare contact: any;
+    declare im: any;
     constructor() {
       this.contact = {
         user: {
@@ -91,6 +93,10 @@ function markdownPostContent(text) {
       content: [[{ tag: "md", text }]],
     },
   });
+}
+
+function parseMessageContent(callIndex = 0) {
+  return JSON.parse(mockMessageCreate.mock.calls[callIndex][0].data.content);
 }
 
 async function flushPromises() {
@@ -460,7 +466,7 @@ describe("createFeishuAdapter", () => {
       onMessage: vi.fn(),
     });
 
-    const buffer = await adapter.downloadImage("img_uploaded_key_001");
+    const buffer = await (adapter as any).downloadImage("img_uploaded_key_001");
 
     expect(buffer).toEqual(imageBuffer);
     expect(mockImageGet).toHaveBeenCalledWith({
@@ -653,7 +659,7 @@ describe("createFeishuAdapter", () => {
 
   it("wraps Feishu upload API failures with code and log id", async () => {
     const err = new Error("Request failed with status code 400");
-    err.response = {
+    (err as any).response = {
       data: {
         code: 234011,
         msg: "Can't regonnize the image format.",
@@ -679,7 +685,7 @@ describe("createFeishuAdapter", () => {
   it("wraps Feishu message send API failures with code and log id", async () => {
     mockImageCreate.mockResolvedValue({ image_key: "img_key_001" });
     const err = new Error("Request failed with status code 400");
-    err.response = {
+    (err as any).response = {
       data: {
         code: 230002,
         msg: "The bot can not be outside the group.",
@@ -729,6 +735,40 @@ describe("createFeishuAdapter", () => {
     });
   });
 
+  it("sends markdown tables as Feishu interactive card messages", async () => {
+    const adapter = createFeishuAdapter({
+      appId: "app-id",
+      appSecret: "app-secret",
+      agentId: "hana",
+      onMessage: vi.fn(),
+    });
+    const table = [
+      "| Issue | Status |",
+      "| --- | --- |",
+      "| #1516 | open |",
+    ].join("\n");
+
+    await adapter.sendReply("oc_chat", table);
+
+    expect(mockMessageCreate).toHaveBeenCalledWith({
+      params: { receive_id_type: "chat_id" },
+      data: {
+        receive_id: "oc_chat",
+        msg_type: "interactive",
+        content: expect.any(String),
+      },
+    });
+    expect(parseMessageContent()).toMatchObject({
+      schema: "2.0",
+      config: { update_multi: true },
+      body: {
+        elements: [
+          { tag: "markdown", content: table },
+        ],
+      },
+    });
+  });
+
   it("renders explicit Feishu at tokens as post at elements", async () => {
     const adapter = createFeishuAdapter({
       appId: "app-id",
@@ -768,7 +808,7 @@ describe("createFeishuAdapter", () => {
     await adapter.updateStreamReply("oc_chat", state, "second");
     await adapter.finishStreamReply("oc_chat", state, "final");
 
-    expect(state).toEqual({ messageId: "om_stream_001" });
+    expect(state).toEqual({ messageId: "om_stream_001", renderKind: "post" });
     expect(mockMessageCreate).toHaveBeenCalledWith({
       params: { receive_id_type: "chat_id" },
       data: {
@@ -793,6 +833,59 @@ describe("createFeishuAdapter", () => {
     });
   });
 
+  it("moves Feishu streams from post to interactive card when markdown tables appear", async () => {
+    mockMessageCreate
+      .mockResolvedValueOnce({ data: { message_id: "om_stream_post" } })
+      .mockResolvedValueOnce({ data: { message_id: "om_stream_card" } });
+    const adapter = createFeishuAdapter({
+      appId: "app-id",
+      appSecret: "app-secret",
+      agentId: "hana",
+      onMessage: vi.fn(),
+    });
+    const table = [
+      "result",
+      "",
+      "| Issue | Status |",
+      "| --- | --- |",
+      "| #1516 | open |",
+    ].join("\n");
+
+    const state = await adapter.startStreamReply("oc_chat", "working");
+    await adapter.updateStreamReply("oc_chat", state, table);
+    await adapter.finishStreamReply("oc_chat", state, `${table}\n\nfinal`);
+
+    expect(state).toEqual({
+      messageId: "om_stream_card",
+      previousMessageId: "om_stream_post",
+      renderKind: "interactive",
+    });
+    expect(mockMessageUpdate).toHaveBeenNthCalledWith(1, {
+      path: { message_id: "om_stream_post" },
+      data: {
+        msg_type: "post",
+        content: markdownPostContent("已切换为表格卡片。"),
+      },
+    });
+    expect(mockMessageCreate).toHaveBeenNthCalledWith(2, {
+      params: { receive_id_type: "chat_id" },
+      data: {
+        receive_id: "oc_chat",
+        msg_type: "interactive",
+        content: expect.any(String),
+      },
+    });
+    expect(mockMessageUpdate).toHaveBeenNthCalledWith(2, {
+      path: { message_id: "om_stream_card" },
+      data: {
+        msg_type: "interactive",
+        content: expect.any(String),
+      },
+    });
+    expect(JSON.parse(mockMessageUpdate.mock.calls[1][0].data.content).body.elements[0].content)
+      .toContain("final");
+  });
+
   it("parses Feishu stream message ids from every SDK response shape", async () => {
     mockMessageCreate.mockResolvedValueOnce({ message_id: "om_stream_direct" });
     const adapter = createFeishuAdapter({
@@ -804,6 +897,7 @@ describe("createFeishuAdapter", () => {
 
     await expect(adapter.startStreamReply("oc_chat", "first")).resolves.toEqual({
       messageId: "om_stream_direct",
+      renderKind: "post",
     });
   });
 

@@ -421,9 +421,17 @@ export class ConfigCoordinator {
 
   // ── Memory ──
 
-  setMemoryEnabled(val) {
-    this._d.getAgent().setMemoryEnabled(val);
-    this.persistSessionMeta();
+  async setMemoryEnabled(val) {
+    const session = this._d.getSession();
+    const sessPath = session?.sessionManager?.getSessionFile?.();
+    if (!sessPath) {
+      return { ok: false, error: "current session memory requires an active session" };
+    }
+    const sessionCoord = this._d.getSessionCoordinator();
+    if (typeof sessionCoord?.setSessionMemoryEnabled !== "function") {
+      throw new Error("session memory coordinator unavailable");
+    }
+    return sessionCoord.setSessionMemoryEnabled(sessPath, val);
   }
 
   setMemoryMasterEnabled(agentId, val) {
@@ -435,13 +443,15 @@ export class ConfigCoordinator {
     const session = this._d.getSession();
     const sessPath = session?.sessionManager?.getSessionFile?.();
     if (!sessPath) return;
-    const agent = this._d.getAgent();
     const sessionCoord = this._d.getSessionCoordinator();
+    const memoryEnabled = typeof sessionCoord?.getSessionMemoryEnabled === "function"
+      ? sessionCoord.getSessionMemoryEnabled(sessPath)
+      : this._d.getAgent().sessionMemoryEnabled;
     return sessionCoord.writeSessionMeta(sessPath, {
       // session-meta 持久化的是 session 自身冻结下来的记忆参与态，
       // 不能写 master && session 的临时组合态，否则会把运行时 gate
       // 错写成 session 身份，打穿 prefix cache 前提。
-      memoryEnabled: agent.sessionMemoryEnabled,
+      memoryEnabled,
     });
   }
 

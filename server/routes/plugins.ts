@@ -30,6 +30,7 @@ import {
   issuePluginAssetSession,
 } from "../../core/plugin-asset-session-service.ts";
 import { servePluginAsset } from "../http/plugin-assets.ts";
+import { isLocalOwnerPrincipal } from "../http/route-security.ts";
 
 const log = createModuleLogger("plugin-install");
 
@@ -1111,12 +1112,13 @@ export function createPluginsRoute(engine: any) {
   // ── Global plugin settings ──
   route.get("/plugins/settings", (c) => {
     const pm = engine.pluginManager;
+    const canSeeLocalPaths = isLocalOwnerPrincipal(readAuthPrincipal(c));
     return c.json({
       allow_full_access: pm?.getAllowFullAccess() || false,
       plugin_dev_tools_enabled: typeof engine.getPluginDevToolsEnabled === "function"
         ? engine.getPluginDevToolsEnabled()
         : false,
-      plugins_dir: pm?.getUserPluginsDir() || "",
+      plugins_dir: canSeeLocalPaths ? (pm?.getUserPluginsDir() || "") : "",
     });
   });
 

@@ -46,6 +46,7 @@ function capabilitiesForPrincipal(principal, fallback = []) {
   if (scopes.length === 0) return Array.isArray(fallback) ? [...fallback] : [];
   const out = new Set();
   for (const scope of scopes) {
+    out.add(scope);
     if (scope === "chat") out.add("chat");
     else if (scope === "resources" || scope.startsWith("resources.")) out.add("resources");
     else if (scope === "files" || scope.startsWith("files.")) out.add("files");

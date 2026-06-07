@@ -8,7 +8,13 @@ import { Hono } from "hono";
 import { MoodParser, ThinkTagParser, CardParser } from "../../core/events.ts";
 import { extractBlocks } from "../block-extractors.ts";
 import { toAppEventWsMessage } from "../app-events.ts";
-import { wsSend, wsParse, wsSendSerialized } from "../ws-protocol.ts";
+import {
+  createSessionStreamEventWsMessage,
+  createStreamResumeWsMessage,
+  wsSend,
+  wsParse,
+  wsSendSerialized,
+} from "../ws-protocol.ts";
 import { debugLog, createModuleLogger } from "../../lib/debug-log.ts";
 import { t } from "../../lib/i18n.ts";
 import { getLastAssistantUsage } from "../../lib/pi-sdk/index.ts";
@@ -26,6 +32,7 @@ import { AppError } from "../../shared/errors.ts";
 import { errorBus } from "../../shared/error-bus.ts";
 import { createRequestContext } from "../http/boundary.ts";
 import { buildDeferredResultInterludeBlock, resolveDeferredReceiverName } from "../deferred-result-interlude.ts";
+import { buildAutomationSuggestionBlock } from "../suggestion-blocks.ts";
 import { isAllowedChatImageMime, isChatImageBase64WithinLimit } from "../../shared/image-mime.ts";
 import { isAllowedChatVideoMime, isChatVideoBase64WithinLimit } from "../../shared/video-mime.ts";
 import { isAllowedChatAudioMime, isChatAudioBase64WithinLimit } from "../../shared/audio-mime.ts";
@@ -369,12 +376,12 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
   function emitStreamEvent(sessionPath, ss, event) {
     const entry = appendSessionStreamEvent(ss, event);
     // Phase 4: 始终广播所有事件，前端按 sessionPath 路由到对应 panel
-    broadcast({
-      ...event,
+    broadcast(createSessionStreamEventWsMessage({
       sessionPath,
+      sessionEvent: event,
       streamId: entry.streamId,
       seq: entry.seq,
-    });
+    }));
     return entry;
   }
 
@@ -696,11 +703,16 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         block: event.request,
       });
     } else if (event.type === "cron_confirmation" && event.confirmId) {
-      // 新的阻塞式 cron 确认（通过 emitEvent 触发）
+      // 新的阻塞式自动化建议（通过 emitEvent 触发）
       if (!ss) return;
       emitStreamEvent(sessionPath, ss, {
         type: "content_block",
-        block: { type: "cron_confirm", confirmId: event.confirmId, jobData: event.jobData, status: "pending" },
+        block: buildAutomationSuggestionBlock({
+          confirmId: event.confirmId,
+          jobData: event.jobData || {},
+          operation: event.operation === "update" ? "update" : "create",
+          status: "pending",
+        }),
       });
     } else if (event.type === "ask_user_confirmation" && event.confirmId) {
       // ask_user 工具通过 ConfirmStore 阻塞后，把确认问题推给桌面渲染结构化卡片
@@ -1101,13 +1113,15 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
             if (msg.type === "resume_stream") {
               const currentPath = requireSessionPath(msg, ws); if (!currentPath) return;
               const ss = sessionState.get(currentPath);
+              const runtimeIsStreaming = typeof engine.isSessionStreaming === "function"
+                ? !!engine.isSessionStreaming(currentPath)
+                : !!ss?.isStreaming;
               if (ss) {
                 const resumed = resumeSessionStream(ss, {
                   streamId: msg.streamId,
                   sinceSeq: msg.sinceSeq,
                 });
-                wsSend(ws, {
-                  type: "stream_resume",
+                wsSend(ws, createStreamResumeWsMessage({
                   sessionPath: currentPath,
                   streamId: resumed.streamId,
                   sinceSeq: resumed.sinceSeq,
@@ -1115,20 +1129,21 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
                   reset: resumed.reset,
                   truncated: resumed.truncated,
                   isStreaming: resumed.isStreaming,
+                  runtimeIsStreaming,
                   events: resumed.events,
-                });
+                }));
               } else {
-                wsSend(ws, {
-                  type: "stream_resume",
+                wsSend(ws, createStreamResumeWsMessage({
                   sessionPath: currentPath,
                   streamId: null,
-                  sinceSeq: Number.isFinite(msg.sinceSeq) ? Math.max(0, msg.sinceSeq) : 0,
+                  sinceSeq: Number.isFinite(msg.sinceSeq) ? Math.max(0, Math.floor(msg.sinceSeq)) : 0,
                   nextSeq: 1,
                   reset: false,
                   truncated: false,
                   isStreaming: false,
+                  runtimeIsStreaming,
                   events: [],
-                });
+                }));
               }
               return;
             }

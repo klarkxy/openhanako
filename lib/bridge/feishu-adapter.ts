@@ -11,6 +11,14 @@ import { downloadMedia, detectMime, formatSize, streamToBuffer } from "./media-u
 import { createMediaCapabilities } from "./media-capabilities.ts";
 import { createStreamingCapabilities } from "./streaming-capabilities.ts";
 import { createModuleLogger } from "../debug-log.ts";
+import {
+  renderFeishuOutbound,
+  renderFeishuPostMessageContent,
+} from "./feishu-outbound-renderer.ts";
+import type {
+  FeishuOutboundKind,
+  FeishuOutboundMessage,
+} from "./feishu-outbound-renderer.ts";
 
 const log = createModuleLogger("feishu");
 
@@ -50,40 +58,18 @@ const FEISHU_WS_INITIAL_POLL_MS = 500;
 const FEISHU_WS_INITIAL_MAX_CHECKS = 20;
 const FEISHU_WS_HEALTH_INTERVAL_MS = 30_000;
 const FEISHU_WS_DISCONNECTED_ERROR = "WebSocket disconnected";
-const FEISHU_AT_TOKEN_RE = /<at\s+user_id=(["'])([^"']+)\1\s*>([\s\S]*?)<\/at>/gi;
+const FEISHU_STREAM_CARD_TRANSITION_TEXT = "已切换为表格卡片。";
+
+type FeishuStreamState = {
+  messageId?: string | null;
+  previousMessageId?: string | null;
+  renderKind?: FeishuOutboundKind;
+  missingMessageId?: boolean;
+};
 
 function unrefTimer(timer: any) {
   if (typeof timer?.unref === "function") timer.unref();
   return timer;
-}
-
-function renderFeishuPostParagraph(text: any) {
-  const parts = [];
-  let cursor = 0;
-  FEISHU_AT_TOKEN_RE.lastIndex = 0;
-  let match;
-  while ((match = FEISHU_AT_TOKEN_RE.exec(text)) !== null) {
-    const before = text.slice(cursor, match.index);
-    if (before) parts.push({ tag: "md", text: before });
-    const userId = match[2].trim();
-    const userName = match[3].trim() || userId;
-    if (userId) parts.push({ tag: "at", user_id: userId, user_name: userName });
-    cursor = match.index + match[0].length;
-  }
-  const tail = text.slice(cursor);
-  if (tail || parts.length === 0) parts.push({ tag: "md", text: tail });
-  return parts;
-}
-
-function renderFeishuPostMessageContent(text: any) {
-  const paragraphs = String(text || "")
-    .split(/\r?\n/)
-    .map(renderFeishuPostParagraph);
-  return JSON.stringify({
-    zh_cn: {
-      content: paragraphs,
-    },
-  });
 }
 
 function isSelfFeishuBotSender(sender: any, appId: any) {
@@ -557,19 +543,62 @@ export function createFeishuAdapter({ appId, appSecret, agentId, onMessage, onSt
   const lastBlockTsMap = new Map();
   const BLOCK_TS_MAX = 200;
 
+  function feishuOutboundCreatePayload(chatId: string, rendered: FeishuOutboundMessage) {
+    return {
+      params: { receive_id_type: "chat_id" as const },
+      data: {
+        receive_id: chatId,
+        msg_type: rendered.msgType,
+        content: rendered.content,
+      },
+    };
+  }
+
+  function feishuOutboundUpdatePayload(messageId: string, rendered: FeishuOutboundMessage) {
+    return {
+      path: { message_id: messageId },
+      data: {
+        msg_type: rendered.msgType,
+        content: rendered.content,
+      },
+    };
+  }
+
+  async function createOutboundMessage(chatId: string, rendered: FeishuOutboundMessage) {
+    return client.im.message.create(feishuOutboundCreatePayload(chatId, rendered));
+  }
+
+  async function updateOutboundMessage(messageId: string, rendered: FeishuOutboundMessage) {
+    return client.im.message.update(feishuOutboundUpdatePayload(messageId, rendered));
+  }
+
+  async function transitionStreamToInteractiveCard(chatId: string, state: FeishuStreamState, rendered: FeishuOutboundMessage) {
+    const previousMessageId = state.messageId;
+    if (!previousMessageId) throw new Error("Feishu stream card transition requires messageId");
+    await updateOutboundMessage(previousMessageId, {
+      kind: "post",
+      msgType: "post",
+      content: renderFeishuPostMessageContent(FEISHU_STREAM_CARD_TRANSITION_TEXT),
+    });
+    const res = await createOutboundMessage(chatId, rendered);
+    const messageId = extractFeishuMessageId(res);
+    state.previousMessageId = previousMessageId;
+    state.renderKind = "interactive";
+    if (!messageId) {
+      warnFeishuInbound("Feishu stream card create returned no message_id; updates disabled for this lifecycle");
+      state.messageId = null;
+      state.missingMessageId = true;
+      return;
+    }
+    state.messageId = messageId;
+  }
+
   return {
     mediaCapabilities: FEISHU_MEDIA_CAPABILITIES,
     streamingCapabilities: FEISHU_STREAMING_CAPABILITIES,
 
     async sendReply(chatId, text) {
-      await client.im.message.create({
-        params: { receive_id_type: "chat_id" },
-        data: {
-          receive_id: chatId,
-          msg_type: "post",
-          content: renderFeishuPostMessageContent(text),
-        },
-      });
+      await createOutboundMessage(chatId, renderFeishuOutbound(text));
     },
 
     /** block streaming 专用：发一条气泡，两条之间加 humanDelay */
@@ -581,14 +610,7 @@ export function createFeishuAdapter({ appId, appSecret, agentId, onMessage, onSt
       if (lastTs && elapsed < delay) {
         await new Promise(r => setTimeout(r, delay - elapsed));
       }
-      await client.im.message.create({
-        params: { receive_id_type: "chat_id" },
-        data: {
-          receive_id: chatId,
-          msg_type: "post",
-          content: renderFeishuPostMessageContent(text),
-        },
-      });
+      await createOutboundMessage(chatId, renderFeishuOutbound(text));
       // LRU: delete + set 确保活跃的 chatId 移到尾部（Map.set 对已有 key 不改变顺序）
       lastBlockTsMap.delete(chatId);
       lastBlockTsMap.set(chatId, Date.now());
@@ -598,32 +620,29 @@ export function createFeishuAdapter({ appId, appSecret, agentId, onMessage, onSt
     },
 
     async startStreamReply(chatId, text) {
-      const res = await client.im.message.create({
-        params: { receive_id_type: "chat_id" },
-        data: {
-          receive_id: chatId,
-          msg_type: "post",
-          content: renderFeishuPostMessageContent(text),
-        },
-      });
+      const rendered = renderFeishuOutbound(text);
+      const res = await createOutboundMessage(chatId, rendered);
       const messageId = extractFeishuMessageId(res);
       if (!messageId) {
         warnFeishuInbound("Feishu stream message create returned no message_id; updates disabled for this lifecycle");
         return { messageId: null, missingMessageId: true };
       }
-      return { messageId };
+      return { messageId, renderKind: rendered.kind };
     },
 
     async updateStreamReply(_chatId, state, text) {
       if (state?.missingMessageId) return;
       if (!state?.messageId) throw new Error("Feishu stream update requires messageId");
-      await client.im.message.update({
-        path: { message_id: state.messageId },
-        data: {
-          msg_type: "post",
-          content: renderFeishuPostMessageContent(text),
-        },
+      const currentKind = state.renderKind || "post";
+      const rendered = renderFeishuOutbound(text, {
+        forceInteractive: currentKind === "interactive",
       });
+      if (currentKind === "post" && rendered.kind === "interactive") {
+        await transitionStreamToInteractiveCard(_chatId, state, rendered);
+        return;
+      }
+      await updateOutboundMessage(state.messageId, rendered);
+      state.renderKind = rendered.kind;
     },
 
     async finishStreamReply(chatId, state, text) {

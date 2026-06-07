@@ -2,6 +2,7 @@ import path from "path";
 import { describe, expect, it, vi } from "vitest";
 import { wrapReadImageWithVisionBridge } from "../lib/sandbox/read-image-vision.ts";
 import { VISION_CONTEXT_END, VISION_CONTEXT_START } from "../core/vision-bridge.ts";
+import { normalizeWin32ShellPath } from "../lib/sandbox/win32-path.ts";
 
 function makeReadTool(result) {
   return {
@@ -17,6 +18,12 @@ function makeCtx(sessionPath, model) {
       getSessionFile: () => sessionPath,
     },
   };
+}
+
+function expectedToolPath(rawPath: string, cwd: string) {
+  return process.platform === "win32"
+    ? normalizeWin32ShellPath(rawPath, cwd, { allowRelative: true })
+    : path.resolve(cwd, rawPath);
 }
 
 const imageResult = {
@@ -56,7 +63,7 @@ describe("wrapReadImageWithVisionBridge", () => {
 
   it("returns persisted auxiliary vision text for text-only models when auxiliary vision is enabled", async () => {
     const sessionPath = "/sessions/read.jsonl";
-    const filePath = path.join("/workspace", "shot.png");
+    const filePath = expectedToolPath("shot.png", "/workspace");
     const base = makeReadTool(imageResult);
     const prepareResources = vi.fn(async () => ({
       notes: [{

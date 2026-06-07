@@ -16,9 +16,10 @@ import { readAuthPrincipal } from "../http/capability-guard.ts";
 import { isLocalOwnerPrincipal } from "../http/route-security.ts";
 import { recordSecurityAuditEvent } from "../http/security-audit.ts";
 import { safeJson } from "../hono-helpers.ts";
-
-const DEFAULT_REMOTE_ACCESS_SCOPES = Object.freeze(["chat", "resources.read", "files.read", "files.write"]);
-const ALLOWED_REMOTE_ACCESS_SCOPES = new Set(DEFAULT_REMOTE_ACCESS_SCOPES);
+import {
+  DESKTOP_REMOTE_ACCESS_SCOPES,
+  MOBILE_REMOTE_ACCESS_SCOPES,
+} from "../../shared/access-scope-profiles.ts";
 const ACCESS_PROFILES = Object.freeze({
   mobile: Object.freeze({
     deviceKind: "mobile",
@@ -26,6 +27,9 @@ const ACCESS_PROFILES = Object.freeze({
     auditAction: "access.mobile_credential.issue",
     urlField: "lanMobileUrl",
     localUrlField: "localMobileUrl",
+    defaultScopes: MOBILE_REMOTE_ACCESS_SCOPES,
+    allowedScopes: new Set(MOBILE_REMOTE_ACCESS_SCOPES),
+    requiredScopes: Object.freeze(["resources.read"]),
   }),
   desktop: Object.freeze({
     deviceKind: "desktop",
@@ -33,6 +37,9 @@ const ACCESS_PROFILES = Object.freeze({
     auditAction: "access.desktop_credential.issue",
     urlField: "lanDesktopUrl",
     localUrlField: "localDesktopUrl",
+    defaultScopes: DESKTOP_REMOTE_ACCESS_SCOPES,
+    allowedScopes: new Set(DESKTOP_REMOTE_ACCESS_SCOPES),
+    requiredScopes: DESKTOP_REMOTE_ACCESS_SCOPES,
   }),
 });
 
@@ -120,7 +127,7 @@ export function createAccessRoute({
     try {
       const body = await safeJson(c);
       const runtimeContext = resolveRuntimeContext(c, engine);
-      const scopes = normalizeScopes(body?.scopes);
+      const scopes = normalizeScopes(body?.scopes, profile);
       const issued = createDeviceCredential(engine.hanakoHome, {
         serverNodeId: runtimeContext.serverNodeId,
         userId: runtimeContext.userId,
@@ -212,7 +219,7 @@ export function createAccessRoute({
   return route;
 }
 
-function createAccessSummary(engine, runtimeState, listLanAddresses) {
+export function createAccessSummary(engine, runtimeState, listLanAddresses = getLanAddresses) {
   const network = loadServerNetworkConfig(engine.hanakoHome);
   const registries = loadDeviceAccessRegistries(engine.hanakoHome);
   return {
@@ -341,14 +348,17 @@ function normalizeDisplayName(value, fallback) {
   return value.trim().slice(0, 80);
 }
 
-function normalizeScopes(value) {
-  const raw = Array.isArray(value) && value.length > 0 ? value : DEFAULT_REMOTE_ACCESS_SCOPES;
+function normalizeScopes(value, profile) {
+  const defaultScopes = profile?.defaultScopes || MOBILE_REMOTE_ACCESS_SCOPES;
+  const allowedScopes = profile?.allowedScopes || new Set(defaultScopes);
+  const requiredScopes = profile?.requiredScopes || [];
+  const raw = Array.isArray(value) && value.length > 0 ? value : defaultScopes;
   const validScopes = raw
-    .filter((scope) => typeof scope === "string" && ALLOWED_REMOTE_ACCESS_SCOPES.has(scope));
+    .filter((scope) => typeof scope === "string" && allowedScopes.has(scope));
   if (validScopes.length === 0) throw new Error("at least one supported scope is required");
   const scopeSet = new Set(validScopes);
-  scopeSet.add("resources.read");
-  return DEFAULT_REMOTE_ACCESS_SCOPES.filter((scope) => scopeSet.has(scope));
+  for (const scope of requiredScopes) scopeSet.add(scope);
+  return defaultScopes.filter((scope) => scopeSet.has(scope));
 }
 
 function sanitizeDevice(device) {
@@ -361,7 +371,7 @@ function sanitizeCredential(credential) {
   return safe;
 }
 
-function getLanAddresses() {
+export function getLanAddresses() {
   const out = [];
   const interfaces = os.networkInterfaces();
   for (const entries of Object.values(interfaces)) {

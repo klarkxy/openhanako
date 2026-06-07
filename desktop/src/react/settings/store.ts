@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand';
 import type { ServerConnection, ServerConnectionRegistry } from '../services/server-connection';
+import { createRemoteResource, type RemoteResource, type RemoteResourceStatus } from './resource-state';
 
 export interface Agent {
   id: string;
@@ -56,6 +57,42 @@ export interface PluginSettingsTab {
   nativeComponent: string;
 }
 
+export interface SettingsSnapshot {
+  agentId: string;
+  config: Record<string, any>;
+  identity: string;
+  ishiki: string;
+  publicIshiki: string;
+  userProfile: string;
+  experience: string;
+  pinned: { pins: string[] };
+  globalModels: Record<string, any>;
+  preferences: {
+    quickChat: Record<string, any>;
+    notifications: Record<string, any>;
+    bridge: {
+      permissionMode: 'auto' | 'operate' | 'read_only';
+      readOnly: boolean;
+      receiptEnabled: boolean;
+    };
+    computerUse?: {
+      selectedProviderId?: string | null;
+      status?: Record<string, any> | null;
+      settings?: Record<string, any>;
+    };
+    speechRecognition: Record<string, any>;
+    experiments: any[];
+  };
+  access?: Record<string, any> | null;
+  bridgeStatus?: Record<string, any> | null;
+  plugins: {
+    allowFullAccess: boolean;
+    devToolsEnabled: boolean;
+    userDir: string;
+    settingsTabs: PluginSettingsTab[];
+  };
+}
+
 export interface SettingsState {
   // connection
   serverPort: number | null;
@@ -76,6 +113,10 @@ export interface SettingsState {
 
   // config
   settingsConfig: Record<string, any> | null;
+  settingsConfigKey: string | null;
+  settingsConfigStatus: RemoteResourceStatus;
+  settingsConfigError: string | null;
+  settingsSnapshot: RemoteResource<SettingsSnapshot>;
   globalModelsConfig: Record<string, any> | null;
   homeFolder: string | null;
 
@@ -92,8 +133,10 @@ export interface SettingsState {
   selectedProviderId: string | null;
 
   // plugins
-  pluginAllowFullAccess: boolean;
-  pluginDevToolsEnabled: boolean;
+  pluginSettingsStatus: RemoteResourceStatus;
+  pluginSettingsError: string | null;
+  pluginAllowFullAccess: boolean | undefined;
+  pluginDevToolsEnabled: boolean | undefined;
   pluginUserDir: string;
   pluginSettingsTabs: PluginSettingsTab[];
 
@@ -133,6 +176,10 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
 
   // config
   settingsConfig: null,
+  settingsConfigKey: null,
+  settingsConfigStatus: 'idle',
+  settingsConfigError: null,
+  settingsSnapshot: createRemoteResource<SettingsSnapshot>(),
   globalModelsConfig: null,
   homeFolder: null,
 
@@ -149,8 +196,10 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
   selectedProviderId: null,
 
   // plugins
-  pluginAllowFullAccess: false,
-  pluginDevToolsEnabled: false,
+  pluginSettingsStatus: 'idle',
+  pluginSettingsError: null,
+  pluginAllowFullAccess: undefined,
+  pluginDevToolsEnabled: undefined,
   pluginUserDir: '',
   pluginSettingsTabs: [],
 

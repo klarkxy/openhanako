@@ -1,4 +1,3 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -156,9 +155,39 @@ describe("web auth route", () => {
     expect(await secure.json()).toMatchObject({
       principal: {
         kind: "account_user",
-        credentialKind: "password",
+        credentialKind: "user_session",
         userId: "user_local",
         scopes: ["chat", "resources.read", "files.read", "files.write"],
+      },
+    });
+
+    const desktop = await app.request("https://hana.example.test/api/web-auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "hana-owner",
+        password: "correct horse battery staple",
+        clientKind: "desktop",
+      }),
+    });
+    expect(desktop.status).toBe(200);
+    expect(await desktop.json()).toMatchObject({
+      principal: {
+        kind: "account_user",
+        credentialKind: "user_session",
+        userId: "user_local",
+        scopes: [
+          "chat",
+          "resources.read",
+          "files.read",
+          "files.write",
+          "studio.owner",
+          "settings.read",
+          "settings.write",
+          "providers.manage",
+          "secrets.write",
+          "bridge.manage",
+        ],
       },
     });
 

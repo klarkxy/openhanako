@@ -57,7 +57,6 @@ export const OPTIONAL_TOOL_NAMES = [
   "automation",
   "beautify",
   "browser",
-  "cron",
   "dm",
   "install_skill",
   "update_settings",

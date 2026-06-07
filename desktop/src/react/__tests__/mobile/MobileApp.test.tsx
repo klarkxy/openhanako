@@ -421,7 +421,7 @@ describe('MobileApp', () => {
     }
   });
 
-  it('opens workbench files through the mobile content route using the desktop preview panel', async () => {
+  it('opens workbench files through the neutral workbench content route using the desktop preview panel', async () => {
     document.documentElement.setAttribute('data-platform', 'web');
     fetchMock.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
       const url = String(input);
@@ -440,9 +440,9 @@ describe('MobileApp', () => {
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([input]) => {
         const url = String(input);
-        return url.includes('/api/mobile/workbench/content')
+        return url.includes('/api/workbench/content')
           && url.includes('name=note.md')
-          && url.includes('rootId=default');
+          && url.includes('mountId=default');
       })).toBe(true);
       expect(useStore.getState().previewOpen).toBe(true);
       expect(useStore.getState().previewItems.some(item => item.content.includes('来自手机工作台预览'))).toBe(true);
@@ -713,7 +713,7 @@ function jsonResponseForMobile(
       files: [{ name: 'note.md', isDir: false, size: 12, mtime: '2026-05-16T00:00:00.000Z' }],
     };
   }
-  if (url.includes('/api/mobile/workbench/content')) {
+  if (url.includes('/api/workbench/content')) {
     return '# Mobile Note\n\n来自手机工作台预览';
   }
   if (url.includes('/api/desk/jian')) {

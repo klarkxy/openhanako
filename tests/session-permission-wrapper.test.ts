@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { createApprovalGateway } from "../lib/approval-gateway.ts";
+import { createAutomationTool } from "../lib/tools/automation-tool.ts";
 import { wrapWithSessionPermission } from "../lib/tools/session-permission-wrapper.ts";
 
 const ctx = {
@@ -12,6 +14,15 @@ function makeTool(name = "write") {
       content: [{ type: "text", text: "executed" }],
       details: { executed: true },
     })),
+  };
+}
+
+function makeAutomationStore() {
+  return {
+    addJob: vi.fn((jobData) => ({ ...jobData, id: "studio_job_1", enabled: true })),
+    updateJob: vi.fn(),
+    getJob: vi.fn(() => null),
+    listJobs: vi.fn(() => []),
   };
 }
 
@@ -119,6 +130,49 @@ describe("session permission wrapper", () => {
     expect(confirmStore.create).not.toHaveBeenCalled();
     expect(tool.execute).toHaveBeenCalledOnce();
     expect(result.details.executed).toBe(true);
+  });
+
+  it("auto mode lets automation draft generation run without a tool-action confirmation", async () => {
+    const store = makeAutomationStore();
+    const confirmStore = {
+      create: vi.fn((kind) => ({
+        confirmId: `confirm-${kind}`,
+        promise: Promise.resolve({ action: "pending" }),
+      })),
+    };
+    const tool = createAutomationTool(store, {
+      confirmStore,
+      getAgentId: () => "agent-a",
+      getSessionCwd: () => "/workspace/current",
+      getSessionWorkspaceFolders: () => [],
+    });
+    const [wrapped] = wrapWithSessionPermission([tool], {
+      getPermissionMode: () => "auto",
+      getConfirmStore: () => confirmStore,
+      getApprovalGateway: () => createApprovalGateway(),
+      emitEvent: vi.fn(),
+    });
+
+    const result = await wrapped.execute(
+      "call-automation-draft",
+      {
+        action: "create",
+        scheduleType: "cron",
+        schedule: "0 9 * * *",
+        label: "Morning Review",
+        prompt: "Review my notes.",
+      },
+      null,
+      null,
+      ctx,
+    );
+
+    expect(confirmStore.create.mock.calls.map(([kind]) => kind)).toEqual(["cron"]);
+    expect(result.details).toMatchObject({
+      action: "pending_add",
+      confirmId: "confirm-cron",
+    });
+    expect(store.addJob).not.toHaveBeenCalled();
   });
 
   it("defaults missing permission mode to auto review instead of legacy ask", async () => {

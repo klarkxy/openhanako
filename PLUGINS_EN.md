@@ -337,7 +337,7 @@ export function register(app, ctx) {
 }
 ```
 
-All three patterns are backward-compatible: plugins that don't use ctx need no changes. `ctx.bus` can directly call built-in session operations: `session:send`, `session:abort`, `session:history`, `session:list`, `agent:list`. All session-related operations must include a `sessionPath` parameter. See the Route Context and Session Bus Handlers sections below for the full API.
+All three patterns are backward-compatible: plugins that don't use ctx need no changes. `ctx.bus` can directly call built-in session operations: `session:create`, `session:get`, `session:update`, `session:send`, `session:abort`, `session:history`, `session:list`, `agent:list`, `agent:profile`, `agent:create`, and `agent:update`. Operations against an existing session must include a `sessionPath` parameter. See the Route Context and Session Bus Handlers sections below for the full API.
 
 ### Extensions (Pi SDK Event Interception) ⚡ full-access
 
@@ -598,6 +598,7 @@ Most plugins don't need a manifest. Only required for:
 
 - Declaring `trust: "full-access"` for full permissions
 - Declaring iframe UI host capabilities (`ui.hostCapabilities`)
+- Declaring ordinary plugin capabilities (`capabilities`) or future user-granted sensitive capabilities (`sensitiveCapabilities`)
 - Configuration schema (JSON Schema declarations)
 - Plugin metadata (name, version, description for the management UI)
 - Soft dependency declarations
@@ -611,6 +612,8 @@ Most plugins don't need a manifest. Only required for:
   "description": "What this plugin does",
   "trust": "full-access",
   "activationEvents": ["onToolCall:search"],
+  "capabilities": ["session", "agent", "model.sample", "media.generate"],
+  "sensitiveCapabilities": ["filesystem.write"],
   "ui": {
     "hostCapabilities": ["external.open"]
   },
@@ -624,6 +627,8 @@ Most plugins don't need a manifest. Only required for:
 ```
 
 Without a manifest, `id` is derived from the directory name, other fields default to empty, and permission is restricted.
+
+`capabilities` are ordinary declarations and are exposed as `ctx.capabilities`; in the current version, declared ordinary capabilities can be used directly through the SDK or EventBus. `sensitiveCapabilities` records intent for the future user-granted permission system and is exposed as `ctx.sensitiveCapabilities`.
 
 ### Activation Events
 
@@ -781,6 +786,70 @@ this.register(
 
 **Soft dependencies**: `depends.capabilities` in manifest is advisory only; the system won't block installation if capabilities are missing. Plugin code should prefer `bus.getCapability(type)?.available` for graceful degradation at runtime; older plugins may continue to use `bus.hasHandler()`.
 
+### Built-in Session / Agent / Model / Media Capabilities
+
+Plugins should prefer the typed helpers from `@hana/plugin-runtime`. They map to these EventBus capabilities:
+
+| Capability | Description |
+|------------|-------------|
+| `session:create` | Create a normal Hana session without switching the main UI focus, with `agentId`, `cwd`, `memoryEnabled`, `workspaceFolders`, `thinkingLevel`, `permissionMode`, `ownerPluginId`, `kind`, and `visibility` |
+| `session:get` / `session:list` | Read session projections; plugin-private sessions are hidden from the main list by default, and plugins can query their own sessions by `ownerPluginId` |
+| `session:update` | Update title, pinned state, project, thinking level, permission mode, plugin owner, kind, and visibility |
+| `session:send` | Send a message to a specific session; supports `context.system`, `context.beforeUser`, and `context.afterUser` |
+| `session:abort` / `session:history` | Abort active session work and read persisted history |
+| `agent:list` / `agent:profile` | List agents and read public agent profiles |
+| `agent:create` / `agent:update` | Create or update plugin-owned agents, including `visibility: "plugin_private"` |
+| `model:sample-text` | Run a non-streaming utility-model text sample for RAG query rewriting, summarization, routing, and similar plugin-side work |
+| `provider:media-providers` / `provider:resolve-media-model` | Discover configured media providers and resolve a concrete media model |
+| `media:generate-image` | Submit an image generation task through the built-in media task pipeline; completed files are delivered as `SessionFile` records |
+
+`session:send.context` is injected only into the current provider request. It does not rewrite the visible user message and does not persist as user text. A plugin can run its own RAG, world-state, mood, or character-state system, then attach those snippets when sending:
+
+```js
+import {
+  createAgent,
+  createSession,
+  generateImage,
+  sampleText,
+  sendSessionMessage,
+} from "@hana/plugin-runtime";
+
+const agent = await createAgent(ctx, {
+  name: "Tavern Character",
+  visibility: "plugin_private",
+  memoryPolicy: { enabled: true },
+});
+
+const session = await createSession(ctx, {
+  agentId: agent.agent.id,
+  kind: "tavern",
+  visibility: "plugin_private",
+  cwd: ctx.dataDir,
+});
+
+const query = await sampleText(ctx, {
+  operation: "tavern-rag-query",
+  messages: [{ role: "user", content: "Extract world-lore keywords for this turn" }],
+  maxTokens: 80,
+});
+
+await sendSessionMessage(ctx, session.sessionPath, {
+  text: "I push the door open.",
+  context: {
+    beforeUser: [
+      { label: "world", text: "Rainy city night; the old theater is still open." },
+      { label: "rag_query", text: query.text },
+    ],
+  },
+});
+
+await generateImage(ctx, {
+  sessionPath: session.sessionPath,
+  prompt: "A handwritten character card on warm paper",
+  ratio: "3:2",
+});
+```
+
 ### Dynamic Tool Registration ⚡ full-access
 
 Plugins can dynamically register tools in `onload()` via `ctx.registerTool()`, useful when tools are discovered at runtime (for example, the bundled Connectors MCP bridge):
@@ -909,15 +978,18 @@ The system ignores unrecognized directories and manifest fields. Old plugins alw
 
 Hana supports multiple sessions and multiple agents running in parallel. Keep the following in mind when developing plugins:
 
-- All session-related EventBus events (`session:send`, `session:abort`, etc.) must include a `sessionPath` parameter to identify the target session
+- All EventBus operations against an existing session (`session:get`, `session:update`, `session:send`, `session:abort`, `session:history`, etc.) must include a `sessionPath` parameter to identify the target session
 - Tools obtain the current session path via `toolCtx.sessionPath`
 - Do not use `engine.currentSessionPath` or `engine.currentAgentId` (these are UI focus pointers and do not represent the currently executing session)
 
 ```js
-// Correct: explicitly specify sessionPath
+// Correct: explicitly specify sessionPath and attach per-turn context if needed
 await bus.request("session:send", {
   text: "Hello",
   sessionPath: "/path/to/session.jsonl",
+  context: {
+    beforeUser: [{ label: "world", text: "The character is in a quiet archive." }],
+  },
 });
 
 await bus.request("session:abort", {

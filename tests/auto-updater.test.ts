@@ -203,43 +203,74 @@ describe("auto-updater", () => {
   });
 
   it("installDownloadedUpdate enters installing state and schedules quitAndInstall on the next tick", async () => {
-    const shutdownServer = vi.fn(() => new Promise(() => {}));
-    const setIsUpdating = vi.fn();
-    const win = initWithMockWindow({ shutdownServer, setIsUpdating });
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    try {
+      vi.resetModules();
+      mod = await import("../desktop/auto-updater.cjs");
+      handlers = {};
+      mockAutoUpdater.on.mockImplementation((event, handler) => {
+        handlers[event] = handler;
+      });
 
-    if (handlers["update-downloaded"]) {
-      handlers["update-downloaded"]({ version: "2.0.0" });
+      const shutdownServer = vi.fn(() => new Promise(() => {}));
+      const setIsUpdating = vi.fn();
+      const win = initWithMockWindow({ shutdownServer, setIsUpdating });
+
+      if (handlers["update-downloaded"]) {
+        handlers["update-downloaded"]({ version: "2.0.0" });
+      }
+
+      const installPromise = mod.installDownloadedUpdate("manual");
+      await Promise.resolve();
+
+      expect(setIsUpdating).toHaveBeenCalledWith(true);
+      expect(shutdownServer).not.toHaveBeenCalled();
+      expect(mockAutoUpdater.quitAndInstall).not.toHaveBeenCalled();
+      await new Promise(resolve => setImmediate(resolve));
+      expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true);
+      expect(mod.getState()).toEqual(expect.objectContaining({ status: "installing", version: "2.0.0" }));
+      expect(win.webContents.send).toHaveBeenCalledWith("auto-update-state", expect.objectContaining({ status: "installing" }));
+      await expect(installPromise).resolves.toBe(true);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
     }
-
-    const installPromise = mod.installDownloadedUpdate("manual");
-    await Promise.resolve();
-
-    expect(setIsUpdating).toHaveBeenCalledWith(true);
-    expect(shutdownServer).not.toHaveBeenCalled();
-    expect(mockAutoUpdater.quitAndInstall).not.toHaveBeenCalled();
-    await new Promise(resolve => setImmediate(resolve));
-    expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true);
-    expect(mod.getState()).toEqual(expect.objectContaining({ status: "installing", version: "2.0.0" }));
-    expect(win.webContents.send).toHaveBeenCalledWith("auto-update-state", expect.objectContaining({ status: "installing" }));
-    await expect(installPromise).resolves.toBe(true);
   });
 
   it("manual install IPC uses the same immediate install path", async () => {
-    const shutdownServer = vi.fn(() => new Promise(() => {}));
-    initWithMockWindow({ shutdownServer });
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    try {
+      vi.resetModules();
+      mod = await import("../desktop/auto-updater.cjs");
+      handlers = {};
+      ipcHandlers = {};
+      mockAutoUpdater.on.mockImplementation((event, handler) => {
+        handlers[event] = handler;
+      });
+      const { ipcMain: freshIpcMain } = await import("electron");
+      vi.mocked(freshIpcMain.handle).mockImplementation((name, handler) => {
+        ipcHandlers[name] = handler;
+      });
 
-    if (handlers["update-downloaded"]) {
-      handlers["update-downloaded"]({ version: "2.0.0" });
+      const shutdownServer = vi.fn(() => new Promise(() => {}));
+      initWithMockWindow({ shutdownServer });
+
+      if (handlers["update-downloaded"]) {
+        handlers["update-downloaded"]({ version: "2.0.0" });
+      }
+
+      const installPromise = ipcHandlers["auto-update-install"]();
+      await Promise.resolve();
+
+      expect(shutdownServer).not.toHaveBeenCalled();
+      expect(mockAutoUpdater.quitAndInstall).not.toHaveBeenCalled();
+      await new Promise(resolve => setImmediate(resolve));
+      expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true);
+      await expect(installPromise).resolves.toBe(true);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
     }
-
-    const installPromise = ipcHandlers["auto-update-install"]();
-    await Promise.resolve();
-
-    expect(shutdownServer).not.toHaveBeenCalled();
-    expect(mockAutoUpdater.quitAndInstall).not.toHaveBeenCalled();
-    await new Promise(resolve => setImmediate(resolve));
-    expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true);
-    await expect(installPromise).resolves.toBe(true);
   });
 
   it("uses a visible installer window for Windows updates", async () => {

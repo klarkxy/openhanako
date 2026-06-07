@@ -26,9 +26,22 @@ function getToolLabel(name: string, phase: string, agentName: string): string {
   return t?.(`tool._fallback.${phase}`, vars) || name;
 }
 
+function isCardBackedAutomationCreate(tool: ToolCall): boolean {
+  if (tool.name !== 'automation') return false;
+  const action = tool.args?.action;
+  return action === 'create'
+    || action === 'update'
+    || action === 'add_notify'
+    || action === 'add_plugin_action';
+}
+
 export const ToolGroupBlock = memo(function ToolGroupBlock({ tools: rawTools, collapsed: initialCollapsed, agentName = 'Hanako' }: Props) {
-  // subagent / stage_files 有独立卡片，不在工具组里重复显示
-  const tools = rawTools.filter(t => t.name !== 'subagent' && t.name !== 'stage_files');
+  // subagent / stage_files / automation create 有独立卡片，不在工具组里重复显示
+  const tools = rawTools.filter(t =>
+    t.name !== 'subagent'
+    && t.name !== 'stage_files'
+    && !isCardBackedAutomationCreate(t)
+  );
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   useEffect(() => {
     setCollapsed(initialCollapsed);

@@ -48,11 +48,11 @@ import { collectSecretPatchPaths, isMaskedSecretValue, maskSecretValue, resolveS
 import { denySecretMutationWithoutScope, denyWithoutScope } from "../http/capability-guard.ts";
 import { recordSecurityAuditEvent } from "../http/security-audit.ts";
 
-function selectedComputerProviderIdFromSettings(settings: any, platform = process.platform) {
+export function selectedComputerProviderIdFromSettings(settings: any, platform = process.platform) {
   return selectedComputerProviderId(settings, { platform });
 }
 
-function disabledComputerUseStatus(settings: any, { platform = process.platform } = {}) {
+export function disabledComputerUseStatus(settings: any, { platform = process.platform } = {}) {
   return {
     enabled: false,
     platform,
@@ -60,6 +60,24 @@ function disabledComputerUseStatus(settings: any, { platform = process.platform 
     selectedProviderId: selectedComputerProviderIdFromSettings(settings, platform),
     providers: [],
     activeLease: null,
+  };
+}
+
+export async function buildComputerUsePreferences(engine: any, { platform = process.platform } = {}) {
+  const settings = effectiveComputerUseSettings(engine.getComputerUseSettings?.() || {}, { platform });
+  if (settings?.enabled !== true) {
+    const status = disabledComputerUseStatus(settings, { platform });
+    return {
+      settings,
+      status,
+      selectedProviderId: status.selectedProviderId,
+    };
+  }
+  const status = await engine.getComputerHost?.()?.getStatus?.({}) || null;
+  return {
+    settings,
+    status,
+    selectedProviderId: status?.selectedProviderId || selectedComputerProviderIdFromSettings(settings, platform),
   };
 }
 
@@ -377,21 +395,7 @@ export function createPreferencesRoute(engine: any, { platform = process.platfor
 
   route.get("/preferences/computer-use", async (c) => {
     try {
-      const settings = effectiveComputerUseSettings(engine.getComputerUseSettings(), { platform });
-      if (settings?.enabled !== true) {
-        const status = disabledComputerUseStatus(settings, { platform });
-        return c.json({
-          settings,
-          status,
-          selectedProviderId: status.selectedProviderId,
-        });
-      }
-      const status = await engine.getComputerHost?.()?.getStatus?.({}) || null;
-      return c.json({
-        settings,
-        status,
-        selectedProviderId: status?.selectedProviderId || selectedComputerProviderIdFromSettings(settings, platform),
-      });
+      return c.json(await buildComputerUsePreferences(engine, { platform }));
     } catch (err) {
       return c.json({ error: err.message }, 500);
     }

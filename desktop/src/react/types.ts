@@ -49,6 +49,8 @@ export interface Session {
   agentId: string | null;
   agentName: string | null;
   cwd: string | null;
+  workspaceMountId?: string | null;
+  workspaceLabel?: string | null;
   projectId?: string | null;
   permissionMode?: SessionPermissionMode | null;
   pinnedAt?: string | null;
@@ -207,6 +209,17 @@ export interface DeskFile {
   mtime?: string;
 }
 
+export interface StudioWorkspace {
+  workspaceId: string;
+  mountId: string;
+  label: string;
+  sourceKind?: string | null;
+  provider?: string | null;
+  presentation?: string | null;
+  capabilities?: string[];
+  isDefault?: boolean;
+}
+
 export interface WorkspaceChangePayload {
   rootPath: string;
   changedPath: string;
@@ -254,8 +267,9 @@ export interface VersionedWriteResult {
 }
 
 export interface RemoteWorkbenchContentRef {
-  kind: 'mobile-workbench';
-  rootId: string;
+  kind: 'workbench-file' | 'mobile-workbench';
+  mountId?: string;
+  rootId?: string;
   subdir: string;
   name: string;
   contentPath: string;

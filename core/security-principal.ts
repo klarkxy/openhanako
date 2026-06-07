@@ -53,6 +53,7 @@ export function normalizePrincipal(input: Record<string, any> = {}) {
     officialServiceKind: stringOrNull(input.officialServiceKind),
     connectionKind: enumValue(input.connectionKind, CONNECTION_KINDS, null),
     credentialKind: enumValue(input.credentialKind, CREDENTIAL_KINDS, null),
+    authMethod: stringOrNull(input.authMethod),
     trustState: enumValue(input.trustState, TRUST_STATES, "unknown"),
     scopes: normalizeScopes(input.scopes),
   };

@@ -88,6 +88,61 @@ function bridgeUnavailable(c: any, state: { error?: any; initializing?: any } = 
   }, 503);
 }
 
+export function buildBridgeStatus(engine: any, manager: any, agent: any) {
+  const live = manager?.getStatus?.(agent.id) || {};
+  const bridge = agent.config?.bridge || {};
+  const index = engine.getBridgeIndex?.(agent.id) || {};
+
+  const platformStatus = (plat: any, cfg: any, extraFields: any) => {
+    return {
+      ...extraFields,
+      enabled: !!cfg?.enabled,
+      status: live[plat]?.status || "disconnected",
+      error: live[plat]?.error || null,
+      agentId: agent.id,
+    };
+  };
+
+  const tgToken = bridge.telegram?.token || "";
+  const fsAppId = bridge.feishu?.appId || "";
+  const fsAppSecret = bridge.feishu?.appSecret || "";
+
+  const ownerDict = {};
+  for (const plat of KNOWN_PLATFORMS) {
+    const o = resolveBridgeOwnerUserId({ platform: plat, agent, index });
+    if (o) ownerDict[plat] = o;
+  }
+
+  const readOnly = engine.getBridgeReadOnly?.() === true;
+  const permissionMode = engine.getBridgePermissionMode?.()
+    || normalizeBridgePermissionMode({ readOnly });
+  const receiptEnabled = engine.getBridgeReceiptEnabled?.() !== false;
+
+  return {
+    agentId: agent.id,
+    telegram: platformStatus("telegram", bridge.telegram, {
+      configured: !!tgToken, token: maskSecretValue(tgToken),
+    }),
+    feishu: platformStatus("feishu", bridge.feishu, {
+      configured: !!(fsAppId && fsAppSecret), appId: fsAppId, appSecret: maskSecretValue(fsAppSecret),
+    }),
+    qq: platformStatus("qq", bridge.qq, {
+      configured: !!(bridge.qq?.appID && (bridge.qq?.appSecret || bridge.qq?.token)),
+      appID: bridge.qq?.appID || "",
+      appSecret: maskSecretValue(bridge.qq?.appSecret || bridge.qq?.token || ""),
+    }),
+    wechat: platformStatus("wechat", bridge.wechat, {
+      configured: !!bridge.wechat?.botToken,
+      token: maskSecretValue(bridge.wechat?.botToken || ""),
+    }),
+    permissionMode,
+    readOnly,
+    receiptEnabled,
+    knownUsers: collectKnownUsers(index),
+    owner: ownerDict,
+  };
+}
+
 export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
   const route = new Hono();
   const bridgeRef = normalizeBridgeManagerRef(bridgeManagerRef);
@@ -111,52 +166,8 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
     const agent = resolveAgent(engine, c);
     const manager = resolveBridgeManager();
     const bridgeState = bridgeRef.getState?.() || { ready: !!manager, initializing: false, error: null };
-    const live = manager?.getStatus(agent.id) || {};
-    const bridge = agent.config?.bridge || {};
-    const index = engine.getBridgeIndex(agent.id);
-
-    const platformStatus = (plat: any, cfg: any, extraFields: any) => {
-      return {
-        ...extraFields,
-        enabled: !!cfg?.enabled,
-        status: live[plat]?.status || "disconnected",
-        error: live[plat]?.error || null,
-        agentId: agent.id,
-      };
-    };
-
-    const tgToken = bridge.telegram?.token || "";
-    const fsAppId = bridge.feishu?.appId || "";
-    const fsAppSecret = bridge.feishu?.appSecret || "";
-
-    // Build per-platform owner dict from the shared owner policy.
-    const ownerDict = {};
-    for (const plat of KNOWN_PLATFORMS) {
-      const o = resolveBridgeOwnerUserId({ platform: plat, agent, index });
-      if (o) ownerDict[plat] = o;
-    }
-
     return c.json({
-      telegram: platformStatus("telegram", bridge.telegram, {
-        configured: !!tgToken, token: maskSecretValue(tgToken),
-      }),
-      feishu: platformStatus("feishu", bridge.feishu, {
-        configured: !!(fsAppId && fsAppSecret), appId: fsAppId, appSecret: maskSecretValue(fsAppSecret),
-      }),
-      qq: platformStatus("qq", bridge.qq, {
-        configured: !!(bridge.qq?.appID && (bridge.qq?.appSecret || bridge.qq?.token)),
-        appID: bridge.qq?.appID || "",
-        appSecret: maskSecretValue(bridge.qq?.appSecret || bridge.qq?.token || ""),
-      }),
-      wechat: platformStatus("wechat", bridge.wechat, {
-        configured: !!bridge.wechat?.botToken,
-        token: maskSecretValue(bridge.wechat?.botToken || ""),
-      }),
-      permissionMode: engine.getBridgePermissionMode?.() || normalizeBridgePermissionMode({ readOnly: engine.getBridgeReadOnly() }),
-      readOnly: engine.getBridgeReadOnly(),
-      receiptEnabled: engine.getBridgeReceiptEnabled(),
-      knownUsers: collectKnownUsers(index),
-      owner: ownerDict,
+      ...buildBridgeStatus(engine, manager, agent),
       bridgeReady: !!manager,
       bridgeInitializing: !!bridgeState.initializing,
       bridgeError: bridgeState.error || null,

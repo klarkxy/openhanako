@@ -24,7 +24,8 @@ Rules:
 - Never approve git push, force-push, tag push, credential exposure, destructive deletion outside the authorized workspace, or actions that bypass explicit user confirmation.
 - Use ask_user when intent, target, or blast radius is unclear.
 - Use deny_and_continue when the agent should choose a safer path without asking.
-- The small reviewer should escalate high-risk or broad-blast-radius actions.`;
+- If you are the small reviewer, allow only obvious low-risk in-scope actions; otherwise use escalate, ask_user, or deny_and_continue.
+- If you are the large reviewer, make the final risk decision from the supplied request and trust context.`;
 
 function commandFromRequest(request: any = {}) {
   const command = request.params?.command || request.params?.cmd || request.target?.label;
@@ -125,7 +126,22 @@ function deterministicDecision(request: any = {}) {
       };
     }
   }
+  if (isDeferredMutationDraft(request)) {
+    return {
+      action: "allow",
+      reviewer: "policy",
+      reason: request.sideEffect?.summary || "Tool action only creates a draft; persistent writes require explicit confirmation.",
+      risk: "low",
+      ruleIds: [request.sideEffect?.ruleId || "automation-draft-no-write"],
+    };
+  }
   return null;
+}
+
+function isDeferredMutationDraft(request: any = {}) {
+  const sideEffect = request.sideEffect;
+  return sideEffect?.kind === "deferred_mutation_draft"
+    && sideEffect?.commit === "requires_user_confirmation";
 }
 
 function normalizeRisk(value, fallback = "medium") {
@@ -299,6 +315,14 @@ async function callReviewer(fn, input, reviewer) {
   }
 }
 
+function isLowRiskAllow(decision) {
+  return decision?.action === "allow" && decision.risk === "low";
+}
+
+function isAllowedReviewerAction(decision) {
+  return decision && ALLOWED_ACTIONS.has(decision.action);
+}
+
 export function createApprovalGateway({
   smallToolModelReviewer = null,
   largeToolModelReviewer = null,
@@ -314,14 +338,18 @@ export function createApprovalGateway({
         reviewerInput,
         "small_tool_model",
       );
-      if (smallDecision && smallDecision.action !== "escalate") return smallDecision;
+      const hasLargeReviewer = typeof largeToolModelReviewer === "function";
+      if (isAllowedReviewerAction(smallDecision) && (!hasLargeReviewer || isLowRiskAllow(smallDecision))) {
+        return smallDecision;
+      }
 
       const largeDecision = await callReviewer(
         largeToolModelReviewer,
         reviewerInput,
         "large_tool_model",
       );
-      if (largeDecision && ALLOWED_ACTIONS.has(largeDecision.action)) return largeDecision;
+      if (isAllowedReviewerAction(largeDecision)) return largeDecision;
+      if (isAllowedReviewerAction(smallDecision)) return smallDecision;
 
       return fallbackAskUser(smallDecision?.reason || "auto approval reviewer unavailable");
     },

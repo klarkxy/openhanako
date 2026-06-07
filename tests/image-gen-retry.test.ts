@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { retryImageTask } from "../plugins/image-gen/lib/image-task-runner.ts";
@@ -121,7 +122,7 @@ describe("image generation retry", () => {
     await flushBackgroundSubmits();
 
     expect(adapter.submit).toHaveBeenCalledWith(task.params, expect.objectContaining({
-      generatedDir: "/tmp/image-gen/generated",
+      generatedDir: path.join("/tmp/image-gen", "generated"),
       bus,
       log: ctx.log,
       config: ctx.config,

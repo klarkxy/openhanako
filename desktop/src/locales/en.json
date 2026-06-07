@@ -433,6 +433,7 @@
     "hourly": "Hourly",
     "dailyAt": "Daily at {hour}:{min}",
     "weeklyAt": "{days} {hour}:{min}",
+    "monthlyAt": "Monthly on day {day} at {hour}:{min}",
     "dayNames": [
       "Sun",
       "Mon",
@@ -1663,10 +1664,8 @@
       "heartbeatInterval": "Patrol interval",
       "heartbeatUnit": "minutes",
       "heartbeatDesc": "How often the assistant auto-checks the workspace",
-      "cronAutoApprove": "Auto-approve cron jobs",
-      "cronAutoApproveOn": "On",
-      "cronAutoApproveOff": "Off",
-      "cronAutoApproveDesc": "Allow the assistant to create scheduled tasks without confirmation",
+      "automationPermissionMode": "Automation permission mode",
+      "automationPermissionModeDesc": "Controls whether background automation Agent runs auto-review tool calls, run with full access, or stay read-only",
       "homeFolder": "Workspace",
       "homeFolderDesc": "Default working directory for new chats, patrol and cron tasks",
       "homeFolderPlaceholder": "Not set (choose manually each time)",
@@ -2151,17 +2150,80 @@
     "heartbeat": "Routine patrol",
     "subagent": "Sub-agent task",
     "cron": "Scheduled task",
+    "automationRuns": "Custom automations",
+    "patrolRuns": "Patrols",
+    "otherRuns": "Other background work",
+    "agentTabs": "Filter activity by Agent",
+    "categoryTabs": "Filter by activity type",
+    "emptyForCategory": "No activity in this category yet.",
     "patrolDone": "Patrol completed",
     "cronDone": "Scheduled task completed",
     "error": "Execution error",
-    "viewSession": "View session →",
+    "viewSession": "Expand run",
+    "expand": "Expand run",
+    "collapse": "Collapse run",
+    "loadingSession": "Loading this background session...",
+    "sessionLoadFailed": "This background session cannot be loaded right now.",
+    "noSessionMessages": "No messages to show for this background session.",
     "duration": "Took {text}",
     "promote": "Keep as chat"
   },
   "automation": {
     "title": "Scheduled Tasks",
     "empty": "No scheduled tasks yet.\nThe assistant will create them when needed.",
+    "emptyForAgent": "No scheduled tasks for this Agent yet.",
+    "agentTabs": "Filter automations by Agent",
+    "draftTitle": "Automation draft",
+    "suggestionTitle": "Suggestion",
+    "suggested": "Suggested",
+    "openDraft": "Open automation draft",
+    "closeDraft": "Close automation draft",
+    "confirmCreate": "Confirm",
+    "confirmUpdate": "Update",
     "defaultModel": "Default model",
+    "add": "Add automation",
+    "enable": "Enable",
+    "disable": "Disable",
+    "newAutomation": "New automation",
+    "newPrompt": "",
+    "promptPlaceholder": "Write what you want {agent} to do",
+    "promptRequired": "Write what the Agent should do before enabling this automation.",
+    "createFailed": "Failed to create automation",
+    "agentRequired": "Choose an Agent first",
+    "field": {
+      "label": "Name",
+      "agent": "Agent",
+      "scheduleType": "Type",
+      "schedule": "Time",
+      "prompt": "Run prompt"
+    },
+    "schedule": {
+      "at": "Once",
+      "every": "Every",
+      "unit": "Unit",
+      "time": "Time",
+      "hour": "Hour",
+      "minute": "Minute",
+      "weekday": "Day",
+      "monthDay": "Date",
+      "dateTime": "Date and time",
+      "cronExpression": "Cron expression",
+      "onceAt": "Once: {date}",
+      "advancedCron": "Advanced Cron: {cron}",
+      "mode": {
+        "interval": "Every interval",
+        "daily": "Daily",
+        "weekly": "Weekly",
+        "monthly": "Monthly",
+        "once": "Once",
+        "advanced": "Advanced Cron"
+      },
+      "unitLabel": {
+        "minutes": "minutes",
+        "hours": "hours",
+        "days": "days"
+      }
+    },
     "executor": {
       "agentSession": "Agent",
       "notify": "Notify",
@@ -3014,18 +3076,18 @@
     "interlude": {
       "subagent": {
         "success": "{receiver} received a reply from {source}",
-        "failed": "{receiver} received a failed reply from {source}",
-        "aborted": "{receiver} stopped the reply from {source}"
+        "failed": "{receiver} received a reply from {source}",
+        "aborted": "{receiver} received a reply from {source}"
       },
       "workflow": {
-        "success": "{receiver} received a reply from {source} workflow",
-        "failed": "{receiver} received a failed reply from {source} workflow",
-        "aborted": "{receiver} stopped {source} workflow"
+        "success": "{receiver} received results from {source} workflow",
+        "failed": "{receiver} received results from {source} workflow",
+        "aborted": "{receiver} received results from {source} workflow"
       },
       "tool": {
-        "success": "{receiver} got results from {source} tool",
-        "failed": "{receiver} did not get results from {source} tool",
-        "aborted": "{receiver} stopped results from {source} tool"
+        "success": "{receiver} received results from {source} tool",
+        "failed": "{receiver} received results from {source} tool",
+        "aborted": "{receiver} received results from {source} tool"
       }
     },
     "noReason": "The background task did not return a displayable reason.",

@@ -538,6 +538,29 @@ describe('ws-message-handler session-scoped desktop events', () => {
   });
 });
 
+describe('ws-message-handler activity updates', () => {
+  beforeEach(() => {
+    useStore.setState({
+      activities: [
+        { id: 'activity-1', type: 'beautify', status: 'running', summary: '旧状态' },
+        { id: 'activity-2', type: 'cron', status: 'done', summary: '另一条活动' },
+      ],
+    } as never);
+  });
+
+  it('merges activity_update by id so stale running cards do not remain in the panel', () => {
+    handleServerMessage({
+      type: 'activity_update',
+      activity: { id: 'activity-1', type: 'beautify', status: 'done', summary: '新状态' },
+    });
+
+    expect(useStore.getState().activities).toEqual([
+      { id: 'activity-1', type: 'beautify', status: 'done', summary: '新状态' },
+      { id: 'activity-2', type: 'cron', status: 'done', summary: '另一条活动' },
+    ]);
+  });
+});
+
 describe('ws-message-handler permission mode events', () => {
   let windowTarget: EventTarget;
 

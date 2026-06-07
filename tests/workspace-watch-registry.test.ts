@@ -1,8 +1,10 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import path from "path";
 import { createWorkspaceWatchRegistry } from "../desktop/workspace-watch-registry.cjs";
 
 class FakeWatcher {
+  declare close: any;
+  declare handlers: any;
   constructor() {
     this.handlers = new Map();
     this.close = vi.fn();
@@ -41,35 +43,38 @@ describe("workspace-watch-registry", () => {
   });
 
   it("shares one shallow workspace watcher and notifies subscribers with the affected directory", () => {
+    const root = path.resolve("/workspace");
+    const changedPath = path.join(root, "src", "App.tsx");
+    const affectedDir = path.dirname(changedPath);
     const registry = createWorkspaceWatchRegistry({
       watch: watchMock,
       notifySubscriber: (subscriberId, payload) => notified.push({ subscriberId, payload }),
       debounceMs: 30,
     });
 
-    expect(registry.watchWorkspace("/workspace", 1)).toBe(true);
-    expect(registry.watchWorkspace("/workspace", 2)).toBe(true);
+    expect(registry.watchWorkspace(root, 1)).toBe(true);
+    expect(registry.watchWorkspace(root, 2)).toBe(true);
     expect(watchMock).toHaveBeenCalledTimes(1);
 
-    watchers.get("/workspace").emit("all", "add", "/workspace/src/App.tsx");
+    watchers.get(root).emit("all", "add", changedPath);
     vi.advanceTimersByTime(35);
 
     expect(notified).toEqual([
       {
         subscriberId: 1,
         payload: {
-          rootPath: "/workspace",
-          changedPath: "/workspace/src/App.tsx",
-          affectedDir: "/workspace/src",
+          rootPath: root,
+          changedPath,
+          affectedDir,
           eventType: "add",
         },
       },
       {
         subscriberId: 2,
         payload: {
-          rootPath: "/workspace",
-          changedPath: "/workspace/src/App.tsx",
-          affectedDir: "/workspace/src",
+          rootPath: root,
+          changedPath,
+          affectedDir,
           eventType: "add",
         },
       },
@@ -77,26 +82,28 @@ describe("workspace-watch-registry", () => {
   });
 
   it("ignores heavyweight and hidden workspace paths before they reach the watcher", () => {
+    const root = path.resolve("/workspace");
     const registry = createWorkspaceWatchRegistry({
       watch: watchMock,
       notifySubscriber: () => {},
     });
 
-    registry.watchWorkspace("/workspace", 1);
+    registry.watchWorkspace(root, 1);
     const options = watchMock.mock.calls[0][1];
 
-    expect(options.ignored("/workspace/node_modules/pkg/index.js")).toBe(true);
-    expect(options.ignored("/workspace/.git/index")).toBe(true);
-    expect(options.ignored("/workspace/src/App.tsx")).toBe(false);
+    expect(options.ignored(path.join(root, "node_modules", "pkg", "index.js"))).toBe(true);
+    expect(options.ignored(path.join(root, ".git", "index"))).toBe(true);
+    expect(options.ignored(path.join(root, "src", "App.tsx"))).toBe(false);
   });
 
   it("limits each watcher to the watched directory so opening a workspace never recursively scans the whole tree", () => {
+    const root = path.resolve("/workspace");
     const registry = createWorkspaceWatchRegistry({
       watch: watchMock,
       notifySubscriber: () => {},
     });
 
-    expect(registry.watchWorkspace("/workspace", 1)).toBe(true);
+    expect(registry.watchWorkspace(root, 1)).toBe(true);
     const options = watchMock.mock.calls[0][1];
 
     expect(options.depth).toBe(0);
@@ -105,18 +112,19 @@ describe("workspace-watch-registry", () => {
   });
 
   it("removes only the current subscriber and closes the watcher after the last subscriber leaves", () => {
+    const root = path.resolve("/workspace");
     const registry = createWorkspaceWatchRegistry({
       watch: watchMock,
       notifySubscriber: () => {},
     });
 
-    registry.watchWorkspace("/workspace", 1);
-    registry.watchWorkspace("/workspace", 2);
+    registry.watchWorkspace(root, 1);
+    registry.watchWorkspace(root, 2);
 
-    expect(registry.unwatchWorkspace("/workspace", 1)).toBe(true);
-    expect(watchers.get("/workspace").close).not.toHaveBeenCalled();
+    expect(registry.unwatchWorkspace(root, 1)).toBe(true);
+    expect(watchers.get(root).close).not.toHaveBeenCalled();
 
-    expect(registry.unwatchWorkspace("/workspace", 2)).toBe(true);
-    expect(watchers.get("/workspace").close).toHaveBeenCalledOnce();
+    expect(registry.unwatchWorkspace(root, 2)).toBe(true);
+    expect(watchers.get(root).close).toHaveBeenCalledOnce();
   });
 });

@@ -16,7 +16,6 @@ import { createWebSearchTool } from "../lib/tools/web-search.ts";
 import { createTodoTool } from "../lib/tools/todo.ts";
 import { createDeskManager } from "../lib/desk/desk-manager.ts";
 import { CronStore } from "../lib/desk/cron-store.ts";
-import { createCronTool } from "../lib/tools/cron-tool.ts";
 import { createAutomationTool } from "../lib/tools/automation-tool.ts";
 import { createWebFetchTool } from "../lib/tools/web-fetch.ts";
 import { createStageFilesTool } from "../lib/tools/output-file-tool.ts";
@@ -74,7 +73,6 @@ export class Agent {
   declare _computerUseTool: any;
   declare _config: any;
   declare _cronStore: any;
-  declare _cronTool: any;
   declare _currentStatusTool: any;
   declare _descriptionRefreshHandler: any;
   declare _deskManager: any;
@@ -200,7 +198,6 @@ export class Agent {
     // Desk 系统（与 memory 完全独立）
     this._deskManager = null;
     this._cronStore = null;
-    this._cronTool = null;
     this._automationTool = null;
     this._stageFilesTool = null;
     // Legacy compatibility only. Fresh sessions should write files and stage
@@ -428,19 +425,10 @@ export class Agent {
       path.join(this.deskDir, "cron-jobs.json"),
       path.join(this.deskDir, "cron-runs"),
     );
-    this._cronTool = createCronTool(this._cronStore, {
-      getAutoApprove: () => this._config?.desk?.cron_auto_approve !== false,
-      confirmStore: this._cb?.getConfirmStore?.(),
-      emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
-      getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
-      getAgentId: () => this.id,
-      getSessionCwd: (sp) => this._cb?.getSessionCwd?.(sp),
-      getSessionWorkspaceFolders: (sp) => this._cb?.getSessionWorkspaceFolders?.(sp) || [],
-      getHomeCwd: (agentId) => this._cb?.getHomeCwd?.(agentId),
-    });
     this._automationTool = createAutomationTool(this._cronStore, {
-      getAutoApprove: () => this._config?.desk?.cron_auto_approve !== false,
+      getAutoApprove: () => false,
       confirmStore: this._cb?.getConfirmStore?.(),
+      getConfirmStore: () => this._cb?.getConfirmStore?.(),
       emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
       getAgentId: () => this.id,
@@ -830,7 +818,6 @@ export class Agent {
       this._webSearchTool,
       this._webFetchTool,
       this._todoTool,
-      this._cronTool,
       this._automationTool,
       this._stageFilesTool,
       ...legacyArtifactTools,

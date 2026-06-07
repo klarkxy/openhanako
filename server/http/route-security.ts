@@ -1,6 +1,9 @@
+import { hasStudioOwnerScope } from "../../shared/access-scope-profiles.ts";
+
 const AUTHENTICATED_ONLY = Object.freeze({ kind: "authenticated" });
 const LOCAL_ONLY = Object.freeze({ kind: "local_only" });
 const PUBLIC = Object.freeze({ kind: "public" });
+const STUDIO_OWNER = Object.freeze({ kind: "studio_owner" });
 
 export function authorizeHttpRoute({ method, path, principal }) {
   const policy = classifyHttpRoute({ method, path });
@@ -26,6 +29,13 @@ export function authorizeHttpRoute({ method, path, principal }) {
     });
   }
   const scopes = Array.isArray(principal.scopes) ? principal.scopes : [];
+  if (policy.kind === "studio_owner") {
+    return isStudioOwnerPrincipal(principal)
+      ? allowed(policy)
+      : denied("studio_owner_required", 403, policy, {
+        reason: "studio_owner_required",
+      });
+  }
   const required = policy.scope;
   if (scopeAllows(scopes, required)) {
     return allowed(policy);
@@ -42,10 +52,12 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
 
   if (isMobileStaticRoute(verb, routePath)) return PUBLIC;
   if (isWebAuthBootstrapRoute(verb, routePath)) return PUBLIC;
+  if (isMcpOAuthCallbackRoute(verb, routePath)) return PUBLIC;
   if (isHtmlPreviewDocumentRoute(verb, routePath)) return PUBLIC;
 
   if (routePath === "/api/health") return AUTHENTICATED_ONLY;
   if (routePath === "/api/server/identity") return AUTHENTICATED_ONLY;
+  if (isClientLocalOnlyRoute(verb, routePath)) return LOCAL_ONLY;
 
   if (routePath === "/ws") return scoped("chat");
   if (routePath === "/api/mobile/bootstrap") {
@@ -58,18 +70,10 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   ) {
     return verb === "GET" ? scoped("chat") : LOCAL_ONLY;
   }
-  if (routePath === "/api/mobile/workbench/files" || routePath === "/api/mobile/workbench/search") {
-    return verb === "GET" ? scoped("files.read") : LOCAL_ONLY;
-  }
-  if (routePath === "/api/mobile/workbench/content") {
-    return (verb === "GET" || verb === "HEAD") ? scoped("files.read") : LOCAL_ONLY;
-  }
-  if (
-    routePath === "/api/mobile/workbench/actions"
-    || routePath === "/api/mobile/workbench/upload"
-  ) {
-    return verb === "POST" ? scoped("files.write") : LOCAL_ONLY;
-  }
+  if (isWorkbenchFileReadRoute(verb, routePath)) return scoped("files.read");
+  if (isWorkbenchFileWriteRoute(verb, routePath)) return scoped("files.write");
+  if (isStudioWorkspaceReadRoute(verb, routePath)) return scoped("files.read");
+  if (isStudioWorkspaceWriteRoute(verb, routePath)) return scoped("files.write");
   if (routePath === "/api/preferences/workspace-ui-state") {
     if (verb === "GET") return scoped("files.read");
     if (verb === "PUT") return scoped("files.write");
@@ -80,7 +84,7 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   }
   if (isDeskFileReadRoute(verb, routePath)) return scoped("files.read");
   if (isDeskFileWriteRoute(verb, routePath)) return scoped("files.write");
-  if (routePath === "/api/usage/llm") return verb === "GET" ? LOCAL_ONLY : LOCAL_ONLY;
+  if (routePath === "/api/usage/llm") return verb === "GET" ? STUDIO_OWNER : LOCAL_ONLY;
   if (routePath === "/api/session-projects" || routePath.startsWith("/api/session-projects/")) {
     return scoped("chat");
   }
@@ -89,6 +93,15 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   }
   if (isSettingsReadRoute(verb, routePath)) return scoped("settings.read");
   if (isSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
+  if (isSkillSettingsReadRoute(verb, routePath)) return scoped("settings.read");
+  if (isSkillSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
+  if (isMcpSettingsReadRoute(verb, routePath)) return scoped("settings.read");
+  if (isMcpSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
+  if (isImageGenerationReadRoute(verb, routePath)) return scoped("settings.read");
+  if (isImageGenerationWriteRoute(verb, routePath)) return scoped("settings.write");
+  if (isImageGenerationProviderManagementRoute(verb, routePath)) return scoped("providers.manage");
+  if (isPluginSettingsReadRoute(verb, routePath)) return scoped("settings.read");
+  if (isPluginSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
   if (isProviderManagementRoute(verb, routePath)) return scoped("providers.manage");
   if (isBridgeManagementRoute(verb, routePath)) return scoped("bridge.manage");
   if (isPluginAssetReadRoute(verb, routePath)) return scoped("chat");
@@ -141,6 +154,8 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
     return scoped("chat");
   }
 
+  if (routePath.startsWith("/api/")) return STUDIO_OWNER;
+
   return LOCAL_ONLY;
 }
 
@@ -153,6 +168,13 @@ export function isLocalOwnerPrincipal(principal) {
   return principal.kind === "local_user"
     && principal.connectionKind === "local"
     && principal.credentialKind === "loopback_token";
+}
+
+export function isStudioOwnerPrincipal(principal) {
+  if (isLocalOwnerPrincipal(principal)) return true;
+  if (!principal || typeof principal !== "object") return false;
+  const scopes = Array.isArray(principal.scopes) ? principal.scopes : [];
+  return hasStudioOwnerScope(scopes);
 }
 
 function scoped(scope) {
@@ -210,14 +232,36 @@ function isWebAuthBootstrapRoute(verb, routePath) {
   return false;
 }
 
+function isMcpOAuthCallbackRoute(verb, routePath) {
+  return verb === "GET" && routePath === "/api/plugins/mcp/oauth/callback";
+}
+
 function isHtmlPreviewDocumentRoute(verb, routePath) {
   if (verb !== "GET" && verb !== "HEAD") return false;
   return /^\/preview\/html\/[^/]+(?:\/assets\/[^/]+\/.+)?$/.test(routePath);
 }
 
+function isClientLocalOnlyRoute(verb, routePath) {
+  if (routePath === "/api/shutdown") return true;
+  if (routePath.startsWith("/api/access/")) return true;
+  if (routePath.startsWith("/api/devices/")) return true;
+  if (routePath === "/api/skills/external-paths") return true;
+  if (routePath === "/api/plugins/install") return true;
+  if (routePath.startsWith("/api/plugins/dev/") || routePath === "/api/plugins/dev") return true;
+  if (routePath === "/api/preferences/computer-use/request-permissions") return true;
+  if (routePath.startsWith("/api/plugins/image-gen/media/open/")) return true;
+  if (/^\/api\/plugins\/[^/]+\/assets\/.+$/.test(routePath) && verb !== "GET" && verb !== "HEAD") {
+    return true;
+  }
+  return false;
+}
+
 function isSettingsReadRoute(verb, routePath) {
   if (verb !== "GET") return false;
   return routePath === "/api/config"
+    || routePath === "/api/settings/snapshot"
+    || routePath === "/api/plugins/settings"
+    || routePath === "/api/plugins/settings-tabs"
     || routePath === "/api/providers/summary"
     || routePath === "/api/preferences/models"
     || routePath === "/api/preferences/appearance"
@@ -226,7 +270,43 @@ function isSettingsReadRoute(verb, routePath) {
     || routePath === "/api/experiments"
     || routePath === "/api/experiments/memory/cache-snapshot-reflection/observation"
     || routePath === "/api/bridge/status"
+    || routePath === "/api/agents"
+    || routePath === "/api/user-profile"
+    || routePath === "/api/preferences/notifications"
+    || routePath === "/api/preferences/computer-use"
+    || /^\/api\/agents\/[^/]+\/(?:identity|ishiki|public-ishiki|pinned|experience)$/.test(routePath)
     || /^\/api\/agents\/[^/]+\/config$/.test(routePath);
+}
+
+function isWorkbenchFileReadRoute(verb, routePath) {
+  if (verb !== "GET" && verb !== "HEAD") return false;
+  if (routePath === "/api/mobile/workbench/files" || routePath === "/api/mobile/workbench/search") {
+    return verb === "GET";
+  }
+  if (routePath === "/api/workbench/files" || routePath === "/api/workbench/search") {
+    return verb === "GET";
+  }
+  return routePath === "/api/mobile/workbench/content"
+    || routePath === "/api/workbench/content";
+}
+
+function isWorkbenchFileWriteRoute(verb, routePath) {
+  if (verb !== "POST") return false;
+  return routePath === "/api/mobile/workbench/actions"
+    || routePath === "/api/mobile/workbench/upload"
+    || routePath === "/api/workbench/actions"
+    || routePath === "/api/workbench/upload";
+}
+
+function isStudioWorkspaceReadRoute(verb, routePath) {
+  if (verb !== "GET" && verb !== "HEAD") return false;
+  return routePath === "/api/studio/workspaces"
+    || /^\/api\/studio\/workspaces\/[^/]+\/files$/.test(routePath);
+}
+
+function isStudioWorkspaceWriteRoute(verb, routePath) {
+  if (verb !== "POST") return false;
+  return routePath === "/api/studio/workspaces";
 }
 
 function isDeskFileReadRoute(verb, routePath) {
@@ -234,13 +314,17 @@ function isDeskFileReadRoute(verb, routePath) {
   return routePath === "/api/desk/path"
     || routePath === "/api/desk/files"
     || routePath === "/api/desk/search-files"
-    || routePath === "/api/desk/jian";
+    || routePath === "/api/desk/jian"
+    || routePath === "/api/desk/beautify/status";
 }
 
 function isDeskFileWriteRoute(verb, routePath) {
   if (verb !== "POST") return false;
   return routePath === "/api/desk/files"
-    || routePath === "/api/desk/jian";
+    || routePath === "/api/desk/jian"
+    || routePath === "/api/desk/beautify/cover"
+    || routePath === "/api/desk/beautify/cover/apply"
+    || routePath === "/api/desk/beautify/cover/preset/apply";
 }
 
 function isSettingsWriteRoute(verb, routePath) {
@@ -252,9 +336,39 @@ function isSettingsWriteRoute(verb, routePath) {
     || routePath === "/api/preferences/models"
     || routePath === "/api/preferences/appearance"
     || routePath === "/api/preferences/quick-chat"
+    || routePath === "/api/preferences/notifications"
+    || routePath === "/api/preferences/computer-use"
     || routePath === "/api/speech-recognition/config"
+    || /^\/api\/agents\/[^/]+\/(?:identity|ishiki|public-ishiki|pinned|experience)$/.test(routePath)
     || /^\/api\/agents\/[^/]+\/config$/.test(routePath)
   ));
+}
+
+function isSkillSettingsReadRoute(verb, routePath) {
+  if (verb !== "GET") return false;
+  return routePath === "/api/skills"
+    || routePath === "/api/skills/bundles";
+}
+
+function isSkillSettingsWriteRoute(verb, routePath) {
+  return (verb === "PUT" && (
+    /^\/api\/agents\/[^/]+\/skills$/.test(routePath)
+    || routePath === "/api/skills/bundles/order"
+    || /^\/api\/skills\/bundles\/[^/]+$/.test(routePath)
+  ))
+    || (verb === "PATCH" && (
+      /^\/api\/agents\/[^/]+\/skills\/[^/]+$/.test(routePath)
+      || /^\/api\/agents\/[^/]+\/skill-bundles\/[^/]+$/.test(routePath)
+    ))
+    || (verb === "POST" && (
+      routePath === "/api/skills/install"
+      || routePath === "/api/skills/bundles"
+      || /^\/api\/skills\/bundles\/[^/]+\/export$/.test(routePath)
+    ))
+    || (verb === "DELETE" && (
+      /^\/api\/skills\/bundles\/[^/]+$/.test(routePath)
+      || /^\/api\/skills\/[^/]+$/.test(routePath)
+    ));
 }
 
 function isProviderManagementRoute(verb, routePath) {
@@ -278,6 +392,63 @@ function isBridgeManagementRoute(verb, routePath) {
     || routePath === "/api/bridge/owner"
     || routePath === "/api/bridge/stop"
     || routePath === "/api/bridge/test";
+}
+
+function isMcpSettingsReadRoute(verb, routePath) {
+  if (verb !== "GET") return false;
+  return routePath === "/api/plugins/mcp/state"
+    || /^\/api\/plugins\/mcp\/oauth\/poll\/[^/]+$/.test(routePath);
+}
+
+function isMcpSettingsWriteRoute(verb, routePath) {
+  if (verb === "PUT" && (routePath === "/api/plugins/mcp/settings/enabled" || routePath === "/api/plugins/mcp/enabled")) return true;
+  if (verb === "POST" && (routePath === "/api/plugins/mcp/connectors" || routePath === "/api/plugins/mcp/servers")) return true;
+  if ((verb === "PUT" || verb === "DELETE") && /^\/api\/plugins\/mcp\/(?:connectors|servers)\/[^/]+$/.test(routePath)) return true;
+  if (verb === "POST" && /^\/api\/plugins\/mcp\/(?:connectors|servers)\/[^/]+\/(?:start|stop|refresh-tools)$/.test(routePath)) return true;
+  if (verb === "PUT" && /^\/api\/plugins\/mcp\/agents\/[^/]+\/(?:connectors|servers)\/[^/]+$/.test(routePath)) return true;
+  if (verb === "POST" && /^\/api\/plugins\/mcp\/(?:connectors|servers)\/[^/]+\/oauth\/(?:start|logout)$/.test(routePath)) return true;
+  return false;
+}
+
+function isImageGenerationReadRoute(verb, routePath) {
+  if (verb !== "GET" && verb !== "HEAD") return false;
+  return routePath === "/api/plugins/image-gen/providers"
+    || routePath === "/api/plugins/image-gen/tasks"
+    || /^\/api\/plugins\/image-gen\/media\/[^/]+$/.test(routePath)
+    || /^\/api\/plugins\/image-gen\/tasks\/batch\/[^/]+$/.test(routePath)
+    || /^\/api\/plugins\/image-gen\/tasks\/[^/]+$/.test(routePath);
+}
+
+function isImageGenerationWriteRoute(verb, routePath) {
+  return verb === "PUT" && routePath === "/api/plugins/image-gen/config";
+}
+
+function isImageGenerationProviderManagementRoute(verb, routePath) {
+  return (verb === "POST" && /^\/api\/plugins\/image-gen\/providers\/[^/]+\/models$/.test(routePath))
+    || (verb === "DELETE" && /^\/api\/plugins\/image-gen\/providers\/[^/]+\/models\/[^/]+$/.test(routePath))
+    || (verb === "POST" && /^\/api\/plugins\/image-gen\/tasks\/[^/]+\/retry$/.test(routePath));
+}
+
+function isPluginSettingsReadRoute(verb, routePath) {
+  if (verb !== "GET") return false;
+  return routePath === "/api/plugins"
+    || routePath === "/api/plugins/config-schemas"
+    || routePath === "/api/plugins/event-bus/capabilities"
+    || routePath === "/api/plugins/diagnostics"
+    || routePath === "/api/plugins/marketplace"
+    || /^\/api\/plugins\/marketplace\/[^/]+\/readme$/.test(routePath)
+    || /^\/api\/plugins\/[^/]+\/config-schema$/.test(routePath)
+    || /^\/api\/plugins\/[^/]+\/config$/.test(routePath);
+}
+
+function isPluginSettingsWriteRoute(verb, routePath) {
+  return (verb === "PUT" && (
+    routePath === "/api/plugins/settings"
+    || /^\/api\/plugins\/[^/]+\/config$/.test(routePath)
+    || /^\/api\/plugins\/[^/]+\/enabled$/.test(routePath)
+  ))
+    || (verb === "POST" && /^\/api\/plugins\/marketplace\/[^/]+\/install$/.test(routePath))
+    || (verb === "DELETE" && /^\/api\/plugins\/[^/]+$/.test(routePath));
 }
 
 function isPluginUiReadRoute(verb, routePath) {

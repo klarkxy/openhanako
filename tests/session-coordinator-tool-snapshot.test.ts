@@ -60,7 +60,7 @@ const HANAKO_CUSTOM_OBJS = [
   "web_fetch", "todo_write", "notify",
   "stage_files", "subagent", "channel", "record_experience",
   "recall_experience", "check_pending_tasks", "current_status", "stop_task",
-  "session_folders", "browser", "cron", "dm", "install_skill", "update_settings",
+  "session_folders", "browser", "automation", "dm", "install_skill", "update_settings",
 ].map(makeTool);
 
 function allNames() {
@@ -196,7 +196,7 @@ describe("session-coordinator tool snapshot (createSession)", () => {
     expect(appliedList).not.toContain("dm");
     // everything else still on
     expect(appliedList).toContain("browser");
-    expect(appliedList).toContain("cron");
+    expect(appliedList).toContain("automation");
     expect(appliedList).toContain("install_skill");
     expect(appliedList).toContain("read"); // SDK built-in preserved
     expect(coord.getAccessMode()).toBe("operate");
@@ -482,7 +482,7 @@ describe("session-coordinator tool snapshot (createSession)", () => {
 
     const appliedList = activeToolsSpy.mock.calls[0][0];
     expect(appliedList).not.toContain("browser");
-    expect(appliedList).toContain("cron");
+    expect(appliedList).toContain("automation");
     expect(appliedList).toContain("read");
   });
 
@@ -572,13 +572,13 @@ describe("session-coordinator tool snapshot (createSession)", () => {
   });
 
   it("Case C: persists toolNames to session-meta.json", async () => {
-    currentAgentConfig = { tools: { disabled: ["browser", "cron"] } };
+    currentAgentConfig = { tools: { disabled: ["browser", "automation"] } };
     await coord.createSession(null, tmpDir, true);
 
     const meta = JSON.parse(await fsp.readFile(path.join(sessionDir, "session-meta.json"), "utf-8"));
     const persisted = meta[path.basename(fakeSessionPath)].toolNames;
     expect(persisted).not.toContain("browser");
-    expect(persisted).not.toContain("cron");
+    expect(persisted).not.toContain("automation");
     expect(persisted).toContain("dm");
     expect(persisted).toContain("install_skill");
   });
@@ -761,7 +761,7 @@ describe("session-coordinator tool snapshot (createSession)", () => {
     expect(activeToolsSpy).toHaveBeenCalledTimes(1);
     const appliedList = activeToolsSpy.mock.calls[0][0];
     expect(appliedList).not.toContain("browser"); // current disabled list honored
-    expect(appliedList).toContain("cron");
+    expect(appliedList).toContain("automation");
     expect(appliedList).toContain("read");
 
     const entry = coord._sessions.get(sessionPath);
@@ -857,7 +857,7 @@ describe("session-coordinator tool snapshot (createSession)", () => {
     expect(planList).toContain("read");
     expect(planList).toContain("browser");
     expect(planList).toContain("bash");
-    expect(planList).toContain("cron");
+    expect(planList).toContain("automation");
     expect(coord.getAccessMode()).toBe("read_only");
   });
 });

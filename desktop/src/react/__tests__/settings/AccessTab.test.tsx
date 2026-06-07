@@ -84,6 +84,20 @@ const pairedSummary = {
   }],
 };
 
+const lanSummary = {
+  ...baseSummary,
+  network: {
+    ...baseSummary.network,
+    mode: 'lan',
+    listenHost: '0.0.0.0',
+    runtimeMode: 'lan',
+    runtimeHost: '0.0.0.0',
+    lanServerUrl: 'http://192.168.31.75:14500/',
+    lanMobileUrl: 'http://192.168.31.75:14500/mobile/',
+    lanDesktopUrl: 'http://192.168.31.75:14500/desktop/',
+  },
+};
+
 const localConnection = {
   connectionId: 'local',
   kind: 'local',
@@ -122,6 +136,14 @@ describe('AccessTab', () => {
       serverConnections: { local: localConnection },
       activeServerConnectionId: 'local',
       activeServerConnection: localConnection,
+      settingsSnapshot: {
+        key: null,
+        status: 'idle',
+        data: null,
+        error: null,
+        requestId: 0,
+        updatedAt: null,
+      },
     });
     mockHanaFetch.mockReset();
     mockHanaFetch.mockImplementation((url: string, options?: RequestInit) => {
@@ -257,6 +279,43 @@ describe('AccessTab', () => {
     expect(screen.queryByText('settings.access.restartRequired')).not.toBeInTheDocument();
   });
 
+  it('uses snapshot access summary for the LAN switch before the refresh request settles', async () => {
+    let resolveSummary: (value: Response) => void = () => {};
+    mockState.settingsSnapshot = {
+      key: 'local:snapshot:agent-a',
+      status: 'ready',
+      data: {
+        agentId: 'agent-a',
+        access: lanSummary,
+      },
+      error: null,
+      requestId: 1,
+      updatedAt: Date.now(),
+    };
+    mockHanaFetch.mockImplementation((url: string) => {
+      if (url === '/api/access/summary') {
+        return new Promise<Response>((resolve) => {
+          resolveSummary = resolve;
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    const { AccessTab } = await import('../../settings/tabs/AccessTab');
+
+    render(<AccessTab />);
+
+    expect(screen.getByRole('switch', { name: 'settings.access.lanToggle' }))
+      .toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByDisplayValue('14500')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('http://192.168.31.75:14500/mobile/')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('http://192.168.31.75:14500/desktop/')).toBeInTheDocument();
+
+    resolveSummary(jsonResponse(lanSummary));
+    await waitFor(() => {
+      expect(mockHanaFetch).toHaveBeenCalledWith('/api/access/summary');
+    });
+  });
+
   it('keeps the phone URL on the runtime port and hides QR when a saved port change needs restart', async () => {
     mockHanaFetch.mockImplementation((url: string) => {
       if (url === '/api/access/summary') {
@@ -324,7 +383,18 @@ describe('AccessTab', () => {
       method: 'POST',
       body: JSON.stringify({
         displayName: 'Desktop Frontend',
-        scopes: ['chat', 'resources.read', 'files.read', 'files.write'],
+        scopes: [
+          'chat',
+          'resources.read',
+          'files.read',
+          'files.write',
+          'studio.owner',
+          'settings.read',
+          'settings.write',
+          'providers.manage',
+          'secrets.write',
+          'bridge.manage',
+        ],
       }),
     }));
   });

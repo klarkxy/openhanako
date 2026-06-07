@@ -294,6 +294,60 @@ describe('server connection helpers', () => {
     });
   });
 
+  it('preserves fine-grained desktop owner scopes as browser capabilities', async () => {
+    const { createBrowserServerConnection } = await import('../../services/server-connection');
+
+    const connection = createBrowserServerConnection({
+      origin: 'http://192.168.31.75:14500/desktop/',
+      identity: {
+        connectionKind: 'lan',
+        serverId: 'server_lan',
+        serverNodeId: 'node_lan',
+        userId: 'user_lan',
+        studioId: 'studio_lan',
+        label: 'LAN Server',
+        trustState: 'lan',
+        authState: 'paired',
+        credentialKind: 'user_session',
+        capabilities: ['chat'],
+      },
+      principal: {
+        kind: 'account_user',
+        credentialKind: 'user_session',
+        connectionKind: 'lan',
+        trustState: 'lan',
+        scopes: [
+          'chat',
+          'resources.read',
+          'files.read',
+          'files.write',
+          'studio.owner',
+          'settings.read',
+          'settings.write',
+          'providers.manage',
+          'secrets.write',
+          'bridge.manage',
+        ],
+      },
+    });
+
+    expect(connection.capabilities).toEqual(expect.arrayContaining([
+      'chat',
+      'resources',
+      'resources.read',
+      'files',
+      'files.read',
+      'files.write',
+      'studio.owner',
+      'settings',
+      'settings.read',
+      'settings.write',
+      'providers.manage',
+      'secrets.write',
+      'bridge.manage',
+    ]));
+  });
+
   it('normalizes the browser desktop PWA URL when creating a manual LAN connection', () => {
     const connection = createDeviceServerConnection({
       baseUrl: '192.168.31.75:14500/desktop/',

@@ -120,6 +120,10 @@ const migrations = {
   36: migrateSubagentThreadRegistry,
   // subagent direct instance：旧 ephemeral/reusable kind 归一为 direct，instance 变成展示 label
   37: migrateSubagentDirectThreadSemantics,
+  // automation 执行模型收敛：旧 direct notify 显式改写为 Agent Run
+  38: migrateDirectNotifyAutomationsToAgentRuns,
+  // automation 归属修复：所有可运行任务必须能确定执行 Agent；旧 plugin/direct 执行器收敛为 Agent Run
+  39: repairAutomationOwnershipAfterAgentRunConsolidation,
 };
 
 // ── Runner ──────────────────────────────────────────────────────────────────
@@ -1304,6 +1308,203 @@ function patchCronJobsFileForAutomation(jobsPath, log) {
   let patchedJobs = 0;
   const jobs = data.jobs.map((job) => {
     const next = patchAutomationJobForMigration(job);
+    if (JSON.stringify(next) !== JSON.stringify(job)) patchedJobs++;
+    return next;
+  });
+  if (!patchedJobs) return { changed: false, patchedJobs: 0 };
+
+  atomicWriteSync(jobsPath, JSON.stringify({ ...data, jobs }, null, 2) + "\n");
+  return { changed: true, patchedJobs };
+}
+
+function migrateDirectNotifyAutomationsToAgentRuns(ctx) {
+  const { hanakoHome, agentsDir, log } = ctx;
+  const paths = [];
+
+  const studiosDir = path.join(hanakoHome, "studios");
+  try {
+    for (const entry of fs.readdirSync(studiosDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      paths.push(path.join(studiosDir, entry.name, "desk", "cron-jobs.json"));
+    }
+  } catch {}
+
+  try {
+    for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      paths.push(path.join(agentsDir, entry.name, "desk", "cron-jobs.json"));
+    }
+  } catch {}
+
+  let patchedFiles = 0;
+  let patchedJobs = 0;
+  for (const jobsPath of paths) {
+    const result = patchCronJobsFileForAutomation(jobsPath, log);
+    if (!result.changed) continue;
+    patchedFiles++;
+    patchedJobs += result.patchedJobs;
+  }
+
+  log?.(`[migrations] #38: direct notify automations rewritten as Agent runs (${patchedJobs} jobs in ${patchedFiles} files)`);
+}
+
+function repairAutomationOwnershipAfterAgentRunConsolidation(ctx) {
+  const { hanakoHome, agentsDir, log } = ctx;
+  const stores = [];
+
+  const studiosDir = path.join(hanakoHome, "studios");
+  try {
+    for (const entry of fs.readdirSync(studiosDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      stores.push({
+        jobsPath: path.join(studiosDir, entry.name, "desk", "cron-jobs.json"),
+        fallbackAgentId: null,
+      });
+    }
+  } catch {}
+
+  try {
+    for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      stores.push({
+        jobsPath: path.join(agentsDir, entry.name, "desk", "cron-jobs.json"),
+        fallbackAgentId: entry.name,
+      });
+    }
+  } catch {}
+
+  let patchedFiles = 0;
+  let patchedJobs = 0;
+  for (const store of stores) {
+    const result = repairAutomationOwnershipFile(store.jobsPath, store.fallbackAgentId, log);
+    if (!result.changed) continue;
+    patchedFiles++;
+    patchedJobs += result.patchedJobs;
+  }
+
+  log?.(`[migrations] #39: automation ownership repaired (${patchedJobs} jobs in ${patchedFiles} files)`);
+}
+
+const AUTOMATION_OWNER_WARNING = {
+  code: "missing_automation_owner",
+  message: "需要选择执行助手后再启用",
+};
+
+const AUTOMATION_EXECUTOR_WARNING = {
+  code: "unsupported_automation_executor",
+  message: "需要重新保存为 Agent Run 后再启用",
+};
+
+function migrationOptionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function migrationClone(value) {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function migrationRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function inferAutomationOwner(job, fallbackAgentId) {
+  return migrationOptionalString(job?.actorAgentId)
+    || migrationOptionalString(job?.executor?.agentId)
+    || migrationOptionalString(job?.legacyRef?.agentId)
+    || migrationOptionalString(fallbackAgentId);
+}
+
+function migrationExecutionContext(job, actorAgentId, fallbackAgentId) {
+  const executorContext = migrationRecord(job?.executor?.executionContext);
+  const sourceContext = migrationRecord(job?.executionContext) || executorContext;
+  const source = sourceContext ? migrationClone(sourceContext) : {};
+  const legacyLike = !!migrationOptionalString(job?.legacyRef?.agentId) || !!migrationOptionalString(fallbackAgentId);
+  return {
+    kind: migrationOptionalString(source.kind) || (legacyLike ? "legacy_agent_home" : "migration_repaired"),
+    cwd: migrationOptionalString(source.cwd),
+    workspaceFolders: Array.isArray(source.workspaceFolders)
+      ? source.workspaceFolders.filter((item) => typeof item === "string" && item.trim())
+      : [],
+    sourceSessionPath: migrationOptionalString(source.sourceSessionPath),
+    createdByAgentId: migrationOptionalString(source.createdByAgentId) || actorAgentId,
+  };
+}
+
+function repairAutomationJobForOwnership(job, fallbackAgentId) {
+  let next = patchAutomationJobForMigration(job);
+  const owner = inferAutomationOwner(next, fallbackAgentId);
+  const executor = migrationRecord(next.executor);
+  const unsupportedExecutor = executor?.kind && executor.kind !== "agent_session";
+
+  if (unsupportedExecutor) {
+    next = {
+      ...next,
+      enabled: false,
+      migrationWarning: AUTOMATION_EXECUTOR_WARNING,
+    };
+    return next;
+  }
+
+  if (!owner) {
+    const nextExecutor = executor?.kind === "agent_session"
+      ? { ...executor, agentId: null }
+      : executor;
+    return {
+      ...next,
+      enabled: false,
+      executor: nextExecutor,
+      createdBy: migrationRecord(next.createdBy) || { kind: "unknown" },
+      migrationWarning: AUTOMATION_OWNER_WARNING,
+    };
+  }
+
+  const executionContext = migrationExecutionContext(next, owner, fallbackAgentId);
+  const prompt = typeof next.prompt === "string"
+    ? next.prompt
+    : typeof executor?.prompt === "string"
+      ? executor.prompt
+      : "";
+  return {
+    ...next,
+    prompt,
+    actorAgentId: owner,
+    executionContext,
+    executor: {
+      ...(executor || {}),
+      kind: "agent_session",
+      agentId: owner,
+      prompt,
+      model: Object.prototype.hasOwnProperty.call(next, "model")
+        ? migrationClone(next.model ?? "")
+        : migrationClone(executor?.model ?? ""),
+      executionContext,
+    },
+    createdBy: migrationRecord(next.createdBy) && next.createdBy.kind !== "unknown"
+      ? next.createdBy
+      : { kind: "agent", agentId: owner },
+    ...(next.migrationWarning?.code === AUTOMATION_OWNER_WARNING.code ? { migrationWarning: undefined } : {}),
+  };
+}
+
+function repairAutomationOwnershipFile(jobsPath, fallbackAgentId, log) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(jobsPath, "utf-8"));
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      log?.(`[migrations] #39 skipped invalid cron-jobs.json at ${jobsPath} (${err.message})`);
+    }
+    return { changed: false, patchedJobs: 0 };
+  }
+  if (!Array.isArray(data.jobs)) return { changed: false, patchedJobs: 0 };
+
+  let patchedJobs = 0;
+  const jobs = data.jobs.map((job) => {
+    const next = repairAutomationJobForOwnership(job, fallbackAgentId);
+    if (Object.prototype.hasOwnProperty.call(next, "migrationWarning") && next.migrationWarning === undefined) {
+      delete next.migrationWarning;
+    }
     if (JSON.stringify(next) !== JSON.stringify(job)) patchedJobs++;
     return next;
   });

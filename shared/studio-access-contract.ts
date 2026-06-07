@@ -28,8 +28,12 @@ export type StudioAccessCapability =
   | 'files.openLocal'
   | 'tools.run'
   | 'plugins.use'
+  | 'studio.owner'
   | 'settings.read'
-  | 'settings.write';
+  | 'settings.write'
+  | 'providers.manage'
+  | 'secrets.write'
+  | 'bridge.manage';
 
 export interface StudioConnectionProfile {
   kind: StudioConnectionKind;
@@ -84,8 +88,12 @@ export const STUDIO_ACCESS_CAPABILITIES: readonly StudioAccessCapability[] = Obj
   "files.openLocal",
   "tools.run",
   "plugins.use",
+  "studio.owner",
   "settings.read",
   "settings.write",
+  "providers.manage",
+  "secrets.write",
+  "bridge.manage",
 ] as const);
 
 const CONNECTION_PROFILES = Object.freeze({
@@ -217,6 +225,13 @@ function deriveCapabilities(connection: StudioAccessConnection, profile: StudioC
   if (requested.has("files") || requested.has("files.read")) allowed.add("files.read");
   if (requested.has("files") || requested.has("files.write")) allowed.add("files.write");
   if (requested.has("tools")) allowed.add("tools.run");
+  if (requested.has("plugins") || requested.has("plugins.use")) allowed.add("plugins.use");
+  if (requested.has("studio.owner")) allowed.add("studio.owner");
+  if (requested.has("settings") || requested.has("settings.read")) allowed.add("settings.read");
+  if (requested.has("settings") || requested.has("settings.write")) allowed.add("settings.write");
+  if (requested.has("providers.manage")) allowed.add("providers.manage");
+  if (requested.has("secrets.write")) allowed.add("secrets.write");
+  if (requested.has("bridge.manage")) allowed.add("bridge.manage");
 
   return STUDIO_ACCESS_CAPABILITIES.filter((capability) => allowed.has(capability));
 }

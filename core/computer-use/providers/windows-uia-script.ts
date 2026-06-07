@@ -46,14 +46,40 @@ function Write-Result($obj) {
   [Console]::Out.Write($json)
 }
 
+function Safe-Number($value) {
+  if ($null -eq $value) { return $null }
+  try {
+    $number = [double]$value
+  } catch {
+    return $null
+  }
+  if ([double]::IsNaN($number) -or [double]::IsInfinity($number)) { return $null }
+  return $number
+}
+
 function Bounds-Of($el) {
   $r = $el.Current.BoundingRectangle
   return @{
-    x = [double]$r.Left
-    y = [double]$r.Top
-    width = [double]$r.Width
-    height = [double]$r.Height
+    x = Safe-Number $r.Left
+    y = Safe-Number $r.Top
+    width = Safe-Number $r.Width
+    height = Safe-Number $r.Height
   }
+}
+
+function Bounds-AreUsable($bounds) {
+  if ($null -eq $bounds) { return $false }
+  foreach ($propertyName in @("x", "y", "width", "height")) {
+    $value = $bounds.$propertyName
+    if ($null -eq $value) { return $false }
+    try {
+      $number = [double]$value
+    } catch {
+      return $false
+    }
+    if ([double]::IsNaN($number) -or [double]::IsInfinity($number)) { return $false }
+  }
+  return $true
 }
 
 function Pattern-Names($el) {
@@ -224,6 +250,9 @@ function Test-Element-Matches-Snapshot($el, $snapshot) {
   $hasStableText = ($snapshot.automationId -or $snapshot.label)
   if (-not $hasStableText -and $snapshot.bounds) {
     $current = Bounds-Of $el
+    if (-not (Bounds-AreUsable $snapshot.bounds) -or -not (Bounds-AreUsable $current)) {
+      return @{ ok = $false; reason = "bounds-unavailable"; expected = $snapshot.bounds; actual = $current }
+    }
     $expectedCenterX = [double]$snapshot.bounds.x + ([double]$snapshot.bounds.width / 2.0)
     $expectedCenterY = [double]$snapshot.bounds.y + ([double]$snapshot.bounds.height / 2.0)
     $currentCenterX = [double]$current.x + ([double]$current.width / 2.0)

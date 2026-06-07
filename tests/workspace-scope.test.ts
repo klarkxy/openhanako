@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import path from "path";
 import {
   formatWorkspaceScopePrompt,
   normalizeWorkspaceScope,
@@ -6,33 +7,37 @@ import {
 
 describe("workspace scope", () => {
   it("dedupes extra folders and excludes the primary cwd", () => {
+    const primaryCwd = path.resolve("/workspace/project");
+    const reference = path.resolve("/workspace/reference");
     const scope = normalizeWorkspaceScope({
-      primaryCwd: "/workspace/project",
+      primaryCwd,
       workspaceFolders: [
-        "/workspace/reference",
-        "/workspace/project",
+        reference,
+        primaryCwd,
         "",
         null,
-        "/workspace/reference",
+        reference,
       ],
     });
 
     expect(scope).toEqual({
-      primaryCwd: "/workspace/project",
-      workspaceFolders: ["/workspace/reference"],
+      primaryCwd,
+      workspaceFolders: [reference],
     });
   });
 
   it("formats extra folders into the assistant workspace prompt", () => {
+    const primaryCwd = path.resolve("/workspace/project");
+    const reference = path.resolve("/workspace/reference");
     const prompt = formatWorkspaceScopePrompt({
-      primaryCwd: "/workspace/project",
-      workspaceFolders: ["/workspace/reference"],
+      primaryCwd,
+      workspaceFolders: [reference],
       locale: "zh-CN",
     });
 
     expect(prompt).toContain("当前工作目录");
-    expect(prompt).toContain("/workspace/project");
+    expect(prompt).toContain(primaryCwd);
     expect(prompt).toContain("额外文件夹");
-    expect(prompt).toContain("/workspace/reference");
+    expect(prompt).toContain(reference);
   });
 });

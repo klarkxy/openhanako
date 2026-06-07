@@ -1,9 +1,10 @@
-// @ts-nocheck
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { upsertStudioMount } from "../core/studio-mounts.ts";
+import { normalizeWorkspacePath } from "../shared/workspace-history.ts";
 
 const { replayLatestUserTurnMock } = vi.hoisted(() => ({
   replayLatestUserTurnMock: vi.fn(async () => ({ text: null, toolMedia: [] })),
@@ -94,7 +95,9 @@ describe("sessions route", () => {
       getSessionByPath: vi.fn((sp) => ({
         messages: [{ role: "assistant", content: "ok" }],
       })),
+      getSessionMemoryEnabled: vi.fn(() => false),
       getAgent: vi.fn(() => ({ agentName: "Hana" })),
+      getSessionWorkspaceMount: vi.fn(() => ({ mountId: "mount_docs", label: "Docs" })),
       agentIdFromSessionPath: vi.fn((sp) => {
         const rel = path.relative("/tmp/agents", sp);
         return rel.split(path.sep)[0] || null;
@@ -115,6 +118,10 @@ describe("sessions route", () => {
     expect(browserManagerMock.resumeForSession).toHaveBeenCalledWith("/tmp/agents/a/sessions/new.jsonl");
     expect(data.browserRunning).toBe(true); // resumeForSession sets it running
     expect(data.browserUrl).toBe("https://after.example.com"); // per-session URL
+    expect(data.memoryEnabled).toBe(false);
+    expect(engine.getSessionMemoryEnabled).toHaveBeenCalledWith("/tmp/agents/a/sessions/new.jsonl");
+    expect(data.workspaceMountId).toBe("mount_docs");
+    expect(data.workspaceLabel).toBe("Docs");
     expect(data.currentModelAudio).toBe(true);
     expect(data.currentModelAudioTransport).toBe("mimo-input-audio");
     expect(data.currentModelAudioTransportSupported).toBe(true);
@@ -168,6 +175,87 @@ describe("sessions route", () => {
       }),
       "/tmp/agents/hana/sessions/new.jsonl",
     );
+  });
+
+  it("resolves workspaceMountId on the server when creating a new session", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const app = new Hono();
+    const hanakoHome = path.join(tmpDir, "hana");
+    const defaultRoot = path.join(tmpDir, "default");
+    const mountedRoot = path.join(tmpDir, "mounted");
+    fs.mkdirSync(defaultRoot, { recursive: true });
+    fs.mkdirSync(mountedRoot, { recursive: true });
+    const resolvedMountedRoot = fs.realpathSync(mountedRoot);
+    upsertStudioMount(hanakoHome, {
+      mountId: "mount_docs",
+      hostStudioId: "studio_1",
+      sourceKind: "storage",
+      provider: "local_fs",
+      rootLocator: { path: mountedRoot },
+      label: "Docs",
+      presentation: "folder",
+      capabilities: ["list", "read", "write"],
+    });
+
+    const engine = {
+      hanakoHome,
+      homeCwd: defaultRoot,
+      currentAgentId: "hana",
+      config: {},
+      cwd: defaultRoot,
+      memoryEnabled: true,
+      planMode: false,
+      memoryModelUnavailableReason: null,
+      getRuntimeContext: () => ({
+        serverId: "server_1",
+        serverNodeId: "node_1",
+        userId: "user_1",
+        studioId: "studio_1",
+        connectionKind: "local",
+        credentialKind: "loopback_token",
+      }),
+      createSession: vi.fn(async (_sessionMgr, cwd) => {
+        engine.cwd = cwd;
+        return { sessionPath: "/tmp/agents/hana/sessions/new.jsonl", agentId: "hana" };
+      }),
+      createSessionForAgent: vi.fn(),
+      persistSessionMeta: vi.fn(),
+      updateConfig: vi.fn(async (patch) => Object.assign(engine.config, patch)),
+      getAgent: vi.fn(() => ({ agentName: "Hana" })),
+      getSessionWorkspaceMount: vi.fn(() => ({ mountId: "mount_docs", label: "Docs" })),
+      getSessionWorkspaceFolders: vi.fn(() => []),
+      getSessionThinkingLevel: vi.fn(() => "medium"),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceMountId: "mount_docs" }),
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(engine.createSession).toHaveBeenCalledWith(
+      null,
+      resolvedMountedRoot,
+      true,
+      undefined,
+      {
+        workspaceFolders: [],
+        visibleInSessionList: true,
+        workspaceMountId: "mount_docs",
+        workspaceLabel: "Docs",
+      },
+    );
+    expect(engine.updateConfig).toHaveBeenCalledWith({
+      last_cwd: resolvedMountedRoot,
+      cwd_history: [normalizeWorkspacePath(resolvedMountedRoot)],
+    });
+    expect(data.cwd).toBe(resolvedMountedRoot);
+    expect(data.workspaceMountId).toBe("mount_docs");
+    expect(data.workspaceLabel).toBe("Docs");
   });
 
   it("creates a detached session without switching the focused session", async () => {
@@ -489,7 +577,7 @@ describe("sessions route", () => {
     };
 
     app.use("*", async (c, next) => {
-      c.set("authPrincipal", Object.freeze({
+      (c as any).set("authPrincipal", Object.freeze({
         kind: "device",
         credentialKind: "device_credential",
         connectionKind: "lan",
@@ -683,7 +771,7 @@ describe("sessions route", () => {
     const app = new Hono();
 
     app.use("*", async (c, next) => {
-      c.set("authPrincipal", Object.freeze({
+      (c as any).set("authPrincipal", Object.freeze({
         kind: "device",
         credentialKind: "device_credential",
         connectionKind: "lan",
@@ -954,7 +1042,7 @@ describe("sessions route", () => {
       model: "test",
       stopReason: "toolUse",
       timestamp: Date.now(),
-    });
+    } as any);
     manager.appendMessage({
       role: "toolResult",
       toolCallId: "todo-1",
@@ -1106,7 +1194,7 @@ describe("sessions route", () => {
       taskId: "subagent-1",
       sourceKind: "subagent",
       sourceLabel: "明 · 大纲评估",
-      text: "小花收到了来自 明 · 大纲评估 的回复",
+      text: "小花 收到了来自 明 · 大纲评估 的回复",
       detailMarkdown: "子助手完整回复",
     });
     expect(interlude.text).not.toContain("长任务说明");
@@ -1619,7 +1707,7 @@ describe("sessions route", () => {
         taskId: "task-img",
         sourceKind: "tool",
         sourceLabel: "图片生成",
-        text: "Hana拿到了来自 图片生成 工具的结果",
+        text: "Hana 收到了来自 图片生成 工具的结果",
         detailMarkdown: expect.stringContaining("generated.png"),
       }),
       {
@@ -1751,7 +1839,7 @@ describe("sessions route", () => {
         taskId: "task-img",
         sourceKind: "tool",
         sourceLabel: "图片生成",
-        text: "Hana拿到了来自 图片生成 工具的结果",
+        text: "Hana 收到了来自 图片生成 工具的结果",
         detailMarkdown: "生成文件：\n- generated.png (image)",
       }),
       {

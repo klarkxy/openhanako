@@ -24,6 +24,7 @@ import { bumpMessageLiveVersion } from '../stores/message-live-version';
 
 const FLUSH_INTERVAL = 200;
 let streamMessageSeq = 0;
+type InterludeContentBlock = Extract<ContentBlock, { type: 'interlude' }>;
 
 function nextStreamMessageId(): string {
   streamMessageSeq = (streamMessageSeq + 1) % Number.MAX_SAFE_INTEGER;
@@ -45,6 +46,7 @@ interface Buffer {
   flushTimer: ReturnType<typeof setTimeout> | null;
   /** 当前 turn 绑定的 assistant message id */
   messageId: string | null;
+  pendingInterludesByTaskId: Map<string, InterludeContentBlock[]>;
 }
 
 function createBuffer(sessionPath: string): Buffer {
@@ -62,6 +64,7 @@ function createBuffer(sessionPath: string): Buffer {
     lastFlushTime: 0,
     flushTimer: null,
     messageId: null,
+    pendingInterludesByTaskId: new Map(),
   };
 }
 
@@ -160,6 +163,44 @@ class StreamBufferManager {
       return;
     }
     bumpMessageLiveVersion(buf.sessionPath);
+  }
+
+  private tryInsertInterlude(buf: Buffer, block: InterludeContentBlock): boolean {
+    const consumed = useStore.getState().insertInterludeItemNearTaskResult(buf.sessionPath, block.taskId || null, block);
+    if (consumed) bumpMessageLiveVersion(buf.sessionPath);
+    return consumed;
+  }
+
+  private queuePendingInterlude(buf: Buffer, block: InterludeContentBlock): void {
+    const taskId = block.taskId;
+    if (!taskId) return;
+    const existing = buf.pendingInterludesByTaskId.get(taskId) || [];
+    const alreadyQueued = existing.some((item) => (
+      (block.id && item.id === block.id) ||
+      (!!block.taskId && item.taskId === block.taskId && item.status === block.status)
+    ));
+    if (alreadyQueued) return;
+    buf.pendingInterludesByTaskId.set(taskId, [...existing, block]);
+  }
+
+  private drainPendingInterludesForTask(buf: Buffer, taskId: string | null): void {
+    if (!taskId) return;
+    const pending = buf.pendingInterludesByTaskId.get(taskId);
+    if (!pending?.length) return;
+
+    const remaining: InterludeContentBlock[] = [];
+    for (const block of pending) {
+      if (!this.tryInsertInterlude(buf, block)) remaining.push(block);
+    }
+    if (remaining.length > 0) {
+      buf.pendingInterludesByTaskId.set(taskId, remaining);
+    } else {
+      buf.pendingInterludesByTaskId.delete(taskId);
+    }
+  }
+
+  private drainPendingInterludesForBlock(buf: Buffer, block: ContentBlock): void {
+    this.drainPendingInterludesForTask(buf, interludeAnchorTaskId(block));
   }
 
   /** 调度节流 flush */
@@ -386,11 +427,8 @@ class StreamBufferManager {
 
         if (isInterludeBlock(block)) {
           if (this.hasTurnState(buf)) this.flush(buf);
-          const consumed = useStore.getState().insertInterludeItemNearTaskResult(buf.sessionPath, block.taskId || null, block);
-          if (consumed) {
-            bumpMessageLiveVersion(buf.sessionPath);
-            break;
-          }
+          if (this.tryInsertInterlude(buf, block)) break;
+          this.queuePendingInterlude(buf, block);
           break;
         }
 
@@ -399,6 +437,7 @@ class StreamBufferManager {
           if (this.hasTurnState(buf)) this.flush(buf);
           const consumed = useStore.getState().resolveBlockByTaskId(buf.sessionPath, taskId, block);
           if (consumed) {
+            this.drainPendingInterludesForBlock(buf, block);
             bumpMessageLiveVersion(buf.sessionPath);
             break;
           }
@@ -410,6 +449,7 @@ class StreamBufferManager {
           ...m,
           blocks: mergeContentBlock([...(m.blocks || [])], block),
         }));
+        this.drainPendingInterludesForBlock(buf, block);
         break;
       }
 
@@ -501,6 +541,13 @@ function mergeContentBlock(blocks: ContentBlock[], block: ContentBlock): Content
 function replacementTaskId(block: ContentBlock): string | null {
   if (block.type === 'file') return block.replacesTaskId || null;
   if (block.type === 'media_generation' && block.status !== 'pending') return block.taskId;
+  return null;
+}
+
+function interludeAnchorTaskId(block: ContentBlock): string | null {
+  if (block.type === 'file') return block.replacesTaskId || null;
+  if (block.type === 'media_generation') return block.taskId || null;
+  if (block.type === 'subagent' || block.type === 'workflow') return block.taskId || null;
   return null;
 }
 

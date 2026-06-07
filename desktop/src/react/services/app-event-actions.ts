@@ -7,6 +7,7 @@ import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadChannels } from '../stores/channel-actions';
 import { applyEditorTypography } from '../editor/typography';
 import { refreshPreviewItemsFromFile } from '../utils/preview-file-refresh';
+import { isRemoteWorkbenchContentRef, refreshPreviewItemsFromRemoteWorkbenchTarget } from '../utils/remote-file-preview';
 import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.ts';
 
 declare const i18n: {
@@ -63,22 +64,27 @@ function handleAgentWorkspaceChanged(data: any): void {
   const previousHomeFolder = state.homeFolder || null;
   const previousSelectedFolder = state.selectedFolder || null;
   const nextHomeFolder = normalizeWorkspacePath(data.homeFolder);
-  const selectedFollowedDefault = !previousSelectedFolder || previousSelectedFolder === previousHomeFolder;
+  const selectedFollowedDefault = !state.selectedWorkspaceMountId
+    && (!previousSelectedFolder || previousSelectedFolder === previousHomeFolder);
   const nextSelectedFolder = selectedFollowedDefault ? nextHomeFolder : previousSelectedFolder;
   const deskWasShowingDefault =
-    state.pendingNewSession ||
-    !state.currentSessionPath ||
-    !state.deskBasePath ||
-    (!!previousHomeFolder && state.deskBasePath === previousHomeFolder);
+    !state.deskWorkspaceMountId && (
+      state.pendingNewSession ||
+      !state.currentSessionPath ||
+      !state.deskBasePath ||
+      (!!previousHomeFolder && state.deskBasePath === previousHomeFolder)
+    );
 
   useStore.setState({
     homeFolder: nextHomeFolder,
     selectedFolder: nextSelectedFolder,
+    selectedWorkspaceMountId: selectedFollowedDefault ? null : state.selectedWorkspaceMountId,
+    selectedWorkspaceLabel: selectedFollowedDefault ? null : state.selectedWorkspaceLabel,
     workspaceFolders: [],
   });
 
   if (deskWasShowingDefault) {
-    void activateWorkspaceDesk(nextHomeFolder);
+    void activateWorkspaceDesk(nextHomeFolder, { mountId: null });
   }
 }
 
@@ -222,6 +228,8 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
     case 'markdown-cover-updated':
       if (typeof data.filePath === 'string' && data.filePath) {
         void refreshPreviewItemsFromFile(data.filePath);
+      } else if (isRemoteWorkbenchContentRef(data.target)) {
+        void refreshPreviewItemsFromRemoteWorkbenchTarget(data.target);
       }
       break;
     case 'session-file-updated':

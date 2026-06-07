@@ -55,6 +55,8 @@ const POWERSHELL_COMMANDS = new Set(["powershell", "powershell.exe", "pwsh", "pw
 const WIN32_SANDBOX_ENV_DIR = "win32-sandbox-env";
 const STATUS_DLL_INIT_FAILED_UNSIGNED = 0xC0000142;
 const STATUS_DLL_INIT_FAILED_SIGNED = -1073741502;
+const WIN32_SANDBOX_HELPER_LAUNCH_FAILURE_RE = /hana-win-sandbox:\s+CreateProcessAsUserW failed/i;
+const WIN32_DIAGNOSTIC_OUTPUT_PREVIEW_LIMIT = 8192;
 
 // 枚举 Windows 盘符 C-Z（A/B 是软盘遗留，不扫）。
 // 用户可能把 Git/MSYS2/Cygwin 装在任意非 C 盘（如 D:\Git、E:\msys64），
@@ -950,6 +952,48 @@ function emitWin32RuntimeFailureDiagnostic(onData, {
   onData(Buffer.from(`${lines.join("\n")}\n`, "utf-8"));
 }
 
+function emitWin32SandboxHelperLaunchFailureDiagnostic(onData, {
+  route,
+  mode,
+  executable,
+  args,
+  runtimeInfo,
+  helperPath,
+  sandbox,
+  cwd,
+  env,
+  exitCode,
+  outputBytes,
+  durationMs,
+}) {
+  if (typeof onData !== "function") return;
+  const runner = route?.runner || "unknown";
+  const runnerReason = route?.reason || "unknown";
+  const resolvedExecutable = executable || runtimeInfo?.shell || runtimeInfo?.git || runtimeInfo?.executable || "(unknown)";
+  const context = { sandbox, env };
+  const lines = [
+    "",
+    "[win32-exec] sandbox helper launch failed before command execution.",
+    "Native helper reported CreateProcessAsUserW failure.",
+    `Exit code: ${exitCode ?? "unknown"}`,
+    `Route: runner=${runner} reason=${runnerReason} mode=${mode || "unknown"} sandbox=${sandboxIsEnabled(sandbox)}`,
+    `Executable: ${redactWin32DiagnosticPath(resolvedExecutable, sandbox, env)}`,
+    `Args count: ${(args || []).length}; preview: ${JSON.stringify(safeArgPreview(args, context))}`,
+    `CWD: ${redactWin32DiagnosticPath(cwd || "(unset)", sandbox, env)}`,
+    helperPath ? `Helper: ${redactWin32DiagnosticPath(helperPath, sandbox, env)}` : "Helper: (none)",
+    runtimeInfo?.label ? `Runtime label: ${redactWin32DiagnosticText(runtimeInfo.label, context)}` : null,
+    runtimeInfo?.bundledRoot ? `Runtime root: ${redactWin32DiagnosticPath(runtimeInfo.bundledRoot, sandbox, env)}` : null,
+    sandbox?.hanakoHome ? "HANA_HOME: <HANA_HOME>" : null,
+    `Output bytes before failure: ${outputBytes ?? 0}`,
+    `Duration ms: ${durationMs ?? "unknown"}`,
+    ...collectWin32EnvironmentDiagnostics(env, context),
+    "No fallback was attempted for this CreateProcessAsUserW result.",
+    "Use the native launch-failure lines above to compare executable, cwd, commandLine, desktop, token probes, and named-object namespace probes.",
+    "",
+  ].filter(Boolean);
+  onData(Buffer.from(`${lines.join("\n")}\n`, "utf-8"));
+}
+
 async function runWithWin32Diagnostics({
   route,
   mode,
@@ -965,9 +1009,15 @@ async function runWithWin32Diagnostics({
 }: Record<string, any>) {
   const startedAt = Date.now();
   let outputBytes = 0;
+  let outputPreview = "";
   const diagnosticOnData = (data) => {
     if (data != null) {
       outputBytes += Buffer.isBuffer(data) ? data.length : Buffer.byteLength(String(data));
+      const text = Buffer.isBuffer(data) ? data.toString("utf-8") : String(data);
+      outputPreview = `${outputPreview}${text}`;
+      if (outputPreview.length > WIN32_DIAGNOSTIC_OUTPUT_PREVIEW_LIMIT) {
+        outputPreview = outputPreview.slice(-WIN32_DIAGNOSTIC_OUTPUT_PREVIEW_LIMIT);
+      }
     }
     onData?.(data);
   };
@@ -984,6 +1034,25 @@ async function runWithWin32Diagnostics({
       cwd,
       env,
       exitCode: result.exitCode,
+      outputBytes,
+      durationMs: Date.now() - startedAt,
+    });
+  } else if (
+    mode === "sandbox-helper" &&
+    result?.exitCode !== 0 &&
+    WIN32_SANDBOX_HELPER_LAUNCH_FAILURE_RE.test(outputPreview)
+  ) {
+    emitWin32SandboxHelperLaunchFailureDiagnostic(onData, {
+      route,
+      mode,
+      executable,
+      args,
+      runtimeInfo,
+      helperPath,
+      sandbox,
+      cwd,
+      env,
+      exitCode: result?.exitCode,
       outputBytes,
       durationMs: Date.now() - startedAt,
     });

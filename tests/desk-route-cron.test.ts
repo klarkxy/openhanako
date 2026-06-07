@@ -62,6 +62,48 @@ describe("desk cron route", () => {
     expect(secondJobs.map((job) => job.id).sort()).toEqual(firstJobs.map((job) => job.id).sort());
   });
 
+  it("returns a route error when the cron store is unavailable", async () => {
+    const app = await createApp({
+      getStudioCronStore: () => null,
+      listAgents: () => [],
+    });
+
+    const res = await app.request("/api/desk/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggle", id: "job_missing" }),
+    });
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "cron_store_unavailable",
+        message: "Desk not initialized",
+      },
+    });
+  });
+
+  it("returns a route error for unknown cron actions", async () => {
+    const app = await createApp({
+      getStudioCronStore: () => ({ listJobs: () => [] }),
+      listAgents: () => [],
+    });
+
+    const res = await app.request("/api/desk/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "snooze" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "unknown_cron_action",
+        message: "unknown action: snooze",
+      },
+    });
+  });
+
   it("mutates jobs by studio job id without resolving the focused agent", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-cron-"));
     roots.push(root);
@@ -100,6 +142,41 @@ describe("desk cron route", () => {
     expect((await res.json()).job.enabled).toBe(false);
     expect(service.getJob(job.id).enabled).toBe(false);
     expect(getAgent).not.toHaveBeenCalledWith("agent-b");
+  });
+
+  it("updates schedule type and normalizes interval minutes", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-cron-"));
+    roots.push(root);
+    const service = new StudioCronService({ hanakoHome: root, agentsDir: path.join(root, "agents"), getStudioId: () => "studio-main" });
+    const job = service.addJob({
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "studio job",
+      actorAgentId: "agent-a",
+      executionContext: {
+        kind: "session_workspace",
+        cwd: "/workspace/a",
+        workspaceFolders: [],
+        sourceSessionPath: "/sessions/a.jsonl",
+        createdByAgentId: "agent-a",
+      },
+    });
+    const app = await createApp({
+      getAgent: (id) => ({ id, agentName: id }),
+      getStudioCronStore: () => service,
+      listAgents: () => [],
+    });
+
+    const res = await app.request("/api/desk/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update", id: job.id, type: "every", schedule: "120" }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.job.type).toBe("every");
+    expect(data.job.schedule).toBe(7_200_000);
   });
 
   it("adds studio jobs only with explicit actorAgentId and executionContext", async () => {
@@ -159,7 +236,135 @@ describe("desk cron route", () => {
     }));
   });
 
-  it("adds direct-action automation jobs through the cron compatibility route", async () => {
+  it("allows creating a disabled Agent automation draft without a prompt", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-cron-"));
+    roots.push(root);
+    const service = new StudioCronService({
+      hanakoHome: root,
+      agentsDir: path.join(root, "agents"),
+      getStudioId: () => "studio-main",
+    });
+    const engine = {
+      getAgent: (id) => (id === "agent-a" ? { id, agentName: "Agent A" } : null),
+      getStudioCronStore: () => service,
+      listAgents: () => [],
+    };
+    const app = await createApp(engine);
+
+    const res = await app.request("/api/desk/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "add",
+        scheduleType: "cron",
+        schedule: "0 9 * * *",
+        prompt: "",
+        label: "Draft",
+        enabled: false,
+        actorAgentId: "agent-a",
+        executionContext: {
+          kind: "ui_manual",
+          cwd: "/workspace/a",
+          workspaceFolders: [],
+          sourceSessionPath: "/sessions/a.jsonl",
+          createdByAgentId: "agent-a",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.job).toEqual(expect.objectContaining({
+      prompt: "",
+      label: "Draft",
+      enabled: false,
+      actorAgentId: "agent-a",
+    }));
+  });
+
+  it("rejects enabling an Agent automation draft while prompt is empty", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-cron-"));
+    roots.push(root);
+    const service = new StudioCronService({
+      hanakoHome: root,
+      agentsDir: path.join(root, "agents"),
+      getStudioId: () => "studio-main",
+    });
+    const engine = {
+      getAgent: (id) => (id === "agent-a" ? { id, agentName: "Agent A" } : null),
+      getStudioCronStore: () => service,
+      listAgents: () => [],
+    };
+    const app = await createApp(engine);
+    const job = service.addJob({
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "",
+      label: "Draft",
+      enabled: false,
+      actorAgentId: "agent-a",
+      executionContext: {
+        kind: "ui_manual",
+        cwd: "/workspace/a",
+        workspaceFolders: [],
+        sourceSessionPath: "/sessions/a.jsonl",
+        createdByAgentId: "agent-a",
+      },
+    });
+
+    const res = await app.request("/api/desk/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update", id: job.id, enabled: true }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "prompt required to enable agent automation" });
+    expect(service.getJob(job.id).enabled).toBe(false);
+  });
+
+  it("rejects toggling an empty Agent automation draft on", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-cron-"));
+    roots.push(root);
+    const service = new StudioCronService({
+      hanakoHome: root,
+      agentsDir: path.join(root, "agents"),
+      getStudioId: () => "studio-main",
+    });
+    const engine = {
+      getAgent: (id) => (id === "agent-a" ? { id, agentName: "Agent A" } : null),
+      getStudioCronStore: () => service,
+      listAgents: () => [],
+    };
+    const app = await createApp(engine);
+    const job = service.addJob({
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "",
+      label: "Draft",
+      enabled: false,
+      actorAgentId: "agent-a",
+      executionContext: {
+        kind: "ui_manual",
+        cwd: "/workspace/a",
+        workspaceFolders: [],
+        sourceSessionPath: "/sessions/a.jsonl",
+        createdByAgentId: "agent-a",
+      },
+    });
+
+    const res = await app.request("/api/desk/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggle", id: job.id }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "prompt required to enable agent automation" });
+    expect(service.getJob(job.id).enabled).toBe(false);
+  });
+
+  it("rejects direct notify executors through the cron compatibility route", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-cron-"));
     roots.push(root);
     const service = new StudioCronService({
@@ -202,25 +407,12 @@ describe("desk cron route", () => {
       }),
     });
 
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.job).toMatchObject({
-      prompt: "",
-      label: "Drink Water",
-      executor: {
-        kind: "direct_action",
-        action: "notify",
-        params: {
-          title: "喝水",
-          body: "站起来活动一下",
-          channels: ["desktop"],
-        },
-      },
-      createdBy: { kind: "user" },
-    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "unsupported automation executor: direct_action" });
+    expect(service.listJobs()).toEqual([]);
   });
 
-  it("adds plugin-action automation jobs through the cron compatibility route", async () => {
+  it("rejects plugin-action executors through the cron compatibility route", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "hana-desk-cron-"));
     roots.push(root);
     const service = new StudioCronService({
@@ -260,19 +452,9 @@ describe("desk cron route", () => {
       }),
     });
 
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.job).toMatchObject({
-      prompt: "",
-      label: "Daily Note",
-      executor: {
-        kind: "plugin_action",
-        pluginId: "notes",
-        actionId: "create_note",
-        params: { title: "Today" },
-      },
-      createdBy: { kind: "user" },
-    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "unsupported automation executor: plugin_action" });
+    expect(service.listJobs()).toEqual([]);
   });
 
   it("rejects removed file.create direct-action jobs through the cron route", async () => {
@@ -314,7 +496,7 @@ describe("desk cron route", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "unsupported direct automation action: file.create" });
+    expect(await res.json()).toEqual({ error: "unsupported automation executor: direct_action" });
     expect(service.listJobs()).toEqual([]);
   });
 });

@@ -4,6 +4,9 @@ import path from "path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/** Match runtime normalizeWorkspacePath: backslash → forward slash for cross-platform persistence */
+const n = (p: string) => p.replace(/\\/g, "/");
+
 describe("config workspace routes", () => {
   let tmpDir;
 
@@ -38,9 +41,9 @@ describe("config workspace routes", () => {
 
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.cwd_history).toEqual([nextWorkspace, oldWorkspace]);
+    expect(data.cwd_history).toEqual([n(nextWorkspace), n(oldWorkspace)]);
     expect(engine.updateConfig).toHaveBeenCalledWith({
-      cwd_history: [nextWorkspace, oldWorkspace],
+      cwd_history: [n(nextWorkspace), n(oldWorkspace)],
     });
   });
 
@@ -67,9 +70,9 @@ describe("config workspace routes", () => {
 
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.cwd_history).toEqual([keepWorkspace]);
+    expect(data.cwd_history).toEqual([n(keepWorkspace)]);
     expect(fs.existsSync(oldWorkspace)).toBe(true);
-    expect(engine.updateConfig).toHaveBeenCalledWith({ cwd_history: [keepWorkspace] });
+    expect(engine.updateConfig).toHaveBeenCalledWith({ cwd_history: [n(keepWorkspace)] });
   });
 
   it("clears recent workspace history without deleting directories", async () => {
@@ -118,10 +121,10 @@ describe("config workspace routes", () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.cwd_history).toEqual([keepWorkspace]);
+    expect(data.cwd_history).toEqual([n(keepWorkspace)]);
     expect(data.last_cwd).toBeNull();
     expect(engine.updateConfig).toHaveBeenCalledWith({
-      cwd_history: [keepWorkspace],
+      cwd_history: [n(keepWorkspace)],
       last_cwd: null,
     });
   });

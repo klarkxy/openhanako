@@ -1,3 +1,4 @@
+import path from "path";
 import { describe, expect, it, vi } from "vitest";
 import { createSessionFoldersTool } from "../lib/tools/session-folders-tool.ts";
 
@@ -42,7 +43,7 @@ describe("session_folders tool", () => {
 
   it("requires confirmation before adding an authorized folder", async () => {
     const sessionPath = "/tmp/agents/hana/sessions/s1.jsonl";
-    const folder = "/external/assets";
+    const folder = path.resolve("/external/assets");
     const engine = {
       addSessionAuthorizedFolder: vi.fn(async () => ({
         sessionPath,
@@ -83,7 +84,7 @@ describe("session_folders tool", () => {
 
   it("auto mode adds an authorized folder after approval gateway approval without human confirmation", async () => {
     const sessionPath = "/tmp/agents/hana/sessions/s1.jsonl";
-    const folder = "/external/assets";
+    const folder = path.resolve("/external/assets");
     const engine = {
       getSessionPermissionMode: vi.fn(() => "auto"),
       addSessionAuthorizedFolder: vi.fn(async () => ({
@@ -129,7 +130,7 @@ describe("session_folders tool", () => {
 
   it("auto mode falls back to the existing folder confirmation when the gateway asks the user", async () => {
     const sessionPath = "/tmp/agents/hana/sessions/s1.jsonl";
-    const folder = "/external/assets";
+    const folder = path.resolve("/external/assets");
     const engine = {
       getSessionPermissionMode: vi.fn(() => "auto"),
       addSessionAuthorizedFolder: vi.fn(async () => ({

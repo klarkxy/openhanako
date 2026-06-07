@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, vi } from "vitest";
 import { createApprovalGateway, createModelApprovalReviewer } from "../lib/approval-gateway.ts";
 
@@ -116,6 +115,56 @@ describe("ApprovalGateway", () => {
     });
   });
 
+  it("lets the large tool-model reviewer approve when the small reviewer would ask the user", async () => {
+    const smallToolModelReviewer = vi.fn(async () => ({
+      action: "ask_user",
+      reason: "small reviewer is unsure about the target",
+      risk: "medium",
+    }));
+    const largeToolModelReviewer = vi.fn(async () => ({
+      action: "allow",
+      reason: "target and intent are specific enough",
+      risk: "medium",
+    }));
+    const gateway = createApprovalGateway({ smallToolModelReviewer, largeToolModelReviewer });
+
+    const decision = await gateway.review(request());
+
+    expect(smallToolModelReviewer).toHaveBeenCalledOnce();
+    expect(largeToolModelReviewer).toHaveBeenCalledOnce();
+    expect(decision).toMatchObject({
+      action: "allow",
+      reviewer: "large_tool_model",
+      reason: "target and intent are specific enough",
+      risk: "medium",
+    });
+  });
+
+  it("lets the large tool-model reviewer approve when the small reviewer would deny and continue", async () => {
+    const smallToolModelReviewer = vi.fn(async () => ({
+      action: "deny_and_continue",
+      reason: "small reviewer prefers a safer path",
+      risk: "medium",
+    }));
+    const largeToolModelReviewer = vi.fn(async () => ({
+      action: "allow",
+      reason: "bounded workspace edit is acceptable",
+      risk: "medium",
+    }));
+    const gateway = createApprovalGateway({ smallToolModelReviewer, largeToolModelReviewer });
+
+    const decision = await gateway.review(request());
+
+    expect(smallToolModelReviewer).toHaveBeenCalledOnce();
+    expect(largeToolModelReviewer).toHaveBeenCalledOnce();
+    expect(decision).toMatchObject({
+      action: "allow",
+      reviewer: "large_tool_model",
+      reason: "bounded workspace edit is acceptable",
+      risk: "medium",
+    });
+  });
+
   it("escalates from the small tool-model reviewer to the large tool-model reviewer", async () => {
     const smallToolModelReviewer = vi.fn(async () => ({
       action: "escalate",
@@ -144,6 +193,58 @@ describe("ApprovalGateway", () => {
       reason: "folder access is too broad",
       risk: "high",
     });
+  });
+
+  it("allows automation create and update draft generation by policy", async () => {
+    const smallToolModelReviewer = vi.fn(async () => ({ action: "ask_user", reason: "should not be called" }));
+    const gateway = createApprovalGateway({ smallToolModelReviewer });
+
+    await expect(gateway.review(request({
+      toolName: "automation",
+      actionName: "create",
+      params: {
+        action: "create",
+        scheduleType: "cron",
+        schedule: "0 9 * * *",
+        label: "Morning Review",
+        prompt: "Review my notes.",
+      },
+      target: { type: "tool", label: "Morning Review" },
+      sideEffect: {
+        kind: "deferred_mutation_draft",
+        commit: "requires_user_confirmation",
+        summary: "Automation draft writes only after the card is confirmed.",
+      },
+    }))).resolves.toMatchObject({
+      action: "allow",
+      reviewer: "policy",
+      risk: "low",
+      ruleIds: ["automation-draft-no-write"],
+    });
+
+    await expect(gateway.review(request({
+      toolName: "automation",
+      actionName: "update",
+      params: {
+        action: "update",
+        id: "studio_job_1",
+        scheduleType: "cron",
+        schedule: "0 10 * * *",
+      },
+      target: { type: "tool", label: "automation" },
+      sideEffect: {
+        kind: "deferred_mutation_draft",
+        commit: "requires_user_confirmation",
+        summary: "Automation draft writes only after the card is confirmed.",
+      },
+    }))).resolves.toMatchObject({
+      action: "allow",
+      reviewer: "policy",
+      risk: "low",
+      ruleIds: ["automation-draft-no-write"],
+    });
+
+    expect(smallToolModelReviewer).not.toHaveBeenCalled();
   });
 
   it("fails closed to ask_user when no reviewer can decide", async () => {

@@ -49,6 +49,12 @@ export function createCurrentTurnNativeMediaStore() {
     }
   }
 
+  function clearSession(sessionPath) {
+    const normalizedSessionPath = normalizePathKey(sessionPath);
+    if (!normalizedSessionPath) return false;
+    return activeTurnsBySessionPath.delete(normalizedSessionPath);
+  }
+
   function inject(sessionPath, messages) {
     const normalizedSessionPath = normalizePathKey(sessionPath);
     const stack = normalizedSessionPath ? activeTurnsBySessionPath.get(normalizedSessionPath) : null;
@@ -80,7 +86,7 @@ export function createCurrentTurnNativeMediaStore() {
     return { messages: nextMessages, changed: true, injectedAudios: missingAudios.length };
   }
 
-  return { begin, end, inject };
+  return { begin, end, clearSession, inject };
 }
 
 function findLatestUserMessageWithActiveAudioMarker(messages, turn) {

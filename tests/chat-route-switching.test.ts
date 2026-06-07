@@ -60,6 +60,58 @@ describe("chat route model switch guard", () => {
     });
   });
 
+  it("reports engine runtime streaming separately when resume replay state is missing", async () => {
+    let createHandlers;
+    const upgradeWebSocket = vi.fn((factory) => {
+      createHandlers = factory;
+      return () => new Response(null);
+    });
+    const hub = {
+      subscribe: vi.fn(),
+      send: vi.fn(async () => {}),
+    };
+    const engine = {
+      agentName: "Hana",
+      abortAllStreaming: vi.fn(async () => {}),
+      getSessionByPath: vi.fn(() => ({ entries: [] })),
+      isSessionStreaming: vi.fn((sessionPath) => sessionPath === "/tmp/running-session.jsonl"),
+      isSessionSwitching: vi.fn(() => false),
+      steerSession: vi.fn(() => false),
+      slashDispatcher: null,
+    };
+
+    createChatRoute(engine, hub, { upgradeWebSocket });
+    const handlers = createHandlers({});
+    const ws = {
+      readyState: 1,
+      send: vi.fn(),
+    };
+    handlers.onOpen({}, ws);
+
+    handlers.onMessage({
+      data: JSON.stringify({
+        type: "resume_stream",
+        sessionPath: "/tmp/running-session.jsonl",
+        sinceSeq: 42,
+      }),
+    }, ws);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(engine.isSessionStreaming).toHaveBeenCalledWith("/tmp/running-session.jsonl");
+    expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
+      type: "stream_resume",
+      sessionPath: "/tmp/running-session.jsonl",
+      streamId: null,
+      sinceSeq: 42,
+      nextSeq: 1,
+      isStreaming: false,
+      runtimeIsStreaming: true,
+      events: [],
+    });
+
+    handlers.onClose({}, ws);
+  });
+
   it("keeps remote and host clients on the same server-side session stream", async () => {
     let createHandlers;
     let subscriber;

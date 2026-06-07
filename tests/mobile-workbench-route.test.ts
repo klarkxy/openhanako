@@ -1,4 +1,3 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -46,6 +45,52 @@ describe("mobile workbench route", () => {
     expect(data).not.toHaveProperty("basePath");
     expect(data.files.map((file) => file.name)).toEqual(["note.md"]);
     expect(JSON.stringify(data)).not.toContain(workspace);
+  });
+
+  it("exposes the same server workbench through desktop-neutral aliases", async () => {
+    tmpDir = makeTmpDir();
+    const workspace = path.join(tmpDir, "workspace");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(workspace, "note.md"), "old", "utf-8");
+    const app = await makeApp({
+      hanakoHome: path.join(tmpDir, "hana"),
+      deskCwd: workspace,
+      homeCwd: workspace,
+    });
+
+    const files = await app.request("/api/workbench/files");
+    expect(files.status).toBe(200);
+    expect(await files.json()).toMatchObject({
+      rootId: "default",
+      files: [{ name: "note.md", isDir: false }],
+    });
+
+    const content = await app.request("/api/workbench/content?name=note.md");
+    expect(content.status).toBe(200);
+    expect(await content.text()).toBe("old");
+
+    const write = await app.request("/api/workbench/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "writeText", name: "note.md", content: "new" }),
+    });
+    expect(write.status).toBe(200);
+    expect(await write.json()).toMatchObject({ ok: true, action: "writeText", rootId: "default" });
+    expect(fs.readFileSync(path.join(workspace, "note.md"), "utf-8")).toBe("new");
+
+    const upload = await app.request("/api/workbench/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        files: [{ name: "asset.txt", contentBase64: Buffer.from("uploaded").toString("base64") }],
+      }),
+    });
+    expect(upload.status).toBe(200);
+    expect(await upload.json()).toMatchObject({
+      ok: true,
+      results: [{ name: "asset.txt", ok: true, size: Buffer.byteLength("uploaded") }],
+    });
+    expect(fs.readFileSync(path.join(workspace, "asset.txt"), "utf-8")).toBe("uploaded");
   });
 
   it("returns mobile bootstrap metadata for desktop-compatible agent workbench selection", async () => {
@@ -297,7 +342,7 @@ describe("mobile workbench route", () => {
       },
       body: stream,
       duplex: "half",
-    });
+    } as any);
 
     const res = await app.request(req);
 
@@ -313,7 +358,7 @@ describe("mobile workbench route", () => {
     const app = new Hono();
     const { createMobileWorkbenchRoute } = await import("../server/routes/mobile-workbench.ts");
     app.use("*", async (c, next) => {
-      c.set("authPrincipal", Object.freeze({
+      (c as any).set("authPrincipal", Object.freeze({
         kind: "device",
         credentialKind: "device_credential",
         connectionKind: "lan",
@@ -396,6 +441,135 @@ describe("mobile workbench route", () => {
     expect(JSON.stringify(data)).not.toContain(mountRoot);
   });
 
+  it("accepts mountId as the canonical workbench mount selector while preserving rootId in the response", async () => {
+    tmpDir = makeTmpDir();
+    const workspace = path.join(tmpDir, "workspace");
+    const mountRoot = path.join(tmpDir, "mounted-docs");
+    const hanakoHome = path.join(tmpDir, "hana");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.mkdirSync(mountRoot, { recursive: true });
+    fs.writeFileSync(path.join(mountRoot, "mounted.md"), "mount body", "utf-8");
+    upsertStudioMount(hanakoHome, {
+      mountId: "mount_docs",
+      hostStudioId: "studio_1",
+      sourceKind: "storage",
+      provider: "local_fs",
+      rootLocator: { path: mountRoot },
+      label: "Mounted Docs",
+      presentation: "folder",
+      capabilities: ["list", "read", "write"],
+    });
+    const app = await makeApp({
+      hanakoHome,
+      deskCwd: workspace,
+      homeCwd: workspace,
+      getRuntimeContext: () => ({
+        serverId: "server_1",
+        serverNodeId: "node_1",
+        userId: "user_1",
+        studioId: "studio_1",
+        connectionKind: "local",
+        credentialKind: "loopback_token",
+      }),
+    });
+
+    const files = await app.request("/api/workbench/files?mountId=mount_docs");
+    expect(files.status).toBe(200);
+    expect(await files.json()).toMatchObject({
+      rootId: "mount_docs",
+      mountId: "mount_docs",
+      mount: {
+        mountId: "mount_docs",
+        label: "Mounted Docs",
+        sourceKind: "storage",
+        provider: "local_fs",
+      },
+      files: [{ name: "mounted.md", isDir: false }],
+    });
+
+    const content = await app.request("/api/workbench/content?mountId=mount_docs&name=mounted.md");
+    expect(content.status).toBe(200);
+    expect(await content.text()).toBe("mount body");
+
+    const write = await app.request("/api/workbench/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "writeText",
+        mountId: "mount_docs",
+        name: "mounted.md",
+        content: "new mount body",
+      }),
+    });
+    expect(write.status).toBe(200);
+    expect(await write.json()).toMatchObject({
+      ok: true,
+      rootId: "mount_docs",
+      mountId: "mount_docs",
+    });
+    expect(fs.readFileSync(path.join(mountRoot, "mounted.md"), "utf-8")).toBe("new mount body");
+  });
+
+  it("moves multiple tree items inside a mounted workspace and returns touched directories", async () => {
+    tmpDir = makeTmpDir();
+    const workspace = path.join(tmpDir, "workspace");
+    const mountRoot = path.join(tmpDir, "mounted-docs");
+    const hanakoHome = path.join(tmpDir, "hana");
+    fs.mkdirSync(path.join(mountRoot, "notes"), { recursive: true });
+    fs.mkdirSync(path.join(mountRoot, "archive"), { recursive: true });
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(mountRoot, "notes", "draft.md"), "draft", "utf-8");
+    upsertStudioMount(hanakoHome, {
+      mountId: "mount_docs",
+      hostStudioId: "studio_1",
+      sourceKind: "storage",
+      provider: "local_fs",
+      rootLocator: { path: mountRoot },
+      label: "Mounted Docs",
+      presentation: "folder",
+      capabilities: ["list", "read", "write"],
+    });
+    const app = await makeApp({
+      hanakoHome,
+      deskCwd: workspace,
+      homeCwd: workspace,
+      getRuntimeContext: () => ({
+        serverId: "server_1",
+        serverNodeId: "node_1",
+        userId: "user_1",
+        studioId: "studio_1",
+        connectionKind: "local",
+        credentialKind: "loopback_token",
+      }),
+    });
+
+    const res = await app.request("/api/workbench/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "movePaths",
+        mountId: "mount_docs",
+        items: [{ sourceSubdir: "notes", name: "draft.md", isDirectory: false }],
+        destSubdir: "archive",
+        currentSubdir: "",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toMatchObject({
+      ok: true,
+      action: "movePaths",
+      mountId: "mount_docs",
+      filesByPath: {
+        notes: [],
+        archive: [{ name: "draft.md", isDir: false }],
+      },
+    });
+    expect(fs.existsSync(path.join(mountRoot, "notes", "draft.md"))).toBe(false);
+    expect(fs.readFileSync(path.join(mountRoot, "archive", "draft.md"), "utf-8")).toBe("draft");
+  });
+
   it("creates and consumes an execution lease for remote mobile writes", async () => {
     tmpDir = makeTmpDir();
     const workspace = path.join(tmpDir, "workspace");
@@ -404,7 +578,7 @@ describe("mobile workbench route", () => {
     const app = new Hono();
     const { createMobileWorkbenchRoute } = await import("../server/routes/mobile-workbench.ts");
     app.use("*", async (c, next) => {
-      c.set("authPrincipal", Object.freeze({
+      (c as any).set("authPrincipal", Object.freeze({
         kind: "device",
         credentialKind: "device_credential",
         connectionKind: "lan",

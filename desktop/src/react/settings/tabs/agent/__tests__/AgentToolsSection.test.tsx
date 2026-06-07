@@ -49,12 +49,12 @@ describe("AgentToolsSection", () => {
         disabled={[]}
       />
     );
-    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(8);
+    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(7);
     expect(getRow(container, "automation")).toBeTruthy();
     expect(getRow(container, "beautify")).toBeTruthy();
     expect(getRow(container, "browser")).toBeTruthy();
     expect(getRow(container, "computer")).toBeNull();
-    expect(getRow(container, "cron")).toBeTruthy();
+    expect(getRow(container, "cron")).toBeNull();
     expect(getRow(container, "dm")).toBeTruthy();
     expect(getRow(container, "install_skill")).toBeTruthy();
     expect(getRow(container, "update_settings")).toBeTruthy();
@@ -69,7 +69,7 @@ describe("AgentToolsSection", () => {
         disabled={["update_settings", "dm"]}
       />
     );
-    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(8);
+    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(7);
     expect(getRow(container, "automation")).toBeTruthy();
     expect(getRow(container, "beautify")).toBeTruthy();
     expect(getRow(container, "browser")).toBeTruthy();
@@ -84,7 +84,7 @@ describe("AgentToolsSection", () => {
         disabled={[]}
       />
     );
-    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(5);
+    expect(container.querySelectorAll("[data-tool-name]")).toHaveLength(4);
     expect(getRow(container, "dm")).toBeNull();
     expect(getRow(container, "beautify")).toBeTruthy();
     expect(getRow(container, "browser")).toBeTruthy();
@@ -107,7 +107,7 @@ describe("AgentToolsSection", () => {
 
   it("clicking an ON toggle adds the tool to disabled list via autoSaveConfig", () => {
     const { container } = render(
-      <AgentToolsSection availableTools={["browser", "cron"]} disabled={[]} />
+      <AgentToolsSection availableTools={["browser", "automation"]} disabled={[]} />
     );
     clickToggle(getRow(container, "browser"));
     expect(autoSaveConfig).toHaveBeenCalledWith({
@@ -118,13 +118,13 @@ describe("AgentToolsSection", () => {
   it("clicking an OFF toggle removes the tool from disabled list", () => {
     const { container } = render(
       <AgentToolsSection
-        availableTools={["browser", "cron"]}
-        disabled={["browser", "cron"]}
+        availableTools={["browser", "automation"]}
+        disabled={["browser", "automation"]}
       />
     );
     clickToggle(getRow(container, "browser"));
     expect(autoSaveConfig).toHaveBeenCalledWith({
-      tools: { disabled: ["cron"] },
+      tools: { disabled: ["automation"] },
     });
   });
 
@@ -137,21 +137,21 @@ describe("AgentToolsSection", () => {
   });
 
   it("two rapid clicks on different toggles both reach autoSaveConfig (P2 race regression)", () => {
-    // Scenario: user disables browser, then disables cron before the first
+    // Scenario: user disables browser, then disables automation before the first
     // PUT+GET round-trip refreshes the `disabled` prop. Without the useRef
     // fix the second click would build newDisabled from the stale prop
-    // (still []), producing ["cron"] and silently losing the browser change.
+    // (still []), producing ["automation"] and silently losing the browser change.
     const { container } = render(
-      <AgentToolsSection availableTools={["browser", "cron"]} disabled={[]} />
+      <AgentToolsSection availableTools={["browser", "automation"]} disabled={[]} />
     );
     clickToggle(getRow(container, "browser"));
-    clickToggle(getRow(container, "cron"));
+    clickToggle(getRow(container, "automation"));
 
     expect(autoSaveConfig).toHaveBeenNthCalledWith(1, {
       tools: { disabled: ["browser"] },
     });
     expect(autoSaveConfig).toHaveBeenNthCalledWith(2, {
-      tools: { disabled: ["browser", "cron"] },
+      tools: { disabled: ["browser", "automation"] },
     });
   });
 

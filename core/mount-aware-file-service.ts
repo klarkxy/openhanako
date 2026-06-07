@@ -70,6 +70,8 @@ export class MountAwareFileService {
     if (!dir) throw fileError("invalid path", "invalid_path", 400);
     return {
       rootId: root.id,
+      mountId: root.mountId || root.id,
+      mount: publicRoot(root),
       subdir: normalized,
       files: await listFiles(dir),
     };
@@ -81,6 +83,8 @@ export class MountAwareFileService {
     const q = String(query || "").trim();
     return {
       rootId: root.id,
+      mountId: root.mountId || root.id,
+      mount: publicRoot(root),
       query: q,
       results: q ? await searchFiles(root.path, q) : [],
     };
@@ -104,7 +108,7 @@ export class MountAwareFileService {
     const target = resolveFileTarget(root.path, dir, name);
     if (!target) throw fileError("invalid path", "invalid_path", 400);
     fs.mkdirSync(target, { recursive: false });
-    return { ok: true, action: "mkdir", rootId: root.id, files: await listFiles(dir) };
+    return workbenchWriteResult(root, "mkdir", { files: await listFiles(dir) });
   }
 
   async writeText(rootId, subdir, body: Record<string, any> = {}) {
@@ -120,6 +124,8 @@ export class MountAwareFileService {
           ok: false,
           action: body.action,
           rootId: root.id,
+          mountId: root.mountId || root.id,
+          mount: publicRoot(root),
           conflict: true,
           version: currentVersion,
           files: await listFiles(dir),
@@ -134,6 +140,8 @@ export class MountAwareFileService {
       ok: true,
       action: body.action,
       rootId: root.id,
+      mountId: root.mountId || root.id,
+      mount: publicRoot(root),
       version: statFileVersionOrNull(target),
       files: await listFiles(dir),
     };
@@ -147,7 +155,7 @@ export class MountAwareFileService {
     const target = resolveFileTarget(root.path, dir, newName);
     if (!source || !target) throw fileError("invalid path", "invalid_path", 400);
     fs.renameSync(source, target);
-    return { ok: true, action: "rename", rootId: root.id, files: await listFiles(dir) };
+    return workbenchWriteResult(root, "rename", { files: await listFiles(dir) });
   }
 
   async move(rootId, subdir, body: Record<string, any> = {}) {
@@ -159,7 +167,42 @@ export class MountAwareFileService {
     if (!source || !destDir) throw fileError("invalid path", "invalid_path", 400);
     fs.mkdirSync(destDir, { recursive: true });
     fs.renameSync(source, path.join(destDir, name));
-    return { ok: true, action: "move", rootId: root.id, files: await listFiles(dir) };
+    return workbenchWriteResult(root, "move", { files: await listFiles(dir) });
+  }
+
+  async movePaths(rootId, body: Record<string, any> = {}) {
+    const root = this._resolveRootInternal(rootId);
+    requireCapability(root, "write");
+    const items = Array.isArray(body.items) ? body.items : [];
+    const destSubdir = normalizeSubdirOrThrow(body.destSubdir || "");
+    const currentSubdir = normalizeSubdirOrThrow(body.currentSubdir || "");
+    const destDir = resolveInsideRoot(root.path, destSubdir);
+    if (!destDir) throw fileError("invalid path", "invalid_path", 400);
+    fs.mkdirSync(destDir, { recursive: true });
+
+    const touchedSubdirs = new Set([currentSubdir, destSubdir]);
+    for (const item of items) {
+      const sourceSubdir = normalizeSubdirOrThrow(item?.sourceSubdir || "");
+      const name = normalizePlainNameOrThrow(item?.name);
+      const sourceDir = resolveInsideRoot(root.path, sourceSubdir);
+      if (!sourceDir) throw fileError("invalid path", "invalid_path", 400);
+      const source = resolveFileTarget(root.path, sourceDir, name);
+      const target = resolveFileTarget(root.path, destDir, name);
+      if (!source || !target) throw fileError("invalid path", "invalid_path", 400);
+      fs.renameSync(source, target);
+      touchedSubdirs.add(sourceSubdir);
+    }
+
+    const filesByPath = {};
+    for (const subdir of touchedSubdirs) {
+      const dir = resolveInsideRoot(root.path, subdir);
+      if (dir) filesByPath[subdir] = await listFiles(dir);
+    }
+    const currentDir = resolveInsideRoot(root.path, currentSubdir);
+    return workbenchWriteResult(root, "movePaths", {
+      filesByPath,
+      files: currentDir ? await listFiles(currentDir) : [],
+    });
   }
 
   async safeDelete(rootId, subdir, body: Record<string, any> = {}) {
@@ -176,11 +219,12 @@ export class MountAwareFileService {
       schemaVersion: 1,
       trashId,
       rootId: root.id,
+      mountId: root.mountId || root.id,
       originalName: name,
       originalSubdir: normalizedSubdir,
       deletedAt: new Date().toISOString(),
     }, null, 2) + "\n", "utf-8");
-    return { ok: true, action: "safeDelete", rootId: root.id, trashId, files: await listFiles(dir) };
+    return workbenchWriteResult(root, "safeDelete", { trashId, files: await listFiles(dir) });
   }
 
   writeFileTarget(rootId, subdir, name) {
@@ -212,7 +256,10 @@ export class MountAwareFileService {
       fs.mkdirSync(this._defaultRoot, { recursive: true });
       return {
         id: "default",
+        mountId: "default",
+        workspaceId: "default",
         label: "Default",
+        presentation: "folder",
         path: this._defaultRoot,
         capabilities: ["list", "read", "write"],
         sourceKind: "storage",
@@ -229,13 +276,26 @@ export class MountAwareFileService {
     return {
       id: mount.mountId,
       mountId: mount.mountId,
+      workspaceId: mount.mountId,
       label: mount.label,
+      presentation: mount.presentation,
       path: rootPath,
       capabilities: mount.capabilities,
       sourceKind: mount.sourceKind,
       provider: mount.provider,
     };
   }
+}
+
+function workbenchWriteResult(root, action, extra = {}) {
+  return {
+    ok: true,
+    action,
+    rootId: root.id,
+    mountId: root.mountId || root.id,
+    mount: publicRoot(root),
+    ...extra,
+  };
 }
 
 function findLocalFsMount(hanakoHome, studioId, rootId) {

@@ -1,7 +1,7 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import YAML from "yaml";
@@ -96,7 +96,7 @@ describe("agents route", () => {
   it("returns create validation status codes without emitting agent-created", async () => {
     const { createAgentsRoute } = await import("../server/routes/agents.ts");
     const app = new Hono();
-    const err = new Error('Invalid yuan "caikangyong": template not found in lib/yuan');
+    const err: any = new Error('Invalid yuan "caikangyong": template not found in lib/yuan');
     err.code = "INVALID_YUAN";
     err.statusCode = 400;
     const engine = {
@@ -232,7 +232,7 @@ describe("agents route", () => {
     const app = new Hono();
     const engine = {
       agentsDir: tempRoot,
-      productDir: path.join(path.dirname(new URL(import.meta.url).pathname), "..", "lib"),
+      productDir: path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib"),
       currentAgentId: agentId,
       providerRegistry: {
         saveProvider: vi.fn(),
@@ -342,7 +342,7 @@ describe("agents route", () => {
     const app = new Hono();
     const engine = {
       agentsDir: tempRoot,
-      productDir: path.join(path.dirname(new URL(import.meta.url).pathname), "..", "lib"),
+      productDir: path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib"),
       currentAgentId: agentId,
       providerRegistry: {
         saveProvider: vi.fn(),

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
@@ -15,6 +14,11 @@ import {
 } from "../plugins/mcp/lib/mcp-stdio-client.ts";
 
 class FakeProcess extends EventEmitter {
+  declare exitCode: any;
+  declare kill: any;
+  declare stderr: any;
+  declare stdin: any;
+  declare stdout: any;
   constructor() {
     super();
     this.exitCode = null;
@@ -50,32 +54,38 @@ class FakeProcess extends EventEmitter {
 
 describe("MCP stdio client", () => {
   it("passes connector env and registry settings to spawned stdio servers", async () => {
-    const proc = new FakeProcess();
-    spawnMock.mockReturnValueOnce(proc);
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+    try {
+      const proc = new FakeProcess();
+      spawnMock.mockReturnValueOnce(proc);
 
-    const client = new McpStdioClient({
-      id: "local",
-      command: "npx",
-      args: ["-y", "mcp-server-example"],
-      env: { API_KEY: "secret" },
-      registryUrl: "https://registry.npmmirror.com",
-    }, { log: console });
+      const client = new McpStdioClient({
+        id: "local",
+        command: "npx",
+        args: ["-y", "mcp-server-example"],
+        env: { API_KEY: "secret" },
+        registryUrl: "https://registry.npmmirror.com",
+      }, { log: console });
 
-    await client.start();
+      await client.start();
 
-    expect(spawnMock).toHaveBeenCalledWith(
-      "npx",
-      ["-y", "mcp-server-example"],
-      expect.objectContaining({
-        env: expect.objectContaining({
-          API_KEY: "secret",
-          NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com",
+      expect(spawnMock).toHaveBeenCalledWith(
+        "npx",
+        ["-y", "mcp-server-example"],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            API_KEY: "secret",
+            NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com",
+          }),
+          windowsHide: true,
         }),
-        windowsHide: true,
-      }),
-    );
+      );
 
-    await client.stop();
+      await client.stop();
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+    }
   });
 
   it("fires onClose with expected=false when the child exits unexpectedly", async () => {

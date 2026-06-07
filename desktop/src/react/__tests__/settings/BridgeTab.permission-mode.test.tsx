@@ -94,4 +94,14 @@ describe('BridgeTab permission mode', () => {
       expect(saveGlobalSettings).toHaveBeenCalledWith({ permissionMode: 'operate' });
     });
   });
+
+  it('keeps bridge permission mode in loading state until backend truth arrives', () => {
+    vi.mocked(useBridgeState).mockReturnValue(bridgeState({ status: null }) as never);
+
+    render(<BridgeTab />);
+
+    const trigger = screen.getByRole('button', { name: /common\.loading/ }) as HTMLButtonElement;
+    expect(trigger.disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: /settings\.bridge\.permissionModeAuto/ })).toBeNull();
+  });
 });

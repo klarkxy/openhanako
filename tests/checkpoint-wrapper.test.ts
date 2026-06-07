@@ -1,4 +1,4 @@
-// @ts-nocheck
+import path from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { wrapWithCheckpoint } from "../lib/checkpoint-wrapper.ts";
 
@@ -18,8 +18,8 @@ describe("wrapWithCheckpoint", () => {
   });
 
   it("wraps write tool — saves before execute", async () => {
-    const writeTool = makeTool("write");
-    const [wrapped] = wrapWithCheckpoint([writeTool], {
+    const writeTool = (makeTool as any)("write");
+    const [wrapped] = (wrapWithCheckpoint as any)([writeTool], {
       store,
       maxFileSizeKb: 1024,
       cwd: "/project",
@@ -33,15 +33,15 @@ describe("wrapWithCheckpoint", () => {
       tool: "write",
       source: "llm",
       reason: "tool-write",
-      filePath: "/project/src/foo.js",
+      filePath: path.resolve("/project", "src/foo.js"),
       maxSizeKb: 1024,
     });
     expect(writeTool.execute).toHaveBeenCalled();
   });
 
   it("wraps edit tool — saves before execute", async () => {
-    const editTool = makeTool("edit");
-    const [wrapped] = wrapWithCheckpoint([editTool], {
+    const editTool = (makeTool as any)("edit");
+    const [wrapped] = (wrapWithCheckpoint as any)([editTool], {
       store,
       maxFileSizeKb: 1024,
       cwd: "/project",
@@ -55,14 +55,14 @@ describe("wrapWithCheckpoint", () => {
       tool: "edit",
       source: "llm",
       reason: "tool-edit",
-      filePath: "/absolute/bar.ts",
+      filePath: path.resolve("/absolute/bar.ts"),
       maxSizeKb: 1024,
     });
   });
 
   it("wraps bash rm — detects rm and saves target", async () => {
-    const bashTool = makeTool("bash");
-    const [wrapped] = wrapWithCheckpoint([bashTool], {
+    const bashTool = (makeTool as any)("bash");
+    const [wrapped] = (wrapWithCheckpoint as any)([bashTool], {
       store,
       maxFileSizeKb: 1024,
       cwd: "/project",
@@ -76,14 +76,14 @@ describe("wrapWithCheckpoint", () => {
         tool: "bash:rm",
         source: "llm",
         reason: "tool-bash-rm",
-        filePath: "/project/src/old.js",
+        filePath: path.resolve("/project", "src/old.js"),
       }),
     );
   });
 
   it("wraps bash mv — saves source before rename", async () => {
-    const bashTool = makeTool("bash");
-    const [wrapped] = wrapWithCheckpoint([bashTool], {
+    const bashTool = (makeTool as any)("bash");
+    const [wrapped] = (wrapWithCheckpoint as any)([bashTool], {
       store,
       maxFileSizeKb: 1024,
       cwd: "/project",
@@ -97,14 +97,14 @@ describe("wrapWithCheckpoint", () => {
         tool: "bash:mv",
         source: "llm",
         reason: "tool-bash-mv",
-        filePath: "/project/src/a.js",
+        filePath: path.resolve("/project", "src/a.js"),
       }),
     );
   });
 
   it("does not wrap unrelated tools", async () => {
-    const grepTool = makeTool("grep");
-    const [wrapped] = wrapWithCheckpoint([grepTool], {
+    const grepTool = (makeTool as any)("grep");
+    const [wrapped] = (wrapWithCheckpoint as any)([grepTool], {
       store,
       maxFileSizeKb: 1024,
       cwd: "/project",
@@ -117,8 +117,8 @@ describe("wrapWithCheckpoint", () => {
 
   it("still executes tool even if save fails", async () => {
     store.save = vi.fn(async () => { throw new Error("disk full"); });
-    const writeTool = makeTool("write");
-    const [wrapped] = wrapWithCheckpoint([writeTool], {
+    const writeTool = (makeTool as any)("write");
+    const [wrapped] = (wrapWithCheckpoint as any)([writeTool], {
       store,
       maxFileSizeKb: 1024,
       cwd: "/project",

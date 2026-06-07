@@ -44,71 +44,81 @@ export function createMobileWorkbenchRoute(engine) {
     });
   });
 
-  route.get("/mobile/workbench/files", async (c) => {
+  const listWorkbenchFiles = async (c) => {
     try {
       const auth = authorizeWorkbench(c, engine, "files.read");
       if (auth.response) return auth.response;
       return c.json(await fileService(engine, auth.requestContext)
-        .listFiles(c.req.query("rootId"), c.req.query("subdir") || ""));
+        .listFiles(workbenchMountIdFromRequest(c), c.req.query("subdir") || ""));
     } catch (err) {
       return workbenchError(c, err);
     }
-  });
+  };
+  route.get("/mobile/workbench/files", listWorkbenchFiles);
+  route.get("/workbench/files", listWorkbenchFiles);
 
-  route.get("/mobile/workbench/search", async (c) => {
+  const searchWorkbenchFiles = async (c) => {
     try {
       const auth = authorizeWorkbench(c, engine, "files.read");
       if (auth.response) return auth.response;
       return c.json(await fileService(engine, auth.requestContext)
-        .searchFiles(c.req.query("rootId"), c.req.query("q") || ""));
+        .searchFiles(workbenchMountIdFromRequest(c), c.req.query("q") || ""));
     } catch (err) {
       return workbenchError(c, err);
     }
-  });
+  };
+  route.get("/mobile/workbench/search", searchWorkbenchFiles);
+  route.get("/workbench/search", searchWorkbenchFiles);
 
   route.get("/mobile/workbench/content", (c) => serveContent(c, engine, false));
   route.on("HEAD", "/mobile/workbench/content", (c) => serveContent(c, engine, true));
+  route.get("/workbench/content", (c) => serveContent(c, engine, false));
+  route.on("HEAD", "/workbench/content", (c) => serveContent(c, engine, true));
 
-  route.post("/mobile/workbench/actions", async (c) => {
+  const runWorkbenchAction = async (c) => {
     const auth = authorizeWorkbench(c, engine, "files.write");
     if (auth.response) return auth.response;
     const body = await safeJson(c);
     const files = fileService(engine, auth.requestContext);
-    const rootId = body.rootId || "default";
+    const mountId = workbenchMountIdFromBody(body);
     const subdir = body.subdir || "";
 
     try {
       switch (body.action) {
         case "mkdir":
-          return await writeActionResponse(c, engine, "mobile_workbench.mkdir", auth, rootId, () => files.mkdir(rootId, subdir, body));
+          return await writeActionResponse(c, engine, "mobile_workbench.mkdir", auth, mountId, () => files.mkdir(mountId, subdir, body));
         case "create":
         case "writeText":
-          return await writeActionResponse(c, engine, "mobile_workbench.write", auth, rootId, () => files.writeText(rootId, subdir, body));
+          return await writeActionResponse(c, engine, "mobile_workbench.write", auth, mountId, () => files.writeText(mountId, subdir, body));
         case "rename":
-          return await writeActionResponse(c, engine, "mobile_workbench.rename", auth, rootId, () => files.rename(rootId, subdir, body));
+          return await writeActionResponse(c, engine, "mobile_workbench.rename", auth, mountId, () => files.rename(mountId, subdir, body));
         case "move":
-          return await writeActionResponse(c, engine, "mobile_workbench.move", auth, rootId, () => files.move(rootId, subdir, body));
+          return await writeActionResponse(c, engine, "mobile_workbench.move", auth, mountId, () => files.move(mountId, subdir, body));
+        case "movePaths":
+          return await writeActionResponse(c, engine, "mobile_workbench.move_paths", auth, mountId, () => files.movePaths(mountId, body));
         case "safeDelete":
-          return await writeActionResponse(c, engine, "mobile_workbench.safe_delete", auth, rootId, () => files.safeDelete(rootId, subdir, body));
+          return await writeActionResponse(c, engine, "mobile_workbench.safe_delete", auth, mountId, () => files.safeDelete(mountId, subdir, body));
         default:
           return c.json({ error: "unknown_action" }, 400);
       }
     } catch (err) {
       return workbenchError(c, err);
     }
-  });
+  };
+  route.post("/mobile/workbench/actions", runWorkbenchAction);
+  route.post("/workbench/actions", runWorkbenchAction);
 
-  route.post("/mobile/workbench/upload", uploadBodyLimit, async (c) => {
+  const uploadWorkbenchFiles = async (c) => {
     const auth = authorizeWorkbench(c, engine, "files.write");
     if (auth.response) return auth.response;
     try {
       const body = await safeJson(c);
       const filesService = fileService(engine, auth.requestContext);
-      const rootId = body.rootId || "default";
+      const mountId = workbenchMountIdFromBody(body);
       const subdir = body.subdir || "";
       const files = Array.isArray(body.files) ? body.files : [body];
 
-      return await writeActionResponse(c, engine, "mobile_workbench.upload", auth, rootId, async () => {
+      return await writeActionResponse(c, engine, "mobile_workbench.upload", auth, mountId, async () => {
         const results = [];
         for (const file of files) {
           try {
@@ -116,7 +126,7 @@ export function createMobileWorkbenchRoute(engine) {
             if (!contentBase64) throw routeError("contentBase64 required", "invalid_upload", 400);
             const buffer = Buffer.from(contentBase64, "base64");
             if (buffer.byteLength > MAX_UPLOAD_BYTES) throw routeError("file too large", "file_too_large", 413);
-            const target = filesService.writeFileTarget(rootId, subdir, file.name);
+            const target = filesService.writeFileTarget(mountId, subdir, file.name);
             fs.writeFileSync(target.target, buffer);
             results.push({ name: target.filename, ok: true, size: buffer.byteLength });
           } catch (err) {
@@ -125,15 +135,18 @@ export function createMobileWorkbenchRoute(engine) {
         }
         return {
           ok: results.every((item) => item.ok),
-          rootId,
+          rootId: mountId,
+          mountId,
           results,
-          files: await filesService.filesForDirectory(rootId, subdir),
+          files: await filesService.filesForDirectory(mountId, subdir),
         };
       });
     } catch (err) {
       return workbenchError(c, err);
     }
-  });
+  };
+  route.post("/mobile/workbench/upload", uploadBodyLimit, uploadWorkbenchFiles);
+  route.post("/workbench/upload", uploadBodyLimit, uploadWorkbenchFiles);
 
   return route;
 }
@@ -173,7 +186,7 @@ function serveContent(c, engine, headOnly) {
     const auth = authorizeWorkbench(c, engine, "files.read");
     if (auth.response) return auth.response;
     const target = fileService(engine, auth.requestContext)
-      .contentTarget(c.req.query("rootId"), c.req.query("subdir") || "", c.req.query("name"));
+      .contentTarget(workbenchMountIdFromRequest(c), c.req.query("subdir") || "", c.req.query("name"));
     const { filePath, filename } = target;
     if (!fs.existsSync(filePath)) return c.json({ error: "file_not_found" }, 404);
     return serveFileContent(c, { filePath, filename, headOnly });
@@ -208,7 +221,7 @@ function authorizeWorkbench(c, engine, capability) {
   };
 }
 
-async function writeActionResponse(c, engine, action, auth, rootId, operation) {
+async function writeActionResponse(c, engine, action, auth, mountId, operation) {
   let lease = null;
   try {
     lease = issueRemoteWriteLease({
@@ -217,8 +230,8 @@ async function writeActionResponse(c, engine, action, auth, rootId, operation) {
       decision: auth?.decision,
       agentId: engine?.currentAgentId || "mobile_workbench",
       sessionId: "mobile_workbench",
-      resourceIds: [rootId || "default"],
-      mountId: rootId && rootId !== "default" ? rootId : null,
+      resourceIds: [mountId || "default"],
+      mountId: mountId && mountId !== "default" ? mountId : null,
     } as any);
     const result = await operation();
     if (lease) consumeRemoteWriteLease(engine?.hanakoHome, lease);
@@ -227,6 +240,18 @@ async function writeActionResponse(c, engine, action, auth, rootId, operation) {
     if (lease) revokeRemoteWriteLease(engine?.hanakoHome, lease);
     throw err;
   }
+}
+
+function workbenchMountIdFromRequest(c) {
+  return normalizeWorkbenchMountId(c.req.query("mountId") || c.req.query("rootId"));
+}
+
+function workbenchMountIdFromBody(body) {
+  return normalizeWorkbenchMountId(body?.mountId || body?.rootId);
+}
+
+function normalizeWorkbenchMountId(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "default";
 }
 
 function auditActionResult(c, engine, action, result, auth, lease = null) {

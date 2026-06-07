@@ -37,6 +37,8 @@ vi.mock('@/ui', () => ({
   SelectWidget: ({ value }: { value?: string }) => (
     <div data-testid="model-select">{value || ''}</div>
   ),
+  ProviderGroupHeader: ({ provider }: { provider: string }) => <div>{provider}</div>,
+  selectWidgetStyles: { providerInset: 'providerInset' },
 }));
 
 vi.mock('../../settings/tabs/agent/AgentCardStack', () => ({
@@ -63,7 +65,19 @@ vi.mock('../../settings/tabs/agent/YuanSelector', () => ({
 }));
 
 vi.mock('../../settings/tabs/agent/AgentMemory', () => ({
-  MemorySection: () => <div data-testid="memory-section" />,
+  MemorySection: ({
+    hasUtilityModel,
+    memoryEnabled,
+  }: {
+    hasUtilityModel?: boolean;
+    memoryEnabled?: boolean;
+  }) => (
+    <div
+      data-testid="memory-section"
+      data-has-utility={hasUtilityModel === undefined ? 'loading' : hasUtilityModel ? 'true' : 'false'}
+      data-memory-enabled={memoryEnabled === undefined ? 'loading' : memoryEnabled ? 'true' : 'false'}
+    />
+  ),
 }));
 
 vi.mock('../../settings/tabs/agent/AgentToolsSection', () => ({
@@ -119,6 +133,16 @@ describe('AgentTab settings agent selection', () => {
     });
 
     expect(screen.getByTestId('selected-agent')).toHaveTextContent('deepseek');
+  });
+
+  it('does not force memory off while global model settings are still loading', async () => {
+    useSettingsStore.setState({ globalModelsConfig: null });
+    const { AgentTab } = await import('../../settings/tabs/AgentTab');
+
+    render(<AgentTab />);
+
+    expect(screen.getByTestId('memory-section')).toHaveAttribute('data-has-utility', 'loading');
+    expect(screen.getByTestId('memory-section')).toHaveAttribute('data-memory-enabled', 'true');
   });
 
   it('confirms character-card export from the live preview overlay', async () => {

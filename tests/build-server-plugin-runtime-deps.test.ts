@@ -1,4 +1,3 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -48,7 +47,13 @@ describe("bundled plugin runtime dependencies", () => {
     fs.mkdirSync(path.join(rootDir, "lib", "tools"), { recursive: true });
     fs.writeFileSync(
       path.join(rootDir, "lib", "tools", "settings-update-result.ts"),
-      "export function createSettingsUpdate() { return {}; }\n",
+      'import { redactLogText } from "../../shared/log-redactor.ts";\nexport function createSettingsUpdate(value?) { return redactLogText(value || "ok"); }\n',
+      "utf-8",
+    );
+    fs.mkdirSync(path.join(rootDir, "shared"), { recursive: true });
+    fs.writeFileSync(
+      path.join(rootDir, "shared", "log-redactor.ts"),
+      "export function redactLogText(value) { return value; }\n",
       "utf-8",
     );
     fs.mkdirSync(path.join(rootDir, "core"), { recursive: true });
@@ -69,6 +74,7 @@ describe("bundled plugin runtime dependencies", () => {
     expect(deps).toEqual([
       path.join("core", "media-runtime-contract.ts"),
       path.join("lib", "tools", "settings-update-result.ts"),
+      path.join("shared", "log-redactor.ts"),
     ]);
 
     const copied = await copyBundledPluginRuntimeDependencies({ rootDir, outDir });
@@ -78,6 +84,8 @@ describe("bundled plugin runtime dependencies", () => {
       .toContain("createSettingsUpdate");
     expect(fs.readFileSync(path.join(outDir, "core", "media-runtime-contract.ts"), "utf-8"))
       .toContain("buildCliArgs");
+    expect(fs.readFileSync(path.join(outDir, "shared", "log-redactor.ts"), "utf-8"))
+      .toContain("redactLogText");
     expect(fs.existsSync(path.join(outDir, "plugins", "mcp", "index.js"))).toBe(false);
   });
 
@@ -102,6 +110,34 @@ describe("bundled plugin runtime dependencies", () => {
     fs.writeFileSync(
       path.join(rootDir, "node_modules", "js-yaml", "index.js"),
       "export default { load() { return {}; } };\n",
+      "utf-8",
+    );
+
+    await expect(collectBundledPluginPackageDependencies({ rootDir }))
+      .resolves.toContain("js-yaml");
+  });
+
+  it("collects npm packages imported by host modules reached from bundled plugins", async () => {
+    fs.mkdirSync(path.join(rootDir, "lib", "i18n"), { recursive: true });
+    fs.writeFileSync(
+      path.join(rootDir, "plugins", "mcp", "index.js"),
+      'import { t } from "../../lib/i18n/index.ts";\nexport default t;\n',
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(rootDir, "lib", "i18n", "index.ts"),
+      'import YAML from "js-yaml";\nexport function t(value?) { return YAML.dump({ value }); }\n',
+      "utf-8",
+    );
+    fs.mkdirSync(path.join(rootDir, "node_modules", "js-yaml"), { recursive: true });
+    fs.writeFileSync(
+      path.join(rootDir, "node_modules", "js-yaml", "package.json"),
+      JSON.stringify({ name: "js-yaml", version: "4.1.0", main: "index.js" }),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(rootDir, "node_modules", "js-yaml", "index.js"),
+      "export default { dump() { return ''; } };\n",
       "utf-8",
     );
 

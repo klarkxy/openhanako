@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * core/migrations.js 单元测试
  */
@@ -12,7 +11,7 @@ import { getAgentPhoneProjectionPath, safeConversationStem } from "../lib/conver
 
 // ── 测试工具 ────────────────────────────────────────────────────────────────
 
-const LATEST_DATA_VERSION = 37;
+const LATEST_DATA_VERSION = 39;
 
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "hana-migrations-"));
@@ -259,7 +258,7 @@ describe("migration #30: cron jobs to automation read model", () => {
     });
 
     const [job] = readStudioCronJobs("default");
-    expect(job.schemaVersion).toBe(2);
+    expect(job.schemaVersion).toBe(3);
     expect(job.type).toBe("cron");
     expect(job.prompt).toBe("summarize");
     expect(job.trigger).toEqual({ kind: "cron", expression: "0 9 * * *" });
@@ -278,6 +277,299 @@ describe("migration #30: cron jobs to automation read model", () => {
     });
     expect(job.createdBy).toEqual({ kind: "agent", agentId: "hana" });
     expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
+  });
+});
+
+describe("migration #38: direct notify automations become Agent runs", () => {
+  let tmpDir, agentsDir, userDir;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    agentsDir = path.join(tmpDir, "agents");
+    userDir = path.join(tmpDir, "user");
+    fs.mkdirSync(agentsDir, { recursive: true });
+  });
+
+  afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  function writeStudioCronJobs(studioId, jobs) {
+    const deskDir = path.join(tmpDir, "studios", studioId, "desk");
+    fs.mkdirSync(deskDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deskDir, "cron-jobs.json"),
+      JSON.stringify({ jobs, nextNum: jobs.length + 1 }, null, 2) + "\n",
+      "utf-8",
+    );
+  }
+
+  function readStudioCronJobs(studioId) {
+    return JSON.parse(fs.readFileSync(
+      path.join(tmpDir, "studios", studioId, "desk", "cron-jobs.json"),
+      "utf-8",
+    )).jobs;
+  }
+
+  it("rewrites legacy notify direct-action jobs to agent_session executors", () => {
+    const prefs = makePrefs(userDir);
+    prefs.savePreferences({ _dataVersion: 37 });
+    writeStudioCronJobs("default", [{
+      schemaVersion: 2,
+      id: "studio_job_notify",
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "",
+      label: "Drink Water",
+      enabled: true,
+      actorAgentId: "hana",
+      executionContext: {
+        kind: "session_workspace",
+        cwd: "/workspace",
+        workspaceFolders: [],
+        sourceSessionPath: "/sessions/source.jsonl",
+        createdByAgentId: "hana",
+      },
+      executor: {
+        kind: "direct_action",
+        action: "notify",
+        params: {
+          title: "喝水",
+          body: "站起来活动一下",
+          channels: ["desktop"],
+        },
+      },
+      createdBy: { kind: "agent", agentId: "hana" },
+    }]);
+
+    runMigrations({
+      hanakoHome: tmpDir,
+      agentsDir,
+      prefs,
+      providerRegistry: makeRegistryWithModels({}),
+      log: () => {},
+    });
+
+    const [job] = readStudioCronJobs("default");
+    expect(job.schemaVersion).toBe(3);
+    expect(job.prompt).toContain("站起来活动一下");
+    expect(job.executor).toMatchObject({
+      kind: "agent_session",
+      agentId: "hana",
+      prompt: expect.stringContaining("notify"),
+      migratedFrom: {
+        kind: "direct_action",
+        action: "notify",
+      },
+    });
+    expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
+  });
+});
+
+describe("migration #39: repair automation ownership after Agent-run consolidation", () => {
+  let tmpDir, agentsDir, userDir;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    agentsDir = path.join(tmpDir, "agents");
+    userDir = path.join(tmpDir, "user");
+    fs.mkdirSync(agentsDir, { recursive: true });
+  });
+
+  afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  function writeStudioCronJobs(studioId, jobs) {
+    const deskDir = path.join(tmpDir, "studios", studioId, "desk");
+    fs.mkdirSync(deskDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deskDir, "cron-jobs.json"),
+      JSON.stringify({ jobs, nextNum: jobs.length + 1 }, null, 2) + "\n",
+      "utf-8",
+    );
+  }
+
+  function writeAgentCronJobs(agentId, jobs) {
+    const deskDir = path.join(agentsDir, agentId, "desk");
+    fs.mkdirSync(deskDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deskDir, "cron-jobs.json"),
+      JSON.stringify({ jobs, nextNum: jobs.length + 1 }, null, 2) + "\n",
+      "utf-8",
+    );
+  }
+
+  function readStudioCronJobs(studioId) {
+    return JSON.parse(fs.readFileSync(
+      path.join(tmpDir, "studios", studioId, "desk", "cron-jobs.json"),
+      "utf-8",
+    )).jobs;
+  }
+
+  function readAgentCronJobs(agentId) {
+    return JSON.parse(fs.readFileSync(
+      path.join(agentsDir, agentId, "desk", "cron-jobs.json"),
+      "utf-8",
+    )).jobs;
+  }
+
+  function runMigration39() {
+    const prefs = makePrefs(userDir);
+    prefs.savePreferences({ _dataVersion: 38 });
+    runMigrations({
+      hanakoHome: tmpDir,
+      agentsDir,
+      prefs,
+      providerRegistry: makeRegistryWithModels({}),
+      log: () => {},
+    });
+    return prefs;
+  }
+
+  it("disables studio automations whose target Agent cannot be inferred", () => {
+    writeStudioCronJobs("default", [{
+      schemaVersion: 3,
+      id: "studio_job_orphan",
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "orphan prompt",
+      label: "Orphan",
+      enabled: true,
+      executor: {
+        kind: "agent_session",
+        agentId: null,
+        prompt: "orphan prompt",
+        model: "",
+        executionContext: null,
+      },
+      createdBy: { kind: "unknown" },
+    }]);
+
+    const prefs = runMigration39();
+
+    const [job] = readStudioCronJobs("default");
+    expect(job.enabled).toBe(false);
+    expect(job.migrationWarning).toEqual({
+      code: "missing_automation_owner",
+      message: "需要选择执行助手后再启用",
+    });
+    expect(job.executor).toMatchObject({
+      kind: "agent_session",
+      agentId: null,
+      prompt: "orphan prompt",
+    });
+    expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);
+  });
+
+  it("repairs studio automations when a legacyRef still identifies the source Agent", () => {
+    writeStudioCronJobs("default", [{
+      schemaVersion: 3,
+      id: "studio_job_legacy",
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "legacy prompt",
+      label: "Legacy",
+      enabled: true,
+      legacyRef: { agentId: "hana", jobId: "job_1" },
+    }]);
+
+    runMigration39();
+
+    const [job] = readStudioCronJobs("default");
+    expect(job.enabled).toBe(true);
+    expect(job.actorAgentId).toBe("hana");
+    expect(job.executionContext).toEqual({
+      kind: "legacy_agent_home",
+      cwd: null,
+      workspaceFolders: [],
+      sourceSessionPath: null,
+      createdByAgentId: "hana",
+    });
+    expect(job.executor).toMatchObject({
+      kind: "agent_session",
+      agentId: "hana",
+      prompt: "legacy prompt",
+      executionContext: {
+        kind: "legacy_agent_home",
+        cwd: null,
+        workspaceFolders: [],
+        sourceSessionPath: null,
+        createdByAgentId: "hana",
+      },
+    });
+    expect(job.migrationWarning).toBeUndefined();
+  });
+
+  it("repairs per-agent legacy stores from the owning directory name", () => {
+    writeAgentCronJobs("hana", [{
+      schemaVersion: 3,
+      id: "job_1",
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "agent prompt",
+      label: "Agent legacy",
+      enabled: true,
+    }]);
+
+    runMigration39();
+
+    const [job] = readAgentCronJobs("hana");
+    expect(job.enabled).toBe(true);
+    expect(job.actorAgentId).toBe("hana");
+    expect(job.executionContext).toEqual({
+      kind: "legacy_agent_home",
+      cwd: null,
+      workspaceFolders: [],
+      sourceSessionPath: null,
+      createdByAgentId: "hana",
+    });
+    expect(job.executor).toMatchObject({
+      kind: "agent_session",
+      agentId: "hana",
+      prompt: "agent prompt",
+    });
+  });
+
+  it("rewrites plugin-action jobs into background Agent runs", () => {
+    const executionContext = {
+      kind: "session_workspace",
+      cwd: "/workspace",
+      workspaceFolders: [],
+      sourceSessionPath: "/sessions/source.jsonl",
+      createdByAgentId: "hana",
+    };
+    writeStudioCronJobs("default", [{
+      schemaVersion: 3,
+      id: "studio_job_plugin",
+      type: "cron",
+      schedule: "0 18 * * *",
+      prompt: "",
+      label: "Daily Note",
+      enabled: true,
+      actorAgentId: "hana",
+      executionContext,
+      executor: {
+        kind: "plugin_action",
+        pluginId: "notes",
+        actionId: "create_note",
+        params: { title: "Today" },
+      },
+      createdBy: { kind: "agent", agentId: "hana" },
+    }]);
+
+    runMigration39();
+
+    const [job] = readStudioCronJobs("default");
+    expect(job.prompt).toContain("notes/create_note");
+    expect(job.executor).toEqual({
+      kind: "agent_session",
+      agentId: "hana",
+      prompt: job.prompt,
+      model: "",
+      executionContext,
+      migratedFrom: {
+        kind: "plugin_action",
+        pluginId: "notes",
+        actionId: "create_note",
+      },
+    });
   });
 });
 
@@ -443,8 +735,8 @@ describe("migration #12: backfill legacy session files into sidecars", () => {
         status: "available",
       }),
     ]);
-    expect(files[0].filePath).toContain(path.join(tmpDir, "session-files"));
-    expect(fs.existsSync(files[0].filePath)).toBe(true);
+    expect((files[0] as any).filePath).toContain(path.join(tmpDir, "session-files"));
+    expect(fs.existsSync((files[0] as any).filePath)).toBe(true);
   });
 });
 
@@ -1732,7 +2024,7 @@ describe("migration #20: Pi model input schema compatibility", () => {
     });
 
     const { AuthStorage, createModelRegistry } = await import("../lib/pi-sdk/index.ts");
-    const registry = createModelRegistry(new AuthStorage(tmpDir), modelsJsonPath);
+    const registry = createModelRegistry(new (AuthStorage as any)(tmpDir), modelsJsonPath);
     const available = await registry.getAvailable();
     expect(available.map((model) => model.id)).toEqual(["qwen3-vl-plus", "qwen-plus", "custom-video"]);
     expect(prefs.getPreferences()._dataVersion).toBe(LATEST_DATA_VERSION);

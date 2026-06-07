@@ -13,6 +13,47 @@ import path from "path";
 import { atomicWriteSync } from "../../shared/safe-fs.ts";
 
 const MAX_ENTRIES = 100;
+export const DEFAULT_ACTIVITY_EXECUTION_TIMEOUT_MS = 20 * 60 * 1000;
+
+function normalizeNow(value: any) {
+  return typeof value === "number" && Number.isFinite(value) ? value : Date.now();
+}
+
+function normalizeTimeoutMs(value: any) {
+  if (value === undefined || value === null) return DEFAULT_ACTIVITY_EXECUTION_TIMEOUT_MS;
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("executionTimeoutMs must be a positive finite number");
+  }
+  return value;
+}
+
+function formatTimeoutMs(ms: number) {
+  if (ms % 60_000 === 0) return `${ms / 60_000} 分钟`;
+  if (ms % 1000 === 0) return `${ms / 1000} 秒`;
+  return `${ms}ms`;
+}
+
+function activityLabel(entry: any) {
+  return entry?.label || entry?.summary || "后台任务";
+}
+
+function interruptedPatch(entry: any, now: number) {
+  return {
+    status: "error",
+    finishedAt: now,
+    error: "interrupted",
+    summary: `${activityLabel(entry)} 已中断：应用已关闭或重启`,
+  };
+}
+
+export function activityTimeoutPatch(entry: any, now: number, timeoutMs = DEFAULT_ACTIVITY_EXECUTION_TIMEOUT_MS) {
+  return {
+    status: "error",
+    finishedAt: now,
+    error: "timeout",
+    summary: `${activityLabel(entry)} 已超时（超过 ${formatTimeoutMs(timeoutMs)}）`,
+  };
+}
 
 export class ActivityStore {
   declare _filePath: string;
@@ -23,11 +64,17 @@ export class ActivityStore {
    * @param {string} filePath - activities.json 路径
    * @param {string} activityDir - session 文件所在目录
    */
-  constructor(filePath: string, activityDir: string) {
+  declare _executionTimeoutMs: number;
+
+  constructor(filePath: string, activityDir: string, opts: any = {}) {
     this._filePath = filePath;
     this._activityDir = activityDir;
+    this._executionTimeoutMs = normalizeTimeoutMs(opts.executionTimeoutMs);
     this._entries = [];
     this._load();
+    if (opts.finalizeOrphanedRunning !== false) {
+      this.finalizeRunningAsInterrupted({ now: opts.now });
+    }
   }
 
   /** @private */
@@ -78,6 +125,33 @@ export class ActivityStore {
     Object.assign(entry, safePartial);
     this._save();
     return entry;
+  }
+
+  finalizeRunningAsInterrupted({ now }: any = {}) {
+    const finishedAt = normalizeNow(now);
+    const changed = [];
+    for (const entry of this._entries) {
+      if (entry?.status !== "running") continue;
+      Object.assign(entry, interruptedPatch(entry, finishedAt));
+      changed.push({ ...entry });
+    }
+    if (changed.length) this._save();
+    return changed;
+  }
+
+  reconcileOverdueRunning({ now, executionTimeoutMs }: any = {}) {
+    const finishedAt = normalizeNow(now);
+    const timeoutMs = normalizeTimeoutMs(executionTimeoutMs ?? this._executionTimeoutMs);
+    const changed = [];
+    for (const entry of this._entries) {
+      if (entry?.status !== "running") continue;
+      if (typeof entry.startedAt !== "number" || !Number.isFinite(entry.startedAt)) continue;
+      if (finishedAt - entry.startedAt < timeoutMs) continue;
+      Object.assign(entry, activityTimeoutPatch(entry, finishedAt, timeoutMs));
+      changed.push({ ...entry });
+    }
+    if (changed.length) this._save();
+    return changed;
   }
 
   /** 按 ID 移除（升格后清理用） */

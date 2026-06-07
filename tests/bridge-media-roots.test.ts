@@ -50,7 +50,7 @@ describe("Bridge media allowed roots", () => {
   });
 
   it("includes the real POSIX /tmp root when it exists", () => {
-    if (!fs.existsSync("/tmp")) return;
+    if (process.platform === "win32" || !fs.existsSync("/tmp")) return;
 
     const hanakoHome = makeDir("hana-home");
     const posixTmpDir = fs.mkdtempSync(path.join("/tmp", "hana-bridge-roots-posix-"));

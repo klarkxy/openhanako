@@ -3,6 +3,10 @@ import { hanaFetch, hanaUrl } from '../api';
 import { t } from '../helpers';
 import { useSettingsStore } from '../store';
 import {
+  DESKTOP_REMOTE_ACCESS_SCOPES,
+  MOBILE_REMOTE_ACCESS_SCOPES,
+} from '../../../../../shared/access-scope-profiles.ts';
+import {
   LOCAL_CONNECTION_ID,
   connectDeviceServerConnection,
   isLocalOwnerConnection,
@@ -62,18 +66,24 @@ interface AccessSummary {
   }>;
 }
 
-const DEFAULT_SCOPES = ['chat', 'resources.read', 'files.read', 'files.write'];
+const MOBILE_ACCESS_SCOPES = [...MOBILE_REMOTE_ACCESS_SCOPES];
+const DESKTOP_ACCESS_SCOPES = [...DESKTOP_REMOTE_ACCESS_SCOPES];
 
 export function AccessTab() {
   const showToast = useSettingsStore(s => s.showToast);
   const activeConnection = useSettingsStore(s => s.activeServerConnection);
   const serverConnections = useSettingsStore(s => s.serverConnections);
+  const snapshotAccess = useSettingsStore(s => s.settingsSnapshot.data?.access as AccessSummary | null | undefined);
   const localConnection = serverConnections[LOCAL_CONNECTION_ID] ?? null;
   const effectiveConnection = activeConnection ?? localConnection;
   const isLocalOwner = isLocalOwnerConnection(effectiveConnection);
-  const [summary, setSummary] = useState<AccessSummary | null>(null);
-  const [mode, setMode] = useState<AccessMode>('loopback');
-  const [port, setPort] = useState('14500');
+  const [summary, setSummary] = useState<AccessSummary | null>(() => snapshotAccess || null);
+  const [mode, setMode] = useState<AccessMode | null>(() => snapshotAccess?.network?.mode || null);
+  const [port, setPort] = useState(() => (
+    Number.isInteger(snapshotAccess?.network?.configuredPort)
+      ? String(snapshotAccess!.network.configuredPort)
+      : ''
+  ));
   const [mobileKey, setMobileKey] = useState('');
   const [desktopKey, setDesktopKey] = useState('');
   const [generatingMobileKey, setGeneratingMobileKey] = useState(false);
@@ -85,6 +95,17 @@ export function AccessTab() {
   const [savingNetwork, setSavingNetwork] = useState(false);
   const [accountDraft, setAccountDraft] = useState({ username: '', displayName: '' });
   const [passwordDraft, setPasswordDraft] = useState('');
+
+  useEffect(() => {
+    if (!snapshotAccess) return;
+    setSummary(snapshotAccess);
+    setMode(snapshotAccess.network.mode);
+    setPort(String(snapshotAccess.network.configuredPort));
+    setAccountDraft({
+      username: snapshotAccess.account.username || '',
+      displayName: snapshotAccess.account.displayName || '',
+    });
+  }, [snapshotAccess]);
 
   const loadSummary = useCallback(async () => {
     if (!isLocalOwner) {
@@ -182,6 +203,7 @@ export function AccessTab() {
   }, [showToast, summary?.network.mode]);
 
   const saveNetwork = useCallback(async () => {
+    if (!mode) return;
     await saveNetworkSettings(mode, port);
   }, [mode, port, saveNetworkSettings]);
 
@@ -200,7 +222,7 @@ export function AccessTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           displayName: 'Mobile PWA',
-          scopes: DEFAULT_SCOPES,
+          scopes: MOBILE_ACCESS_SCOPES,
         }),
       });
       const data = await res.json();
@@ -222,7 +244,7 @@ export function AccessTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           displayName: 'Desktop Frontend',
-          scopes: DEFAULT_SCOPES,
+          scopes: DESKTOP_ACCESS_SCOPES,
         }),
       });
       const data = await res.json();
@@ -406,6 +428,7 @@ export function AccessTab() {
               className={`${styles['settings-input']} ${styles['settings-port-input']}`}
               value={port}
               inputMode="numeric"
+              disabled={loadingSummary || !summary}
               onChange={(event) => setPort(event.target.value)}
             />
           }
@@ -643,6 +666,7 @@ export function AccessTab() {
                 aria-label={t('settings.access.username')}
                 className={styles['settings-input']}
                 value={accountDraft.username}
+                disabled={loadingSummary || !summary}
                 onChange={(event) => setAccountDraft(prev => ({ ...prev, username: event.target.value }))}
               />
             </label>
@@ -658,13 +682,14 @@ export function AccessTab() {
                 aria-label={t('settings.access.displayName')}
                 className={styles['settings-input']}
                 value={accountDraft.displayName}
+                disabled={loadingSummary || !summary}
                 onChange={(event) => setAccountDraft(prev => ({ ...prev, displayName: event.target.value }))}
               />
             </label>
           }
         />
         <SettingsSection.Footer>
-          <button className={styles['settings-btn-primary']} type="button" onClick={saveAccount}>
+          <button className={styles['settings-btn-primary']} type="button" onClick={saveAccount} disabled={loadingSummary || !summary}>
             {t('settings.access.saveAccount')}
           </button>
         </SettingsSection.Footer>

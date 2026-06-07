@@ -7,19 +7,20 @@ import { BridgeAgentRow } from './bridge/BridgeAgentRow';
 import { BridgePermissionModeSelect, type BridgePermissionMode } from './bridge/BridgeWidgets';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
+import { useSettingsStore } from '../store';
 import styles from '../Settings.module.css';
 
 export function BridgeTab() {
   const b = useBridgeState();
+  const snapshotBridge = useSettingsStore(s => s.settingsSnapshot.data?.preferences?.bridge);
   // 注意：不能用 `|| {}` 兜底——空对象会让 Toggle 的 `!!status?.enabled` 显示成"假关"。
   // 传 undefined 让 Toggle 走加载态。
   const tgInfo = b.status?.telegram;
   const fsInfo = b.status?.feishu;
   const qqInfo = b.status?.qq;
   const wxInfo = b.status?.wechat;
-  const permissionMode: BridgePermissionMode = b.status?.permissionMode
-    || (b.status?.readOnly === true ? 'read_only' : 'auto');
-  const globalSettingsPending = !b.status || b.globalSettingsSaving;
+  const permissionMode = (b.status?.permissionMode || snapshotBridge?.permissionMode) as BridgePermissionMode | undefined;
+  const globalSettingsPending = !permissionMode || b.globalSettingsSaving;
 
   return (
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="bridge">

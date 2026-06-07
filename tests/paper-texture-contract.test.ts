@@ -29,14 +29,14 @@ const SETTINGS_MODAL_CSS = 'desktop/src/react/components/SettingsModalShell.modu
 
 describe('paper texture contract', () => {
   it.each(STYLE_FILES)('%s opts into texture with body.paper-texture', (rel) => {
-    const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const content = fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
     expect(content).toContain('body.paper-texture');
     expect(content).not.toContain('body:not(.no-paper-texture)');
   });
 
   it('turns off card texture brightness compensation in both dark themes', () => {
-    const styles = fs.readFileSync(path.join(ROOT, 'desktop/src/styles.css'), 'utf8');
+    const styles = fs.readFileSync(path.join(ROOT, 'desktop/src/styles.css'), 'utf8').replace(/\r\n/g, '\n');
 
     expect(styles).toContain('--paper-texture-card-blend-mode: lighten;');
     expect(styles).toContain('html[data-theme="midnight"],\nhtml[data-theme="midnight-contrast"]');
@@ -44,27 +44,27 @@ describe('paper texture contract', () => {
   });
 
   it.each(CARD_TEXTURE_FILES)('%s uses the shared card blend token', (rel) => {
-    const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const content = fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
     expect(content).toContain('background-blend-mode: var(--paper-texture-card-blend-mode);');
   });
 
   it.each(SETTINGS_TEXTURE_FILES)('%s keeps settings paper textures scroll-bound', (rel) => {
-    const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const content = fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
     expect(content).not.toMatch(/background-attachment:\s*fixed\b/);
   });
 
   it('lets the settings window override shared select texture attachment', () => {
-    const settingsHtml = fs.readFileSync(path.join(ROOT, 'desktop/src/settings.html'), 'utf8');
-    const selectCss = fs.readFileSync(path.join(ROOT, 'desktop/src/react/ui/SelectWidget.module.css'), 'utf8');
+    const settingsHtml = fs.readFileSync(path.join(ROOT, 'desktop/src/settings.html'), 'utf8').replace(/\r\n/g, '\n');
+    const selectCss = fs.readFileSync(path.join(ROOT, 'desktop/src/react/ui/SelectWidget.module.css'), 'utf8').replace(/\r\n/g, '\n');
 
     expect(settingsHtml).toContain('--paper-texture-attachment: scroll;');
     expect(selectCss).toContain('background-attachment: var(--paper-texture-attachment, fixed);');
   });
 
   it('keeps the settings modal backdrop out of the animated path on Windows', () => {
-    const content = fs.readFileSync(path.join(ROOT, SETTINGS_MODAL_CSS), 'utf8');
+    const content = fs.readFileSync(path.join(ROOT, SETTINGS_MODAL_CSS), 'utf8').replace(/\r\n/g, '\n');
 
     expect(content).not.toMatch(/transition:[^;]*(?:-webkit-)?backdrop-filter/s);
     expect(content).toContain(':global(html[data-platform="win32"]) .overlay.open');

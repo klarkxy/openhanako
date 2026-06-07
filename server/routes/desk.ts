@@ -7,7 +7,9 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
+import crypto from "crypto";
 import { execFileSync } from "child_process";
 import { Hono } from "hono";
 import { safeJson } from "../hono-helpers.ts";
@@ -19,12 +21,17 @@ import { applyMarkdownCoverFromGeneratedFile } from "../../plugins/beautify/lib/
 import { resolveCoverGalleryPresetImagePath } from "../../plugins/beautify/lib/cover-gallery-assets.ts";
 import { buildCoverStyleGuideForAgent } from "../../plugins/beautify/lib/cover-style-guide.ts";
 import { createSubmitContext, validateImageModelRef } from "../../plugins/image-gen/lib/image-task-runner.ts";
+import { DEFAULT_ACTIVITY_EXECUTION_TIMEOUT_MS, activityTimeoutPatch } from "../../lib/desk/activity-store.ts";
 import { emitAppEvent } from "../app-events.ts";
 import { t } from "../../lib/i18n.ts";
 import { realPath, isSensitivePath } from "../utils/path-security.ts";
 import { readAuthPrincipal } from "../http/capability-guard.ts";
+import { jsonRouteError } from "../http/route-errors.ts";
 import { isLocalOwnerPrincipal } from "../http/route-security.ts";
+import { createRequestContext } from "../http/boundary.ts";
 import { createModuleLogger } from "../../lib/debug-log.ts";
+import { MountAwareFileError, MountAwareFileService } from "../../core/mount-aware-file-service.ts";
+import { materializeUploadedSkillPackage } from "../utils/uploaded-skill-package.ts";
 
 const log = createModuleLogger("desk");
 
@@ -92,6 +99,14 @@ function isPlainEntryName(value) {
     && !value.includes("\\");
 }
 
+function normalizeMountId(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function deskRouteError(c, code, message, status) {
+  return jsonRouteError(c, { code, message, status });
+}
+
 function getStudioCronStore(engine) {
   return engine.getStudioCronStore?.() || null;
 }
@@ -130,22 +145,6 @@ function normalizeRouteExecutor(value) {
 function validateRouteExecutor(executor) {
   if (!executor) return null;
   if (executor.kind === "agent_session") return null;
-  if (executor.kind === "direct_action") {
-    if (executor.action === "notify") return null;
-    return `unsupported direct automation action: ${executor.action || ""}`;
-  }
-  if (executor.kind === "plugin_action") {
-    if (typeof executor.pluginId !== "string" || !executor.pluginId.trim()) {
-      return "plugin_action.pluginId required";
-    }
-    if (typeof executor.actionId !== "string" || !executor.actionId.trim()) {
-      return "plugin_action.actionId required";
-    }
-    if (executor.params !== undefined && (!executor.params || typeof executor.params !== "object" || Array.isArray(executor.params))) {
-      return "plugin_action.params must be an object";
-    }
-    return null;
-  }
   return `unsupported automation executor: ${executor.kind}`;
 }
 
@@ -195,6 +194,7 @@ const WORKSPACE_SEARCH_SKIP_DIRS = new Set([
 ]);
 const WORKSPACE_SEARCH_LIMIT = 80;
 const BEAUTIFY_OPTIONAL_TOOL_NAME = "beautify";
+const MAX_COVER_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 function toRelativeSubdir(root, target) {
   const rel = path.relative(root, target);
@@ -273,6 +273,10 @@ export function createDeskRoute(engine, hub) {
 
   function emitActivityUpdate(activity, sessionPath = null) {
     hub?.eventBus?.emit?.({ type: "activity_update", activity }, sessionPath);
+  }
+
+  function emitActivityUpdates(activities) {
+    for (const activity of activities || []) emitActivityUpdate(activity);
   }
 
   function buildBeautifyCoverPrompt({ filePath, themeTone, userGuidance }) {
@@ -461,6 +465,161 @@ export function createDeskRoute(engine, hub) {
     return {};
   }
 
+  function canUseLocalAbsolutePaths(c) {
+    const principal = readAuthPrincipal(c);
+    return !principal || principal.kind === "unknown" || isLocalOwnerPrincipal(principal);
+  }
+
+  function fileServiceForRequest(c) {
+    const requestContext = createRequestContext(c, engine);
+    return new MountAwareFileService({
+      hanakoHome: engine.hanakoHome,
+      defaultRoot: defaultDeskDir(engine),
+      studioId: requestContext?.studioId || engine.getRuntimeContext?.()?.studioId || null,
+      createCheckpoint: typeof engine.createUserEditCheckpoint === "function"
+        ? (args) => engine.createUserEditCheckpoint(args)
+        : null,
+    });
+  }
+
+  function resolveWorkspaceRootFromRequest(c, body = null) {
+    const mountId = normalizeMountId(body?.mountId || body?.rootId || c.req.query("mountId") || c.req.query("rootId"));
+    if (mountId) {
+      const files = fileServiceForRequest(c);
+      const root = files.resolveRoot(mountId);
+      return {
+        dir: files.resolveDirectory(mountId, ""),
+        mountId: root.mountId || root.id || mountId,
+        mount: root,
+      };
+    }
+    const dir = body?.dir || (c.req.query("dir") ? decodeURIComponent(c.req.query("dir")) : defaultDeskDir(engine));
+    return { dir, mountId: null, mount: null };
+  }
+
+  function normalizeWorkbenchCoverTarget(body) {
+    const raw = body?.target || body?.remoteContentRef || null;
+    if (!raw) return null;
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      throw coverRouteError("target must be a workbench file target", "invalid_target", 400);
+    }
+    if (raw.kind !== "workbench-file" && raw.kind !== "mobile-workbench") {
+      throw coverRouteError("target.kind must be workbench-file", "invalid_target", 400);
+    }
+    const mountId = typeof raw.mountId === "string" && raw.mountId.trim()
+      ? raw.mountId.trim()
+      : (typeof raw.rootId === "string" && raw.rootId.trim() ? raw.rootId.trim() : "default");
+    return {
+      kind: "workbench-file",
+      mountId,
+      rootId: typeof raw.rootId === "string" && raw.rootId.trim() ? raw.rootId.trim() : mountId,
+      subdir: typeof raw.subdir === "string" ? raw.subdir : "",
+      name: typeof raw.name === "string" ? raw.name : "",
+    };
+  }
+
+  function resolveBeautifyMarkdownTarget(c, body) {
+    try {
+      const target = normalizeWorkbenchCoverTarget(body);
+      if (target) {
+        const resolved = fileServiceForRequest(c).writeFileTarget(target.mountId, target.subdir, target.name);
+        const fileError = validateBeautifyMarkdownFilePath(resolved.target);
+        if (fileError) return { error: fileError, status: 400 };
+        return {
+          filePath: resolved.target,
+          target: {
+            kind: "workbench-file",
+            mountId: resolved.root?.mountId || resolved.root?.id || target.mountId,
+            rootId: resolved.root?.id || target.rootId,
+            subdir: target.subdir,
+            name: resolved.filename,
+          },
+        };
+      }
+
+      const filePath = typeof body?.filePath === "string" ? body.filePath : "";
+      if (!canUseLocalAbsolutePaths(c)) {
+        return { error: "filePath requires local owner; use target for remote clients", status: 403 };
+      }
+      const fileError = validateBeautifyMarkdownFilePath(filePath);
+      if (fileError) return { error: fileError, status: 400 };
+      return { filePath, target: null };
+    } catch (err) {
+      if (err instanceof MountAwareFileError) {
+        return { error: err.message, status: err.status };
+      }
+      return { error: err?.message || String(err), status: err?.status || 400 };
+    }
+  }
+
+  function resolveLocalCoverImagePath(c, body) {
+    const imageFilePath = typeof body?.imageFilePath === "string"
+      ? body.imageFilePath
+      : typeof body?.generatedFilePath === "string" ? body.generatedFilePath : "";
+    if (!imageFilePath) return null;
+    if (!canUseLocalAbsolutePaths(c)) {
+      return { error: "imageFilePath requires local owner; upload image.contentBase64 for remote clients", status: 403 };
+    }
+    if (!path.isAbsolute(imageFilePath)) {
+      return { error: "imageFilePath must be an absolute image file path", status: 400 };
+    }
+    return { filePath: imageFilePath, cleanup: null };
+  }
+
+  function writeUploadedCoverImage(body) {
+    const image = body?.image && typeof body.image === "object" && !Array.isArray(body.image)
+      ? body.image
+      : null;
+    const contentBase64 = typeof image?.contentBase64 === "string" ? image.contentBase64 : "";
+    if (!contentBase64) return null;
+
+    const base64 = contentBase64.includes(",") ? contentBase64.split(",").pop() : contentBase64;
+    const buffer = Buffer.from(String(base64 || ""), "base64");
+    if (buffer.byteLength === 0) {
+      return { error: "image.contentBase64 is empty", status: 400 };
+    }
+    if (buffer.byteLength > MAX_COVER_UPLOAD_BYTES) {
+      return { error: "image file too large", status: 413 };
+    }
+
+    const filename = typeof image.filename === "string" && image.filename.trim()
+      ? image.filename.trim()
+      : typeof image.name === "string" && image.name.trim() ? image.name.trim() : "cover.png";
+    const ext = path.extname(filename).toLowerCase() || ".png";
+    const uploadRoot = path.join(engine.hanakoHome || os.tmpdir(), "tmp", "markdown-cover-uploads");
+    fs.mkdirSync(uploadRoot, { recursive: true });
+    const tempDir = fs.mkdtempSync(path.join(uploadRoot, "cover-"));
+    const filePath = path.join(tempDir, `upload-${crypto.randomBytes(4).toString("hex")}${ext}`);
+    fs.writeFileSync(filePath, buffer);
+    return {
+      filePath,
+      cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true }),
+    };
+  }
+
+  function coverImageFromRequest(c, body) {
+    const local = resolveLocalCoverImagePath(c, body);
+    if (local) return local;
+    const uploaded = writeUploadedCoverImage(body);
+    if (uploaded) return uploaded;
+    return { error: "imageFilePath or image.contentBase64 is required", status: 400 };
+  }
+
+  function coverRouteError(message, code, status) {
+    const err: any = new Error(message);
+    err.code = code;
+    err.status = status;
+    return err;
+  }
+
+  function emitMarkdownCoverUpdated(targetInfo) {
+    if (targetInfo.target) {
+      emitAppEvent(engine, "markdown-cover-updated", { target: targetInfo.target });
+    } else {
+      emitAppEvent(engine, "markdown-cover-updated", { filePath: targetInfo.filePath });
+    }
+  }
+
   async function validateBeautifyGenerationAccess(body) {
     const status = await getBeautifyGenerationStatus(body?.executorAgentId || body?.agentId);
     if (!status.executorAgentId) return { error: "agent unavailable", status: 500, reason: "agent-unavailable" };
@@ -496,37 +655,38 @@ export function createDeskRoute(engine, hub) {
 
   route.post("/desk/beautify/cover/apply", async (c) => {
     const body = await safeJson(c);
-    const filePath = typeof body?.filePath === "string" ? body.filePath : "";
-    const fileError = validateBeautifyMarkdownFilePath(filePath);
-    if (fileError) return c.json({ error: fileError }, 400);
+    const targetInfo = resolveBeautifyMarkdownTarget(c, body);
+    if (targetInfo.error) return c.json({ error: targetInfo.error }, targetInfo.status as any);
 
     const access = validateMarkdownCoverSystemAccess();
     if (access.error) return c.json({ error: access.error }, access.status as any);
 
-    const imageFilePath = typeof body?.imageFilePath === "string"
-      ? body.imageFilePath
-      : typeof body?.generatedFilePath === "string" ? body.generatedFilePath : "";
-    if (!imageFilePath || !path.isAbsolute(imageFilePath)) {
-      return c.json({ error: "imageFilePath must be an absolute image file path" }, 400);
-    }
+    const image = coverImageFromRequest(c, body);
+    if (image.error) return c.json({ error: image.error }, image.status as any);
 
     try {
       const result = await (applyMarkdownCoverFromGeneratedFile as any)({
-        markdownFilePath: filePath,
-        generatedFilePath: imageFilePath,
+        markdownFilePath: targetInfo.filePath,
+        generatedFilePath: image.filePath,
       });
-      emitAppEvent(engine, "markdown-cover-updated", { filePath });
-      return c.json({ ok: true, cover: result.cover, beautifyCover: result });
+      emitMarkdownCoverUpdated(targetInfo);
+      return c.json({
+        ok: true,
+        ...(targetInfo.target ? { target: targetInfo.target } : {}),
+        cover: result.cover,
+        beautifyCover: result,
+      });
     } catch (err) {
       return c.json({ error: err?.message || String(err) }, 400);
+    } finally {
+      image.cleanup?.();
     }
   });
 
   route.post("/desk/beautify/cover/preset/apply", async (c) => {
     const body = await safeJson(c);
-    const filePath = typeof body?.filePath === "string" ? body.filePath : "";
-    const fileError = validateBeautifyMarkdownFilePath(filePath);
-    if (fileError) return c.json({ error: fileError }, 400);
+    const targetInfo = resolveBeautifyMarkdownTarget(c, body);
+    if (targetInfo.error) return c.json({ error: targetInfo.error }, targetInfo.status as any);
 
     const access = validateMarkdownCoverSystemAccess();
     if (access.error) return c.json({ error: access.error }, access.status as any);
@@ -541,11 +701,16 @@ export function createDeskRoute(engine, hub) {
 
     try {
       const result = await (applyMarkdownCoverFromGeneratedFile as any)({
-        markdownFilePath: filePath,
+        markdownFilePath: targetInfo.filePath,
         generatedFilePath: imageFilePath,
       });
-      emitAppEvent(engine, "markdown-cover-updated", { filePath });
-      return c.json({ ok: true, cover: result.cover, beautifyCover: result });
+      emitMarkdownCoverUpdated(targetInfo);
+      return c.json({
+        ok: true,
+        ...(targetInfo.target ? { target: targetInfo.target } : {}),
+        cover: result.cover,
+        beautifyCover: result,
+      });
     } catch (err) {
       return c.json({ error: err?.message || String(err) }, 400);
     }
@@ -553,9 +718,9 @@ export function createDeskRoute(engine, hub) {
 
   route.post("/desk/beautify/cover", async (c) => {
     const body = await safeJson(c);
-    const filePath = typeof body?.filePath === "string" ? body.filePath : "";
-    const fileError = validateBeautifyMarkdownFilePath(filePath);
-    if (fileError) return c.json({ error: fileError }, 400);
+    const targetInfo = resolveBeautifyMarkdownTarget(c, body);
+    if (targetInfo.error) return c.json({ error: targetInfo.error }, targetInfo.status as any);
+    const filePath = targetInfo.filePath;
 
     const access = await validateBeautifyGenerationAccess(body);
     if (access.error) {
@@ -587,35 +752,53 @@ export function createDeskRoute(engine, hub) {
 
     const themeTone = body?.themeTone === "dark" ? "dark" : "light";
     const userGuidance = typeof body?.userGuidance === "string" ? body.userGuidance.trim() : "";
+    const abortController = new AbortController();
+    let finalized = false;
+    let timeoutTimer;
+    const finishActivity = (patch, sessionPath = null) => {
+      if (finalized) return null;
+      finalized = true;
+      clearTimeout(timeoutTimer);
+      const updated = store.update(activityId, patch);
+      if (updated) emitActivityUpdate(updated, sessionPath);
+      return updated;
+    };
+    timeoutTimer = setTimeout(() => {
+      abortController.abort();
+      finishActivity(activityTimeoutPatch(activity, Date.now(), DEFAULT_ACTIVITY_EXECUTION_TIMEOUT_MS));
+    }, DEFAULT_ACTIVITY_EXECUTION_TIMEOUT_MS);
+    timeoutTimer.unref?.();
+
     void engine.executeIsolated(buildBeautifyCoverPrompt({ filePath, themeTone, userGuidance }), {
       agentId,
       cwd: path.dirname(filePath),
       persist: activityDir,
       activityType: "beautify",
       toolFilter: "*",
+      signal: abortController.signal,
       onSessionReady: (sessionPath) => {
-        if (!sessionPath) return;
+        if (!sessionPath || finalized) return;
         const updated = store.update(activityId, { sessionFile: path.basename(sessionPath) });
         if (updated) emitActivityUpdate(updated, sessionPath);
       },
     }).then((result) => {
       const error = result?.error || (Array.isArray(result?.toolErrors) && result.toolErrors.length ? result.toolErrors.join("; ") : null);
-      const updated = store.update(activityId, {
+      finishActivity({
         status: error ? "error" : "done",
         finishedAt: Date.now(),
         summary: error
           ? `Cover 生成失败：${error}`
           : `已应用 ${path.basename(filePath)} 的 cover`,
+        ...(error ? { error } : {}),
         ...(result?.sessionPath ? { sessionFile: path.basename(result.sessionPath) } : {}),
-      });
-      if (updated) emitActivityUpdate(updated, result?.sessionPath || null);
+      }, result?.sessionPath || null);
     }).catch((err) => {
-      const updated = store.update(activityId, {
+      finishActivity({
         status: "error",
         finishedAt: Date.now(),
+        error: err?.message || String(err),
         summary: `Cover 生成失败：${err?.message || err}`,
       });
-      if (updated) emitActivityUpdate(updated);
     });
 
     return c.json({ ok: true, activity });
@@ -624,8 +807,10 @@ export function createDeskRoute(engine, hub) {
   /** 活动列表（合并所有 agent） */
   route.get("/desk/activities", async (c) => {
     const allActivities = [];
+    const now = Date.now();
     for (const ag of engine.listAgents()) {
       const store = engine.getActivityStore(ag.id);
+      emitActivityUpdates(store?.reconcileOverdueRunning?.({ now }));
       const items = store?.list() || [];
       for (const a of items) {
         allActivities.push({
@@ -645,12 +830,12 @@ export function createDeskRoute(engine, hub) {
     const id = c.req.param("id");
     // 从所有 agent 的 activityStore 中查找
     const { entry, agentId: foundAgentId } = findActivityEntry(id);
-    if (!entry) return c.json({ error: "activity not found" });
-    if (!entry.sessionFile) return c.json({ error: "no session file" });
+    if (!entry) return deskRouteError(c, "activity_not_found", "activity not found", 404);
+    if (!entry.sessionFile) return deskRouteError(c, "activity_session_unavailable", "no session file", 404);
 
     const activityDir = path.join(engine.agentsDir, foundAgentId, "activity");
     const sessionPath = path.join(activityDir, entry.sessionFile);
-    if (!fs.existsSync(sessionPath)) return c.json({ error: "session file missing" });
+    if (!fs.existsSync(sessionPath)) return deskRouteError(c, "activity_session_missing", "session file missing", 404);
 
     try {
       const raw = fs.readFileSync(sessionPath, "utf-8");
@@ -731,7 +916,7 @@ export function createDeskRoute(engine, hub) {
     const agentId = c.req.query("agentId");
     if (!agentId) return c.json({ error: "agentId is required" }, 400);
     const hb = hub?.scheduler?.getHeartbeat(agentId);
-    if (!hb) return c.json({ error: "Heartbeat not initialized" });
+    if (!hb) return deskRouteError(c, "heartbeat_unavailable", "Heartbeat not initialized", 503);
     hb.triggerNow();
     return c.json({ ok: true, message: t("error.heartbeatTriggered") });
   });
@@ -750,7 +935,7 @@ export function createDeskRoute(engine, hub) {
   /** 操作 cron 任务 */
   route.post("/desk/cron", async (c) => {
     const store = getStudioCronStore(engine);
-    if (!store) return c.json({ error: "Desk not initialized" });
+    if (!store) return deskRouteError(c, "cron_store_unavailable", "Desk not initialized", 503);
 
     const body = await safeJson(c);
     const { action, ...params } = body;
@@ -761,7 +946,8 @@ export function createDeskRoute(engine, hub) {
         const executor = normalizeRouteExecutor(params.executor);
         const executorError = validateRouteExecutor(executor);
         if (executorError) return c.json({ error: executorError }, 400);
-        const requiresPrompt = !executor || executor.kind === "agent_session";
+        const enabled = params.enabled !== false;
+        const requiresPrompt = enabled && (!executor || executor.kind === "agent_session");
         if (!type || !params.schedule || (requiresPrompt && !params.prompt)) {
           return c.json({ error: "scheduleType, schedule, prompt required" }, 400);
         }
@@ -796,6 +982,7 @@ export function createDeskRoute(engine, hub) {
           executionContext,
           executor,
           createdBy: normalizeRouteCreatedBy(params.createdBy),
+          enabled,
         });
         return c.json({ ok: true, job, jobs: store.listJobs() });
       }
@@ -809,7 +996,13 @@ export function createDeskRoute(engine, hub) {
 
       case "toggle": {
         if (!params.id) return c.json({ error: "id required" });
-        const job = store.toggleJob(params.id);
+        let job;
+        try {
+          job = store.toggleJob(params.id);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return c.json({ error: message }, 400);
+        }
         if (!job) return c.json({ error: "not found" });
         return c.json({ ok: true, job, jobs: store.listJobs() });
       }
@@ -817,22 +1010,63 @@ export function createDeskRoute(engine, hub) {
       case "update": {
         if (!params.id) return c.json({ error: "id required" });
         const { id, ...fields } = params;
-        if (fields.schedule !== undefined) {
-          const existingJob = store.getJob(id);
-          if (existingJob?.type === "every") {
-            const minutes = parseInt(fields.schedule, 10);
-            if (!isNaN(minutes) && minutes > 0) {
-              fields.schedule = minutes * 60_000;
-            }
+        const existingJob = store.getJob(id);
+        if (!existingJob) return c.json({ error: "not found" });
+        if (Object.prototype.hasOwnProperty.call(fields, "executor")) {
+          fields.executor = normalizeRouteExecutor(fields.executor);
+          const executorError = validateRouteExecutor(fields.executor);
+          if (executorError) return c.json({ error: executorError }, 400);
+        }
+        if (Object.prototype.hasOwnProperty.call(fields, "actorAgentId")) {
+          fields.actorAgentId = typeof fields.actorAgentId === "string" && fields.actorAgentId.trim()
+            ? fields.actorAgentId.trim()
+            : null;
+          if (!fields.actorAgentId) return c.json({ error: "actorAgentId required" }, 400);
+          if (typeof engine.getAgent === "function" && !engine.getAgent(fields.actorAgentId)) {
+            return c.json({ error: `agent not found: ${fields.actorAgentId}` }, 404);
           }
         }
-        const job = store.updateJob(id, fields);
-        if (!job) return c.json({ error: "not found" });
+        if (Object.prototype.hasOwnProperty.call(fields, "executionContext")) {
+          const actorAgentId = typeof fields.actorAgentId === "string" && fields.actorAgentId.trim()
+            ? fields.actorAgentId.trim()
+            : existingJob.actorAgentId;
+          fields.executionContext = normalizeRouteExecutionContext(fields.executionContext, actorAgentId);
+          if (!fields.executionContext) return c.json({ error: "executionContext required" }, 400);
+        }
+        const VALID_TYPES = new Set(["at", "every", "cron"]);
+        if (fields.type !== undefined && !VALID_TYPES.has(fields.type)) {
+          return c.json({ error: `Invalid scheduleType: ${fields.type}. Must be at/every/cron.` }, 400);
+        }
+        if (fields.type !== undefined && fields.type !== existingJob.type && fields.schedule === undefined) {
+          return c.json({ error: "schedule required when changing scheduleType" }, 400);
+        }
+        const nextType = fields.type || existingJob.type;
+        if (fields.schedule !== undefined && nextType === "every") {
+          if (typeof fields.schedule === "number") {
+            if (!Number.isFinite(fields.schedule) || fields.schedule <= 0) {
+              return c.json({ error: "every schedule must be a positive number" }, 400);
+            }
+            fields.schedule = fields.schedule < 60_000 ? fields.schedule * 60_000 : fields.schedule;
+          } else {
+            const minutes = parseInt(fields.schedule, 10);
+            if (isNaN(minutes) || minutes <= 0) {
+              return c.json({ error: "every schedule must be a positive number (minutes)" }, 400);
+            }
+            fields.schedule = minutes * 60_000;
+          }
+        }
+        let job;
+        try {
+          job = store.updateJob(id, fields);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return c.json({ error: message }, 400);
+        }
         return c.json({ ok: true, job, jobs: store.listJobs() });
       }
 
       default:
-        return c.json({ error: `unknown action: ${action}` });
+        return deskRouteError(c, "unknown_cron_action", `unknown action: ${action}`, 400);
     }
   });
 
@@ -842,36 +1076,43 @@ export function createDeskRoute(engine, hub) {
 
   /** 扫描工作台下的项目级技能 */
   route.get("/desk/skills", async (c) => {
-    const agentId = c.req.query("agentId") || null;
-    const dir = c.req.query("dir") ? decodeURIComponent(c.req.query("dir")) : defaultDeskDir(engine);
-    if (!dir) return c.json({ skills: [] });
-    if (c.req.query("dir") && !isApprovedDir(dir, engine, { agentId })) return c.json({ skills: [] });
+    try {
+      const agentId = c.req.query("agentId") || null;
+      const workspace = resolveWorkspaceRootFromRequest(c);
+      const dir = workspace.dir;
+      if (!dir) return c.json({ skills: [] });
+      if (!workspace.mountId && c.req.query("dir") && !isApprovedDir(dir, engine, { agentId })) return c.json({ skills: [] });
 
-    const results = [];
-    for (const { sub, label } of WORKSPACE_SKILL_DIRS) {
-      const skillsDir = path.join(dir, sub);
-      if (!fs.existsSync(skillsDir)) continue;
-      try {
-        for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-          if (!entry.isDirectory()) continue;
-          const skillFile = path.join(skillsDir, entry.name, "SKILL.md");
-          if (!fs.existsSync(skillFile)) continue;
-          try {
-            const content = fs.readFileSync(skillFile, "utf-8");
-            const meta = parseSkillMetadata(content, entry.name);
-            results.push({
-              name: meta.name,
-              description: meta.description,
-              source: label,
-              dirPath: skillsDir,
-              filePath: skillFile,
-              baseDir: path.join(skillsDir, entry.name),
-            });
-          } catch { /* ignore malformed workspace skill entries */ }
-        }
-      } catch { /* ignore unreadable workspace skill roots */ }
+      const results = [];
+      for (const { sub, label } of WORKSPACE_SKILL_DIRS) {
+        const skillsDir = path.join(dir, sub);
+        if (!fs.existsSync(skillsDir)) continue;
+        try {
+          for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const skillFile = path.join(skillsDir, entry.name, "SKILL.md");
+            if (!fs.existsSync(skillFile)) continue;
+            try {
+              const content = fs.readFileSync(skillFile, "utf-8");
+              const meta = parseSkillMetadata(content, entry.name);
+              results.push({
+                name: meta.name,
+                description: meta.description,
+                source: label,
+                dirPath: skillsDir,
+                filePath: skillFile,
+                baseDir: path.join(skillsDir, entry.name),
+                workspaceMountId: workspace.mountId,
+              });
+            } catch { /* ignore malformed workspace skill entries */ }
+          }
+        } catch { /* ignore unreadable workspace skill roots */ }
+      }
+      return c.json({ skills: results });
+    } catch (err) {
+      if (err instanceof MountAwareFileError) return c.json({ error: err.message, code: err.code }, err.status as any);
+      return c.json({ error: err?.message || String(err) }, err?.status || 500);
     }
-    return c.json({ skills: results });
   });
 
   /**
@@ -881,17 +1122,20 @@ export function createDeskRoute(engine, hub) {
    */
   route.post("/desk/install-skill", async (c) => {
     const body = await safeJson(c);
-    const { filePath, dir } = body;
-    const agentId = body.agentId || null;
-    const cwd = dir || defaultDeskDir(engine);
-    if (!filePath || !cwd) {
-      return c.json({ error: "filePath and active workspace required" }, 400);
-    }
-    if (dir && !isApprovedDir(cwd, engine, { agentId })) {
-      return c.json({ error: "workspace is not approved" }, 403);
-    }
-
+    let uploadedSource = null;
     try {
+      const { filePath, dir } = body;
+      const agentId = body.agentId || null;
+      const workspace = resolveWorkspaceRootFromRequest(c, body);
+      const cwd = workspace.dir;
+      const sourcePath = filePath || (uploadedSource = materializeUploadedSkillPackage(engine, body))?.sourcePath;
+      if (!sourcePath || !cwd) {
+        return c.json({ error: "skill package and active workspace required" }, 400);
+      }
+      if (!workspace.mountId && dir && !isApprovedDir(cwd, engine, { agentId })) {
+        return c.json({ error: "workspace is not approved" }, 403);
+      }
+
       const skillsDir = path.join(cwd, ".agents", "skills");
 
       // 确保 .agents/skills/ 存在
@@ -904,11 +1148,11 @@ export function createDeskRoute(engine, hub) {
       }
 
       const installed = await installSkillPackageFromPath({
-        sourcePath: filePath,
+        sourcePath,
         installDir: skillsDir,
         owner: "workspace",
       });
-      if (realPath(cwd) === realPath(engine.deskCwd)) {
+      if (typeof engine.syncWorkspaceSkillPaths === "function") {
         await engine.syncWorkspaceSkillPaths(cwd, { reload: true, emitEvent: true, force: true });
       }
       return c.json({
@@ -918,6 +1162,8 @@ export function createDeskRoute(engine, hub) {
       });
     } catch (err) {
       return c.json({ error: err.message }, err.status || 500);
+    } finally {
+      uploadedSource?.cleanup?.();
     }
   });
 
@@ -928,21 +1174,22 @@ export function createDeskRoute(engine, hub) {
     if (!skillDir) {
       return c.json({ error: "skillDir is required" }, 400);
     }
-    // 安全检查：必须在当前工作区的已知技能目录下
-    const cwd = defaultDeskDir(engine);
-    if (!cwd) {
-      return c.json({ error: "No active workspace" }, 400);
-    }
-    const ALLOWED_SKILL_SUBS = WORKSPACE_SKILL_DIRS.map(({ sub }) => sub);
-    const allowed = ALLOWED_SKILL_SUBS.some(sub =>
-      isInsidePath(skillDir, path.join(cwd, sub))
-    );
-    if (!allowed) {
-      return c.json({ error: "Only skills in current workspace skill directories can be deleted" }, 403);
-    }
     try {
+      // 安全检查：必须在当前工作区的已知技能目录下
+      const workspace = resolveWorkspaceRootFromRequest(c, body);
+      const cwd = workspace.dir;
+      if (!cwd) {
+        return c.json({ error: "No active workspace" }, 400);
+      }
+      const ALLOWED_SKILL_SUBS = WORKSPACE_SKILL_DIRS.map(({ sub }) => sub);
+      const allowed = ALLOWED_SKILL_SUBS.some(sub =>
+        isInsidePath(skillDir, path.join(cwd, sub))
+      );
+      if (!allowed) {
+        return c.json({ error: "Only skills in current workspace skill directories can be deleted" }, 403);
+      }
       fs.rmSync(skillDir, { recursive: true, force: true });
-      if (realPath(cwd) === realPath(engine.deskCwd)) {
+      if (typeof engine.syncWorkspaceSkillPaths === "function") {
         await engine.syncWorkspaceSkillPaths(cwd, { reload: true, emitEvent: true, force: true });
       }
       return c.json({ ok: true });
@@ -1083,13 +1330,12 @@ export function createDeskRoute(engine, hub) {
         // upload 接受调用方提供的绝对源路径列表，把本机文件复制进 desk。
         // 该语义只为桌面 owner 端的本机拖拽设计；远端 paired 设备不应能借此
         // 把 desk dir 之外的任意可读路径（~/Documents、Library、shell init 等）
-        // 拷进工作区再读回。远端要上传文件应走 /api/mobile/workbench/upload 的
-        // multipart 通道。
+        // 拷进工作区再读回。远端要上传文件应走 /api/workbench/upload。
         if (!isLocalOwnerPrincipal(readAuthPrincipal(c))) {
           return c.json({ error: "upload by absolute path requires local owner" }, 403);
         }
         if (!Array.isArray(paths) || paths.length === 0) {
-          return c.json({ error: "paths required" });
+          return deskRouteError(c, "workspace_file_validation_failed", "paths required", 400);
         }
         const results = [];
         for (const srcPath of paths) {
@@ -1120,7 +1366,7 @@ export function createDeskRoute(engine, hub) {
 
       case "create": {
         if (!name || content === undefined) {
-          return c.json({ error: "name and content required" });
+          return deskRouteError(c, "workspace_file_validation_failed", "name and content required", 400);
         }
         if (!isPlainEntryName(name)) return c.json({ error: "invalid name" });
         const createTarget = path.join(dir, name);
@@ -1131,7 +1377,7 @@ export function createDeskRoute(engine, hub) {
       }
 
       case "mkdir": {
-        if (!name) return c.json({ error: "name required" });
+        if (!name) return deskRouteError(c, "workspace_file_validation_failed", "name required", 400);
         if (!isPlainEntryName(name)) return c.json({ error: "invalid name" });
         const mkTarget = path.join(dir, name);
         if (!isInsidePath(mkTarget, dir)) return c.json({ error: "invalid name" });
@@ -1141,7 +1387,7 @@ export function createDeskRoute(engine, hub) {
       }
 
       case "rename": {
-        if (!oldName || !newName) return c.json({ error: "oldName and newName required" });
+        if (!oldName || !newName) return deskRouteError(c, "workspace_file_validation_failed", "oldName and newName required", 400);
         if (!isPlainEntryName(oldName) || !isPlainEntryName(newName)) return c.json({ error: "invalid name" });
         const src = path.join(dir, oldName);
         const dest = path.join(dir, newName);
@@ -1156,7 +1402,7 @@ export function createDeskRoute(engine, hub) {
         const names = body.names;
         const destFolder = body.destFolder;
         if (!Array.isArray(names) || names.length === 0 || !destFolder) {
-          return c.json({ error: "names[] and destFolder required" });
+          return deskRouteError(c, "workspace_file_validation_failed", "names[] and destFolder required", 400);
         }
         if (names.includes(destFolder)) {
           return c.json({ error: "cannot move folder into itself" });
@@ -1187,7 +1433,9 @@ export function createDeskRoute(engine, hub) {
         const items = body.items;
         const destSubdir = body.destSubdir || "";
         const currentSubdir = body.currentSubdir || "";
-        if (!Array.isArray(items) || items.length === 0) return c.json({ error: "items[] required" });
+        if (!Array.isArray(items) || items.length === 0) {
+          return deskRouteError(c, "workspace_file_validation_failed", "items[] required", 400);
+        }
         const destDir = subdirToDir(destSubdir);
         if (!destDir) return c.json({ error: "invalid destSubdir" });
         if (!fs.existsSync(destDir) || !fs.statSync(destDir).isDirectory()) {
@@ -1241,7 +1489,7 @@ export function createDeskRoute(engine, hub) {
       }
 
       case "remove": {
-        if (!name) return c.json({ error: "name required" });
+        if (!name) return deskRouteError(c, "workspace_file_validation_failed", "name required", 400);
         const rmTarget = path.join(dir, path.basename(name));
         if (!isInsidePath(rmTarget, dir)) return c.json({ error: "invalid name" });
         if (!fs.existsSync(rmTarget)) return c.json({ error: "not found" });
@@ -1250,7 +1498,7 @@ export function createDeskRoute(engine, hub) {
       }
 
       default:
-        return c.json({ error: `unknown action: ${action}` });
+        return deskRouteError(c, "unknown_workspace_file_action", `unknown action: ${action}`, 400);
     }
   });
 

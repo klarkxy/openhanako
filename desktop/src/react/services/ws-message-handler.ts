@@ -509,7 +509,17 @@ export function handleServerMessage(msg: any): void {
 
     case 'activity_update':
       if (msg.activity) {
-        useStore.setState({ activities: [msg.activity, ...state.activities.slice(0, 499)] });
+        useStore.setState((current: any) => {
+          const incoming = msg.activity;
+          const existing = current.activities.find((activity: any) => activity.id === incoming.id);
+          const merged = existing ? { ...existing, ...incoming } : incoming;
+          return {
+            activities: [
+              merged,
+              ...current.activities.filter((activity: any) => activity.id !== incoming.id),
+            ].slice(0, 500),
+          };
+        });
       }
       break;
 
@@ -752,7 +762,7 @@ export function handleServerMessage(msg: any): void {
       // 更新所有 session 中匹配 confirmId 的确认卡片状态。确认块可能不在最后一条消息，
       // 输入区也从消息块派生 pending 状态，所以这里按 session/message/block 三层显式定位。
       const nextStatusFor = (blockType: string): string => {
-        if (msg.action === 'confirmed') return blockType === 'cron_confirm' ? 'approved' : 'confirmed';
+        if (msg.action === 'confirmed') return blockType === 'cron_confirm' || blockType === 'suggestion_card' ? 'approved' : 'confirmed';
         if (msg.action === 'timeout') return 'timeout';
         return 'rejected';
       };
@@ -771,7 +781,8 @@ export function handleServerMessage(msg: any): void {
               const matchesType = b.type === 'settings_confirm'
                 || b.type === 'cron_confirm'
                 || b.type === 'session_confirmation'
-                || b.type === 'ask_user_confirm';
+                || b.type === 'ask_user_confirm'
+                || b.type === 'suggestion_card';
               if (!matchesType || b.confirmId !== msg.confirmId) return b;
               messageChanged = true;
               return { ...b, status: nextStatusFor(b.type) };

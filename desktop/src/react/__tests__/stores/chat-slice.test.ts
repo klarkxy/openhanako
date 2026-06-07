@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createChatSlice, type ChatSlice } from '../../stores/chat-slice';
 import type { ChatListItem, SessionModel } from '../../stores/chat-types';
-import { registerStreamBufferInvalidator } from '../../stores/stream-invalidator';
+import { registerStreamBufferInvalidator, registerStreamResumeMetaInvalidator } from '../../stores/stream-invalidator';
 
 function makeSlice(): ChatSlice {
   let state: ChatSlice;
@@ -162,6 +162,14 @@ describe('chat-slice', () => {
       expect(invalidator).toHaveBeenCalledWith('/a');
     });
 
+    it('通知 stream resume meta invalidate 对应 session（避免丢渲染缓存后从旧 seq 续传）', () => {
+      const invalidator = vi.fn();
+      registerStreamResumeMetaInvalidator(invalidator);
+      slice.initSession('/a', [], false);
+      slice.clearSession('/a');
+      expect(invalidator).toHaveBeenCalledWith('/a');
+    });
+
     it('LRU eviction 时也 invalidate 被淘汰 session 的 streamBuffer', () => {
       const invalidator = vi.fn();
       registerStreamBufferInvalidator(invalidator);
@@ -174,6 +182,15 @@ describe('chat-slice', () => {
       // 第 9 次 initSession 会淘汰最老的 /s0（keys.find(k => k !== path)）
       expect(invalidator).toHaveBeenCalledWith('/s0');
       expect(slice.scrollPositions['/s0']).toBeUndefined();
+    });
+
+    it('LRU eviction 时也 invalidate 被淘汰 session 的 stream resume meta', () => {
+      const invalidator = vi.fn();
+      registerStreamResumeMetaInvalidator(invalidator);
+      for (let i = 0; i < 9; i++) {
+        slice.initSession(`/s${i}`, [], false);
+      }
+      expect(invalidator).toHaveBeenCalledWith('/s0');
     });
   });
 
@@ -211,7 +228,7 @@ describe('chat-slice', () => {
         taskId: 'workflow-1',
         status: 'success',
         sourceKind: 'workflow',
-        text: 'Hanako收到了来自 冒烟测试 workflow 的回复',
+        text: 'Hanako 收到了来自 冒烟测试 workflow 的结果',
       });
 
       expect(inserted).toBe(true);

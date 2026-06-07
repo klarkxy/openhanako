@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CronStore } from "../lib/desk/cron-store.ts";
 import fs from "fs";
@@ -264,9 +263,9 @@ describe("Automation job read model", () => {
       actorAgentId: "hana",
       executionContext,
       model,
-    });
+    } as any);
 
-    expect(job.schemaVersion).toBe(2);
+    expect(job.schemaVersion).toBe(3);
     expect(job.trigger).toEqual({ kind: "cron", expression: "0 9 * * *" });
     expect(job.executor).toMatchObject({
       kind: "agent_session",
@@ -303,7 +302,7 @@ describe("Automation job read model", () => {
       prompt: "morning summary",
       actorAgentId: "hana",
       model: { id: "gpt-4o", provider: "openai" },
-    });
+    } as any);
 
     const updated = store.updateJob(job.id, {
       schedule: "30 18 * * *",
@@ -340,7 +339,7 @@ describe("Automation job read model", () => {
     new CronStore(jobsPath, runsDir);
 
     const [job] = JSON.parse(fs.readFileSync(jobsPath, "utf-8")).jobs;
-    expect(job.schemaVersion).toBe(2);
+    expect(job.schemaVersion).toBe(3);
     expect(job.trigger).toEqual({ kind: "cron", expression: "0 9 * * *" });
     expect(job.executor).toMatchObject({
       kind: "agent_session",
@@ -349,10 +348,10 @@ describe("Automation job read model", () => {
     });
   });
 
-  it("preserves explicit notify direct-action executors without requiring a legacy prompt", () => {
+  it("rejects direct-action executors on new writes", () => {
     const store = makeTmpStore();
 
-    const job = store.addJob({
+    expect(() => store.addJob({
       type: "cron",
       schedule: "0 9 * * *",
       label: "Drink Water",
@@ -374,27 +373,13 @@ describe("Automation job read model", () => {
         },
       },
       createdBy: { kind: "agent", agentId: "hana", sourceSessionPath: "/sessions/source.jsonl" },
-    });
-
-    expect(job.prompt).toBe("");
-    expect(job.label).toBe("Drink Water");
-    expect(job.trigger).toEqual({ kind: "cron", expression: "0 9 * * *" });
-    expect(job.executor).toEqual({
-      kind: "direct_action",
-      action: "notify",
-      params: {
-        title: "喝水",
-        body: "站起来活动一下",
-        channels: ["desktop"],
-      },
-    });
-    expect(job.createdBy).toEqual({ kind: "agent", agentId: "hana", sourceSessionPath: "/sessions/source.jsonl" });
+    } as any)).toThrow(/unsupported automation executor: direct_action/);
   });
 
-  it("preserves explicit plugin-action executors", () => {
+  it("rejects plugin-action executors on new writes", () => {
     const store = makeTmpStore();
 
-    const job = store.addJob({
+    expect(() => store.addJob({
       type: "cron",
       schedule: "0 18 * * *",
       actorAgentId: "hana",
@@ -411,16 +396,7 @@ describe("Automation job read model", () => {
         actionId: "create_note",
         params: { folder: "daily" },
       },
-    });
-
-    expect(job.label).toBe("notes:create_note");
-    expect(job.executor).toEqual({
-      kind: "plugin_action",
-      pluginId: "notes",
-      actionId: "create_note",
-      params: { folder: "daily" },
-    });
-    expect(job.createdBy).toEqual({ kind: "agent", agentId: "hana" });
+    } as any)).toThrow(/unsupported automation executor: plugin_action/);
   });
 
   it("rejects removed file.create direct-action executors on new writes", () => {
@@ -435,7 +411,7 @@ describe("Automation job read model", () => {
         action: "file.create",
         params: { relativePath: "notes/today.md", content: "# Today\n" },
       },
-    })).toThrow(/unsupported direct automation action: file\.create/);
+    } as any)).toThrow(/unsupported automation executor: direct_action/);
   });
 });
 
@@ -454,7 +430,7 @@ describe("CronStore updateJob 字段白名单", () => {
       schedule: 3600000,
       prompt: "test",
       model: firstModel,
-    });
+    } as any);
 
     expect(job.model).toEqual(firstModel);
 
@@ -488,6 +464,69 @@ describe("CronStore updateJob 字段白名单", () => {
     expect(updated.label).toBe("new label");
   });
 
+  it("updateJob 允许确认卡同步变更执行 Agent 归属", () => {
+    const store = makeTmpStore();
+    const job = store.addJob({
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "old prompt",
+      actorAgentId: "agent-a",
+      executionContext: {
+        kind: "session_workspace",
+        cwd: "/home/agent-a",
+        workspaceFolders: [],
+        sourceSessionPath: "/sessions/a.jsonl",
+        createdByAgentId: "agent-a",
+      },
+      executor: {
+        kind: "agent_session",
+        agentId: "agent-a",
+        prompt: "old prompt",
+        model: "",
+        executionContext: {
+          kind: "session_workspace",
+          cwd: "/home/agent-a",
+          workspaceFolders: [],
+          sourceSessionPath: "/sessions/a.jsonl",
+          createdByAgentId: "agent-a",
+        },
+      },
+    } as any);
+
+    const updated = store.updateJob(job.id, {
+      prompt: "new prompt",
+      actorAgentId: "agent-b",
+      executionContext: {
+        kind: "session_workspace",
+        cwd: "/home/agent-b",
+        workspaceFolders: [],
+        sourceSessionPath: "/sessions/a.jsonl",
+        createdByAgentId: "agent-b",
+      },
+      executor: {
+        kind: "agent_session",
+        agentId: "agent-b",
+        prompt: "new prompt",
+        model: "",
+        executionContext: {
+          kind: "session_workspace",
+          cwd: "/home/agent-b",
+          workspaceFolders: [],
+          sourceSessionPath: "/sessions/a.jsonl",
+          createdByAgentId: "agent-b",
+        },
+      },
+    } as any);
+
+    expect(updated.actorAgentId).toBe("agent-b");
+    expect(updated.executionContext.cwd).toBe("/home/agent-b");
+    expect(updated.executor).toMatchObject({
+      kind: "agent_session",
+      agentId: "agent-b",
+      prompt: "new prompt",
+    });
+  });
+
   it("schedule 变更触发 nextRunAt 重算", () => {
     const store = makeTmpStore();
     const job = store.addJob({
@@ -502,6 +541,32 @@ describe("CronStore updateJob 字段白名单", () => {
     expect(updated.schedule).toBe(7200000);
     // nextRunAt 应该被重算（基于当前时间 + 7200000），跟原来不同
     expect(updated.nextRunAt).not.toBe(origNextRunAt);
+  });
+
+  it("updateJob 允许同步变更 type 和 schedule", () => {
+    const store = makeTmpStore();
+    const job = store.addJob({
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "test",
+    });
+
+    const updated = store.updateJob(job.id, { type: "every", schedule: 7200000 });
+    expect(updated.type).toBe("every");
+    expect(updated.schedule).toBe(7200000);
+    expect(updated.nextRunAt).toBeTruthy();
+  });
+
+  it("updateJob 修改 type 时必须同步提供 schedule", () => {
+    const store = makeTmpStore();
+    const job = store.addJob({
+      type: "cron",
+      schedule: "0 9 * * *",
+      prompt: "test",
+    });
+
+    expect(() => store.updateJob(job.id, { type: "every" }))
+      .toThrow(/schedule/);
   });
 });
 

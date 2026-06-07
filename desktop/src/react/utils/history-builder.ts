@@ -306,6 +306,20 @@ function normalizeHistoryBlock(raw: unknown): Record<string, any> | null {
     };
   }
 
+  if (type === 'suggestion_card') {
+    const kind = nonEmptyString(raw.kind);
+    const title = nonEmptyString(raw.title);
+    if (!kind || !title) return null;
+    return {
+      ...raw,
+      type,
+      afterIndex,
+      kind,
+      title,
+      status: nonEmptyString(raw.status) || 'pending',
+    };
+  }
+
   if (type === 'screenshot') {
     if (!nonEmptyString(raw.base64) || !nonEmptyString(raw.mimeType)) return null;
   } else if (type === 'settings_update') {

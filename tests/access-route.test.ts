@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import fs from "fs";
@@ -67,11 +66,11 @@ function localOwner() {
   };
 }
 
-async function makeApp(root, runtimeState = {}) {
+async function makeApp(root, runtimeState: any = {}) {
   const { createAccessRoute } = await import("../server/routes/access.ts");
   const app = new Hono();
   app.use("*", async (c, next) => {
-    c.set("authPrincipal", Object.freeze(localOwner()));
+    (c as any).set("authPrincipal", Object.freeze(localOwner()));
     await next();
   });
   app.route("/api", createAccessRoute({
@@ -279,7 +278,18 @@ describe("access route", () => {
         trustState: "lan",
       },
       credential: {
-        scopes: ["chat", "resources.read", "files.read", "files.write"],
+        scopes: [
+          "chat",
+          "resources.read",
+          "files.read",
+          "files.write",
+          "studio.owner",
+          "settings.read",
+          "settings.write",
+          "providers.manage",
+          "secrets.write",
+          "bridge.manage",
+        ],
         status: "active",
       },
     });

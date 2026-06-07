@@ -49,16 +49,7 @@ export async function replayLatestUserTurn(engine, opts: Record<string, any> = {
     ...await imagePayloadsFromPaths(missingImagePaths, deps),
   ];
 
-  if (typeof session.navigateTree === "function") {
-    const result = await session.navigateTree(latest.id, { summarize: false });
-    if (result?.cancelled) throw new Error("latest user replay cancelled");
-  } else if (latest.parentId) {
-    session.sessionManager.branch(latest.parentId);
-    replaceAgentMessagesFromBranch(session);
-  } else {
-    session.sessionManager.resetLeaf();
-    replaceAgentMessagesFromBranch(session);
-  }
+  branchBeforeUserEntry(session, latest);
 
   engine.emitEvent?.({
     type: "session_branch_reset",
@@ -147,6 +138,15 @@ function visibleUserText(text) {
     lines.shift();
   }
   return lines.join("\n").trim();
+}
+
+function branchBeforeUserEntry(session, entry) {
+  if (entry.parentId) {
+    session.sessionManager.branch(entry.parentId);
+  } else {
+    session.sessionManager.resetLeaf();
+  }
+  replaceAgentMessagesFromBranch(session);
 }
 
 function replaceAgentMessagesFromBranch(session) {

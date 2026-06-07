@@ -136,6 +136,26 @@ export const bridgeCommands = [
     },
   },
   {
+    name: "confirm",
+    aliases: ["approve"],
+    description: "确认待处理请求",
+    usage: "/confirm <确认ID>",
+    scope: "session",
+    permission: "owner",
+    source: "core",
+    handler: async (ctx) => _resolvePendingConfirmation(ctx, "confirmed"),
+  },
+  {
+    name: "reject",
+    aliases: ["deny"],
+    description: "拒绝待处理请求",
+    usage: "/reject <确认ID>",
+    scope: "session",
+    permission: "owner",
+    source: "core",
+    handler: async (ctx) => _resolvePendingConfirmation(ctx, "rejected"),
+  },
+  {
     name: "compact",
     description: "压缩当前会话上下文",
     scope: "session",
@@ -219,6 +239,37 @@ function _redirectRefIfAttached(ctx) {
     kind: "desktop",
     agentId: ctx.sessionRef.agentId,
     sessionPath: att.desktopSessionPath,
+  };
+}
+
+function _resolvePendingConfirmation(ctx, action) {
+  const command = action === "confirmed" ? "confirm" : "reject";
+  const confirmId = String(ctx.args || "").trim().split(/\s+/).filter(Boolean)[0];
+  if (!confirmId) return { reply: `用法：/${command} <确认ID>` };
+
+  const confirmStore = ctx.engine?.confirmStore || ctx.engine?.getConfirmStore?.() || null;
+  if (!confirmStore?.get || !confirmStore?.resolve) {
+    return { error: "确认系统未初始化" };
+  }
+
+  const pending = confirmStore.get(confirmId);
+  if (!pending) return { reply: "确认请求不存在或已处理" };
+
+  const found = confirmStore.resolve(confirmId, action);
+  if (!found) return { reply: "确认请求不存在或已处理" };
+
+  try {
+    ctx.engine?.emitEvent?.({
+      type: "confirmation_resolved",
+      confirmId,
+      action,
+    }, null);
+  } catch {}
+
+  return {
+    reply: action === "confirmed"
+      ? "已确认，正在继续处理。"
+      : "已拒绝，已取消这次请求。",
   };
 }
 

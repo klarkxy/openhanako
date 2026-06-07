@@ -10,6 +10,7 @@
 import path from "path";
 import { t } from "../lib/i18n.ts";
 import { materializeExecutorIdentity } from "../lib/subagent-executor-metadata.ts";
+import { buildAutomationSuggestionBlock } from "./suggestion-blocks.ts";
 
 export const BLOCK_EXTRACTORS = {
   // COMPAT(present_files, remove no earlier than v0.133):
@@ -96,15 +97,22 @@ export const BLOCK_EXTRACTORS = {
       jobData = { type: j.type, schedule: j.schedule, prompt: j.prompt, label: j.label, model: j.model };
     }
     if (!jobData) return null;
-    const status = details.confirmed === false
+    const status = details.action === "pending_add"
+      ? "pending"
+      : details.confirmed === false
       ? "rejected"
       : (details.action === "cancelled" ? "rejected" : "approved");
-    return [{
-      type: "cron_confirm",
-      confirmId: "",
-      jobData,
-      status,
-    }];
+    return [buildAutomationSuggestionBlock({ confirmId: details.confirmId || "", jobData, status })];
+  },
+
+  automation: (details) => {
+    if (!["pending_add", "pending_update"].includes(details.action) || !details.jobData) return null;
+    return [buildAutomationSuggestionBlock({
+      confirmId: details.confirmId || "",
+      jobData: details.jobData,
+      operation: details.operation === "update" ? "update" : "create",
+      status: "pending",
+    })];
   },
 
   subagent: (details) => {

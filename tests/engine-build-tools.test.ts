@@ -1,4 +1,3 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -146,7 +145,7 @@ describe("HanaEngine.buildTools", () => {
       hanakoHome: tmpDir,
       productDir: tmpDir,
       agentId: "hana",
-    });
+    } as any);
     engine.resolveUtilityConfig = vi.fn(() => ({
       utility: { id: "small-reviewer", provider: "test" },
       utility_large: { id: "large-reviewer", provider: "test" },
@@ -243,14 +242,14 @@ describe("HanaEngine.buildTools", () => {
       { name: "browser", execute: vi.fn() },
       { name: "channel", execute: vi.fn() },
       { name: "dm", execute: vi.fn() },
-      { name: "cron", execute: vi.fn() },
+      { name: "automation", execute: vi.fn() },
     ], {
       agentDir,
       workspace: tmpDir,
       getPermissionMode: () => "operate",
     });
 
-    expect(customTools.map((tool) => tool.name)).toEqual(["cron"]);
+    expect(customTools.map((tool) => tool.name)).toEqual(["automation"]);
   });
 
   it("passes a session workbench execution boundary into plugin tools", async () => {

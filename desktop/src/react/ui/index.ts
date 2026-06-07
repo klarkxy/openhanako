@@ -1,7 +1,12 @@
 export { Overlay } from './Overlay';
 export { Button } from './Button';
-export { SelectWidget } from './SelectWidget';
+export { Toggle } from './Toggle';
+export type { ToggleProps } from './Toggle';
+export { SelectWidget, selectWidgetStyles } from './SelectWidget';
 export type { SelectOption } from './SelectWidget';
+export { ProviderIcon, ProviderGroupHeader } from './ProviderIcon';
+export { AnchoredPortal } from './AnchoredPortal';
+export type { AnchoredPortalAlign } from './AnchoredPortal';
 export { ContextMenu } from './ContextMenu';
 export type { ContextMenuItem, ContextMenuProps } from './ContextMenu';
 export { Tooltip } from './Tooltip';

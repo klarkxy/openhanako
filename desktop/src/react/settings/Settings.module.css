@@ -3999,6 +3999,13 @@ a.about-link:hover {
     opacity: 1;
 }
 
+.pv-list-item-icon {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
 .pv-config-alert {
     margin: 0 0 var(--space-md);
     padding: 8px 10px;

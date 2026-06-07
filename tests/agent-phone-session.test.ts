@@ -1,4 +1,4 @@
-// @ts-nocheck
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   filterAgentPhoneTools,
@@ -10,8 +10,8 @@ import {
 describe("agent phone session policy", () => {
   it("uses a stable safe session directory per conversation", () => {
     const dir = getAgentPhoneSessionDir("/agents/hana", "dm:yui");
-    expect(dir).toContain("/agents/hana/phone/sessions/");
-    expect(dir.split("/").at(-1)).not.toContain(":");
+    expect(dir).toContain(["agents", "hana", "phone", "sessions"].join(path.sep) + path.sep);
+    expect(dir.split(path.sep).at(-1)).not.toContain(":");
   });
 
   it("recognizes phone sessions so memory pipelines can exclude them", () => {
@@ -56,7 +56,7 @@ describe("agent phone session policy", () => {
       ],
     };
 
-    const filtered = filterAgentPhoneTools(built, { toolMode: "write" });
+    const filtered = (filterAgentPhoneTools as any)(built, { toolMode: "write" });
     expect(filtered.tools.map((tool) => tool.name)).toEqual(["read", "write"]);
     expect(filtered.customTools.map((tool) => tool.name)).toEqual(["search_memory", "web_search"]);
   });
@@ -77,7 +77,7 @@ describe("agent phone session policy", () => {
       ],
     };
 
-    const filtered = filterAgentPhoneTools(built, { toolMode: "read_only" });
+    const filtered = (filterAgentPhoneTools as any)(built, { toolMode: "read_only" });
     expect(filtered.tools.map((tool) => tool.name)).toEqual(["read", "write", "grep"]);
     expect(filtered.customTools.map((tool) => tool.name)).toEqual([
       "search_memory",

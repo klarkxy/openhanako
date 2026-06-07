@@ -344,6 +344,7 @@ export class HanaEngine {
       getUsageLedger: () => this._usageLedger,
       closeTerminalsForSession: (sessionPath) => this._terminalSessions.closeForSession(sessionPath),
       closeAllTerminals: () => this._terminalSessions.closeAll(),
+      onSessionRuntimeDiscarded: (sessionPath, reason) => this.clearSessionRuntimeState(sessionPath, reason),
       onBeforeSessionCreate: async (cwd) => {
         await this.syncWorkspaceSkillPaths(cwd, { reload: true, emitEvent: false });
       },
@@ -629,6 +630,23 @@ export class HanaEngine {
   updateSessionFileTranscription(fileId, transcription, options) { return this._sessionFiles.updateTranscription(fileId, transcription, options); }
   beginCurrentTurnNativeMedia(sessionPath, opts) { return this._currentTurnNativeMedia.begin(sessionPath, opts); }
   endCurrentTurnNativeMedia(token) { return this._currentTurnNativeMedia.end(token); }
+  clearSessionRuntimeState(sessionPath, reason = "discard") {
+    if (!sessionPath) return false;
+    void reason;
+    this._uiContextBySession?.delete(sessionPath);
+    this._imageStripNotified?.delete(sessionPath);
+    this._videoStripNotified?.delete(sessionPath);
+    if (typeof this._currentTurnNativeMedia?.clearSession === "function") {
+      this._currentTurnNativeMedia.clearSession(sessionPath);
+    }
+    if (typeof this._sessionFiles?.unloadSession === "function") {
+      this._sessionFiles.unloadSession(sessionPath);
+    }
+    if (typeof this._computerHost?.abortSession === "function") {
+      this._computerHost.abortSession(sessionPath);
+    }
+    return true;
+  }
   get speechRecognition() { return this._speechRecognition; }
   get resources() { return this._resources; }
   getResourceService() {
@@ -683,7 +701,7 @@ export class HanaEngine {
   getActivityStore(agentId) { return this._agentMgr.getActivityStore(agentId); }
 
   get agents() { return this._agentMgr.agents; }
-  listAgents() { return this._agentMgr.listAgents(); }
+  listAgents(options = {}) { return this._agentMgr.listAgents(options); }
   listDeletedAgents() { return this._agentMgr.listDeletedAgents(); }
   isAgentDeleted(agentId) { return this._agentMgr.isAgentDeleted(agentId); }
   getDeletedAgentInfo(agentId) { return this._agentMgr.getDeletedAgentInfo(agentId); }
@@ -760,6 +778,12 @@ export class HanaEngine {
   getSessionFolderScope(p = this.currentSessionPath) {
     return this._sessionCoord.getSessionFolderScope(p);
   }
+  getSessionMemoryEnabled(p = this.currentSessionPath) {
+    return this._sessionCoord.getSessionMemoryEnabled(p);
+  }
+  async setSessionMemoryEnabled(p, enabled) {
+    return this._sessionCoord.setSessionMemoryEnabled(p, enabled);
+  }
   setSessionAuthorizedFolders(p, folders) {
     return this._sessionCoord.setSessionAuthorizedFolders(p, folders);
   }
@@ -800,7 +824,7 @@ export class HanaEngine {
   isSessionStreaming(p) { return this._sessionCoord.isSessionStreaming(p); }
   isSessionSwitching(p) { return this._sessionCoord.isSessionSwitching(p); }
   async abortSessionByPath(p) { return this._sessionCoord.abortSessionByPath(p); }
-  async listSessions() { return this._sessionCoord.listSessions(); }
+  async listSessions(options = {}) { return this._sessionCoord.listSessions(options); }
   async continueDeletedAgentSession(p) { return this._sessionCoord.continueDeletedAgentSession(p); }
   getSessionProjectCatalog() { return this._sessionProjects.getCatalog(); }
   createSessionProjectFolder(input) { return this._sessionProjects.createFolder(input); }
@@ -849,6 +873,7 @@ export class HanaEngine {
   async saveSessionTitle(p, t) { return this._sessionCoord.saveSessionTitle(p, t); }
   async clearSessionTitle(p) { return this._sessionCoord.clearSessionTitle(p); }
   async setSessionPinned(p, pinned) { return this._sessionCoord.setSessionPinned(p, pinned); }
+  async setSessionPluginMeta(p, patch) { return this._sessionCoord.setSessionPluginMeta(p, patch); }
   createSessionContext() { return this._sessionCoord.createSessionContext(); }
   async promoteActivitySession(f, agentId) { return this._sessionCoord.promoteActivitySession(f, agentId); }
   async executeIsolated(prompt, opts) { return this._sessionCoord.executeIsolated(prompt, opts); }
@@ -869,7 +894,10 @@ export class HanaEngine {
     return this._sessionCoord.session?.model ?? null;
   }
   get availableModels() { return this._models.availableModels; }
-  get memoryEnabled() { return this.agent.memoryEnabled; }
+  get memoryEnabled() {
+    const sessionPath = this.currentSessionPath;
+    return sessionPath ? this._sessionCoord.getSessionMemoryEnabled(sessionPath) : this.agent.memoryEnabled;
+  }
   get memoryModelUnavailableReason() { return this.agent.memoryModelUnavailableReason; }
   get planMode() { return this._sessionCoord.getPlanMode(); }
   getPrimaryAgentId() { return this._prefs.getPrimaryAgent(); }
@@ -923,6 +951,8 @@ export class HanaEngine {
   isChannelsEnabled() { return this._configCoord.getChannelsEnabled(); }
   getBridgePermissionMode() { return this._prefs.getBridgePermissionMode(); }
   setBridgePermissionMode(v) { return this._prefs.setBridgePermissionMode(v); }
+  getAutomationPermissionMode() { return this._prefs.getAutomationPermissionMode(); }
+  setAutomationPermissionMode(v) { return this._prefs.setAutomationPermissionMode(v); }
   getBridgeReadOnly() { return this._prefs.getBridgeReadOnly(); }
   setBridgeReadOnly(v) { this._prefs.setBridgeReadOnly(v); }
   getBridgeReceiptEnabled() { return this._prefs.getBridgeReceiptEnabled(); }

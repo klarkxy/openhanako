@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, vi } from "vitest";
 import { SessionManager } from "../lib/pi-sdk/index.ts";
 import { replayLatestUserTurn } from "../core/session-turn-actions.ts";
@@ -19,10 +18,10 @@ function makeNavigableSession(manager) {
 describe("replayLatestUserTurn", () => {
   it("branches before the latest user message and replays the original prompt", async () => {
     const manager = SessionManager.inMemory("/workspace");
-    manager.appendMessage({ role: "user", content: [{ type: "text", text: "old" }] });
-    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "old answer" }] });
-    const latestUserId = manager.appendMessage({ role: "user", content: [{ type: "text", text: "try again" }] });
-    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "bad answer" }] });
+    const priorUserId = manager.appendMessage({ role: "user", content: [{ type: "text", text: "old" }] } as any);
+    const priorAssistantId = manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "old answer" }] } as any);
+    const latestUserId = manager.appendMessage({ role: "user", content: [{ type: "text", text: "try again" }] } as any);
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "bad answer" }] } as any);
     const session = makeNavigableSession(manager);
     const submit = vi.fn(async () => ({ text: "new answer", toolMedia: [] }));
     const engine = {
@@ -38,7 +37,8 @@ describe("replayLatestUserTurn", () => {
       displayMessage: { text: "try again" },
     }, { submit });
 
-    expect(session.navigateTree).toHaveBeenCalledWith(latestUserId, { summarize: false });
+    expect(session.navigateTree).not.toHaveBeenCalled();
+    expect(manager.getBranch().map(entry => entry.id)).toEqual([priorUserId, priorAssistantId]);
     expect(engine.emitEvent).toHaveBeenCalledWith({
       type: "session_branch_reset",
       messageId: latestUserId,
@@ -56,8 +56,8 @@ describe("replayLatestUserTurn", () => {
     const latestUserId = manager.appendMessage({
       role: "user",
       content: [{ type: "text", text: "[attached_image: /tmp/a.png]\nold text" }],
-    });
-    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "bad answer" }] });
+    } as any);
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "bad answer" }] } as any);
     const session = makeNavigableSession(manager);
     const submit = vi.fn(async () => ({ text: "new answer", toolMedia: [] }));
     const readFile = vi.fn(async () => Buffer.from("png-by-filename"));
@@ -82,13 +82,48 @@ describe("replayLatestUserTurn", () => {
     }));
   });
 
+  it("branches before the latest user when editing a leaf user message", async () => {
+    const manager = SessionManager.inMemory("/workspace");
+    const priorUserId = manager.appendMessage({ role: "user", content: [{ type: "text", text: "context" }] } as any);
+    const priorAssistantId = manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "context answer" }] } as any);
+    const latestUserId = manager.appendMessage({ role: "user", content: [{ type: "text", text: "old leaf text" }] } as any);
+    const session = makeNavigableSession(manager);
+    session.navigateTree = vi.fn(async (entryId) => {
+      if (entryId === manager.getLeafId?.()) return { cancelled: false };
+      const entry = manager.getEntry(entryId);
+      if (!entry) throw new Error(`Entry ${entryId} not found`);
+      if (entry.parentId) manager.branch(entry.parentId);
+      else manager.resetLeaf();
+      return { cancelled: false };
+    });
+    const submit = vi.fn(async () => ({ text: "new answer", toolMedia: [] }));
+    const engine = {
+      ensureSessionLoaded: vi.fn(async () => session),
+      isSessionStreaming: vi.fn(() => false),
+      emitEvent: vi.fn(),
+    };
+
+    await replayLatestUserTurn(engine, {
+      sessionPath: "/tmp/main.jsonl",
+      sourceEntryId: latestUserId,
+      replacementText: "new leaf text",
+      displayMessage: { text: "new leaf text" },
+    }, { submit });
+
+    expect(manager.getBranch().map(entry => entry.id)).toEqual([priorUserId, priorAssistantId]);
+    expect(submit).toHaveBeenCalledWith(engine, expect.objectContaining({
+      text: "new leaf text",
+      displayMessage: expect.objectContaining({ text: "new leaf text" }),
+    }));
+  });
+
   it("rehydrates pruned attached image markers when replaying a turn", async () => {
     const manager = SessionManager.inMemory("/workspace");
     const latestUserId = manager.appendMessage({
       role: "user",
       content: [{ type: "text", text: "[attached_image: /tmp/a.png]\nold text" }],
-    });
-    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "bad answer" }] });
+    } as any);
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "bad answer" }] } as any);
     const session = makeNavigableSession(manager);
     const submit = vi.fn(async () => ({ text: "new answer", toolMedia: [] }));
     const readFile = vi.fn(async () => Buffer.from("png-by-filename"));
@@ -119,8 +154,8 @@ describe("replayLatestUserTurn", () => {
         { type: "text", text: "[attached_image: /tmp/a.png]\nold text" },
         { type: "image", data: "BASE64_A", mimeType: "image/png" },
       ],
-    });
-    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "bad answer" }] });
+    } as any);
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "bad answer" }] } as any);
     const session = makeNavigableSession(manager);
     const submit = vi.fn(async () => ({ text: "new answer", toolMedia: [] }));
     const readFile = vi.fn();
@@ -145,9 +180,9 @@ describe("replayLatestUserTurn", () => {
 
   it("rejects a stale source entry instead of replaying the wrong turn", async () => {
     const manager = SessionManager.inMemory("/workspace");
-    const staleUserId = manager.appendMessage({ role: "user", content: [{ type: "text", text: "first" }] });
-    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "first answer" }] });
-    manager.appendMessage({ role: "user", content: [{ type: "text", text: "latest" }] });
+    const staleUserId = manager.appendMessage({ role: "user", content: [{ type: "text", text: "first" }] } as any);
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "first answer" }] } as any);
+    manager.appendMessage({ role: "user", content: [{ type: "text", text: "latest" }] } as any);
     const session = makeNavigableSession(manager);
     const submit = vi.fn();
     const engine = {

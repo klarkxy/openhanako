@@ -1,9 +1,11 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { ConfigCoordinator } from "../core/config-coordinator.ts";
+
+/** Match runtime normalizeWorkspacePath: backslash → forward slash for cross-platform persistence */
+const n = (p: string) => p.replace(/\\/g, "/");
 
 describe("updateConfig with agentId", () => {
   const tempRoots = [];
@@ -22,13 +24,13 @@ describe("updateConfig with agentId", () => {
     return dir;
   }
 
-  function makeDeps(overrides = {}) {
-    const focusAgent = {
+  function makeDeps( overrides: any = {}) {
+    const focusAgent: any = {
       id: "focus",
       config: { models: { chat: { id: "focus-chat", provider: "openai" } } },
       updateConfig: vi.fn(),
     };
-    const targetAgent = {
+    const targetAgent: any = {
       id: "target",
       config: { models: { chat: { id: "target-chat", provider: "deepseek" } } },
       updateConfig: vi.fn(),
@@ -88,7 +90,7 @@ describe("updateConfig with agentId", () => {
     const blockedHome = path.join(os.tmpdir(), `hana-blocked-home-${Date.now()}`);
     const originalStatSync = fs.statSync;
     const statSpy = vi.spyOn(fs, "statSync").mockImplementation((target, ...args) => {
-      if (target === blockedHome) {
+      if (typeof target === "string" && n(path.normalize(target)) === n(path.normalize(blockedHome))) {
         throw Object.assign(new Error("permission denied"), { code: "EACCES" });
       }
       return originalStatSync.call(fs, target, ...args);
@@ -97,8 +99,8 @@ describe("updateConfig with agentId", () => {
     targetAgent.config.desk = { home_folder: blockedHome };
     const coord = new ConfigCoordinator(deps);
 
-    expect(coord.getExplicitHomeFolder("target")).toBe(blockedHome);
-    expect(statSpy).toHaveBeenCalledWith(blockedHome);
+    expect(coord.getExplicitHomeFolder("target")).toBe(n(blockedHome));
+    expect(statSpy).toHaveBeenCalledWith(n(blockedHome));
     expect(targetAgent.updateConfig).not.toHaveBeenCalled();
   });
 
@@ -133,7 +135,7 @@ describe("updateConfig with agentId", () => {
   });
 
   it("setSharedModels 同步当前 agent 的小工具和大工具模型内存态", () => {
-    let prefs = {};
+    let prefs: any = {};
     const { focusAgent, deps } = makeDeps({
       getPrefs: () => ({
         getPreferences: () => prefs,
@@ -249,7 +251,7 @@ describe("updateConfig with agentId", () => {
   });
 
   it("setHeartbeatMaster only restarts agents that explicitly opted in", () => {
-    let prefs = {};
+    let prefs: any = {};
     const focusHb = { start: vi.fn(), stop: vi.fn() };
     const targetHb = { start: vi.fn(), stop: vi.fn() };
     const { focusAgent, targetAgent, deps } = makeDeps({
@@ -274,7 +276,7 @@ describe("updateConfig with agentId", () => {
   });
 
   it("setSharedModels stores and clears auxiliary vision without mutating utility or memory runtime state", () => {
-    let prefs = {};
+    let prefs: any = {};
     const { focusAgent, deps } = makeDeps({
       getPrefs: () => ({
         getPreferences: () => prefs,
@@ -382,13 +384,14 @@ describe("updateConfig with agentId", () => {
     expect(models.defaultModel).toEqual({ id: "gpt-4", provider: "openai", name: "GPT-4" });
   });
 
-  it("persistSessionMeta 写入 sessionMemoryEnabled，而不是 master&&session 组合态", async () => {
+  it("persistSessionMeta writes the path-scoped session memory flag", async () => {
     const focusAgent = {
       id: "focus",
-      memoryEnabled: false,
+      memoryEnabled: true,
       sessionMemoryEnabled: true,
     };
     const writeSessionMeta = vi.fn();
+    const getSessionMemoryEnabled = vi.fn(() => false);
     const coord = new ConfigCoordinator({
       hanakoHome: "/tmp/test",
       agentsDir: "/tmp/test/agents",
@@ -404,7 +407,7 @@ describe("updateConfig with agentId", () => {
           getSessionFile: () => "/tmp/test/agents/focus/sessions/frozen.jsonl",
         },
       }),
-      getSessionCoordinator: () => ({ writeSessionMeta }),
+      getSessionCoordinator: () => ({ getSessionMemoryEnabled, writeSessionMeta }),
       getHub: () => null,
       emitEvent: vi.fn(),
       emitDevLog: vi.fn(),
@@ -413,9 +416,49 @@ describe("updateConfig with agentId", () => {
 
     await coord.persistSessionMeta();
 
+    expect(getSessionMemoryEnabled).toHaveBeenCalledWith("/tmp/test/agents/focus/sessions/frozen.jsonl");
     expect(writeSessionMeta).toHaveBeenCalledWith(
       "/tmp/test/agents/focus/sessions/frozen.jsonl",
-      { memoryEnabled: true },
+      { memoryEnabled: false },
     );
+  });
+
+  it("setMemoryEnabled updates the current session state through SessionCoordinator", async () => {
+    const focusAgent = {
+      id: "focus",
+      setMemoryEnabled: vi.fn(),
+      memoryEnabled: true,
+      sessionMemoryEnabled: true,
+    };
+    const setSessionMemoryEnabled = vi.fn(async () => undefined);
+    const coord = new ConfigCoordinator({
+      hanakoHome: "/tmp/test",
+      agentsDir: "/tmp/test/agents",
+      getAgent: () => focusAgent,
+      getAgentById: () => null,
+      getActiveAgentId: () => "focus",
+      getAgents: () => new Map([["focus", focusAgent]]),
+      getModels: () => ({ availableModels: [], defaultModel: null }),
+      getPrefs: () => ({ getPreferences: () => ({}), savePreferences: vi.fn() }),
+      getSkills: () => ({ syncAgentSkills: vi.fn() }),
+      getSession: () => ({
+        sessionManager: {
+          getSessionFile: () => "/tmp/test/agents/focus/sessions/current.jsonl",
+        },
+      }),
+      getSessionCoordinator: () => ({ setSessionMemoryEnabled }),
+      getHub: () => null,
+      emitEvent: vi.fn(),
+      emitDevLog: vi.fn(),
+      getCurrentModel: () => null,
+    });
+
+    await coord.setMemoryEnabled(false);
+
+    expect(setSessionMemoryEnabled).toHaveBeenCalledWith(
+      "/tmp/test/agents/focus/sessions/current.jsonl",
+      false,
+    );
+    expect(focusAgent.setMemoryEnabled).not.toHaveBeenCalled();
   });
 });

@@ -30,6 +30,8 @@ import {
 import { submitDesktopSessionMessage } from "../core/desktop-session-submit.ts";
 import { extOfName, inferFileKind } from "../lib/file-metadata.ts";
 import { createModuleLogger } from "../lib/debug-log.ts";
+import { normalizeSessionTurnContext } from "../core/session-turn-context.ts";
+import { findModel } from "../shared/model-ref.ts";
 
 const log = createModuleLogger("hub");
 
@@ -365,6 +367,121 @@ export class Hub {
     const bus = this._eventBus;
     const engine = this._engine;
 
+    // ── session:create ──
+    this._sessionHandlerCleanups.push(bus.handle("session:create", async (payload: any = {}) => {
+      const agentId = textOrNull(payload.agentId);
+      const cwd = textOrNull(payload.cwd) || undefined;
+      const memFlag = payload.memoryEnabled !== false;
+      const model = resolveRequestedModel(engine, payload.model);
+      const createOptions = {
+        workspaceFolders: Array.isArray(payload.workspaceFolders)
+          ? payload.workspaceFolders.filter((item) => typeof item === "string" && item.trim())
+          : [],
+        authorizedFolders: Array.isArray(payload.authorizedFolders)
+          ? payload.authorizedFolders.filter((item) => typeof item === "string" && item.trim())
+          : [],
+        visibleInSessionList: payload.visibility !== "plugin_private" && payload.visibility !== "private",
+        ...(payload.thinkingLevel != null ? { thinkingLevel: payload.thinkingLevel } : {}),
+        ...(payload.permissionMode != null ? { permissionMode: payload.permissionMode } : {}),
+        ownerPluginId: textOrNull(payload.ownerPluginId),
+        sessionKind: textOrNull(payload.kind || payload.sessionKind),
+        sessionVisibility: textOrNull(payload.visibility || payload.sessionVisibility) || "public",
+      };
+      if (typeof engine.createDetachedSession !== "function") {
+        throw new Error("session detached creation unavailable");
+      }
+      const result = await engine.createDetachedSession({
+        cwd,
+        memoryEnabled: memFlag,
+        model,
+        ...(agentId ? { agentId } : {}),
+        ...createOptions,
+      });
+      engine.persistSessionMeta?.();
+      const sessionPath = result.sessionPath;
+      if (payload.permissionMode !== undefined && sessionPath) {
+        engine.setSessionPermissionModeForSession?.(sessionPath, payload.permissionMode);
+      }
+      const response = {
+        ok: true,
+        sessionPath,
+        path: sessionPath,
+        agentId: result.agentId,
+        agentName: engine.getAgent?.(result.agentId)?.agentName || result.agentId || null,
+        cwd: engine.getSessionByPath?.(sessionPath)?.sessionManager?.getCwd?.() || cwd || null,
+        workspaceFolders: engine.getSessionWorkspaceFolders?.(sessionPath) || [],
+        authorizedFolders: engine.getSessionAuthorizedFolders?.(sessionPath) || [],
+        thinkingLevel: engine.getSessionThinkingLevel?.(sessionPath) || null,
+        permissionMode: engine.getSessionPermissionMode?.(sessionPath) || null,
+        ownerPluginId: createOptions.ownerPluginId || null,
+        kind: createOptions.sessionKind || null,
+        visibility: createOptions.sessionVisibility || "public",
+      };
+      bus.emit({ type: "session_created", session: response }, sessionPath);
+      return response;
+    }));
+
+    // ── session:get ──
+    this._sessionHandlerCleanups.push(bus.handle("session:get", async ({ sessionPath, ownerPluginId }: any = {}) => {
+      if (!sessionPath) throw new Error("sessionPath is required");
+      if (!isValidSessionPath(sessionPath, engine.agentsDir)) {
+        throw new Error("Invalid session path");
+      }
+      const sessions = await engine.listSessions({
+        includePluginPrivate: true,
+        ...(ownerPluginId ? { ownerPluginId } : {}),
+      });
+      const session = sessions.find((item) => item.path === sessionPath) || null;
+      if (!session) return { session: null };
+      return { session };
+    }));
+
+    // ── session:update ──
+    this._sessionHandlerCleanups.push(bus.handle("session:update", async ({
+      sessionPath,
+      title,
+      pinned,
+      projectId,
+      thinkingLevel,
+      permissionMode,
+      ownerPluginId,
+      kind,
+      sessionKind,
+      visibility,
+      sessionVisibility,
+    }: any = {}) => {
+      if (!sessionPath) throw new Error("sessionPath is required");
+      if (!isValidSessionPath(sessionPath, engine.agentsDir)) {
+        throw new Error("Invalid session path");
+      }
+      if (typeof title === "string") await engine.saveSessionTitle?.(sessionPath, title);
+      if (pinned !== undefined) await engine.setSessionPinned?.(sessionPath, !!pinned);
+      if (projectId !== undefined) {
+        await engine.setSessionProjectAssignment?.({ sessionPath, projectId });
+      }
+      if (thinkingLevel !== undefined) {
+        await engine.setSessionThinkingLevel?.(sessionPath, thinkingLevel);
+      }
+      if (permissionMode !== undefined) {
+        engine.setSessionPermissionModeForSession?.(sessionPath, permissionMode);
+      }
+      if (
+        ownerPluginId !== undefined
+        || kind !== undefined
+        || sessionKind !== undefined
+        || visibility !== undefined
+        || sessionVisibility !== undefined
+      ) {
+        await engine.setSessionPluginMeta?.(sessionPath, {
+          ownerPluginId,
+          kind: kind ?? sessionKind,
+          visibility: visibility ?? sessionVisibility,
+        });
+      }
+      const sessions = await engine.listSessions({ includePluginPrivate: true });
+      return { ok: true, session: sessions.find((item) => item.path === sessionPath) || null };
+    }));
+
     // ── session:send ──
     this._sessionHandlerCleanups.push(bus.handle("session:send", async ({ text, sessionPath, ...opts }) => {
       if (!text || typeof text !== "string" || !text.trim()) {
@@ -373,6 +490,9 @@ export class Hub {
       const sp = sessionPath;
       if (!sp) throw new Error("sessionPath is required for session:send");
       if (engine.isSessionStreaming(sp)) throw new Error("session_busy");
+      if (opts.context !== undefined) {
+        opts.context = normalizeSessionTurnContext(opts.context);
+      }
       engine.promptSession(sp, text, opts).catch(err => {
         log.error(`session:send promptSession error: ${err.message}`);
         bus.emit({ type: "error", error: err.message, source: "session:send" }, sp);
@@ -421,8 +541,11 @@ export class Hub {
     }));
 
     // ── session:list ──
-    this._sessionHandlerCleanups.push(bus.handle("session:list", async ({ agentId }: any = {}) => {
-      const all = await engine.listSessions();
+    this._sessionHandlerCleanups.push(bus.handle("session:list", async ({ agentId, ownerPluginId, includePluginPrivate }: any = {}) => {
+      const all = await engine.listSessions({
+        includePluginPrivate: includePluginPrivate === true || !!ownerPluginId,
+        ...(ownerPluginId ? { ownerPluginId } : {}),
+      });
       const filtered = agentId ? all.filter(s => s.agentId === agentId) : all;
       const sessions = filtered.map(s => ({
         path: s.path,
@@ -434,20 +557,118 @@ export class Hub {
         messageCount: s.messageCount,
         cwd: s.cwd,
         modified: s.modified,
+        ownerPluginId: s.ownerPluginId || null,
+        kind: s.sessionKind || null,
+        visibility: s.visibility || "public",
       }));
       return { sessions };
     }));
 
     // ── agent:list ──
-    this._sessionHandlerCleanups.push(bus.handle("agent:list", async () => {
-      const all = engine.listAgents();
+    this._sessionHandlerCleanups.push(bus.handle("agent:list", async ({ ownerPluginId, includePluginPrivate }: any = {}) => {
+      const all = engine.listAgents({
+        includePluginPrivate: includePluginPrivate === true || !!ownerPluginId,
+        ...(ownerPluginId ? { ownerPluginId } : {}),
+      });
       const agents = all.map(a => ({
         id: a.id,
         name: a.name,
+        yuan: a.yuan || null,
+        identity: a.identity || "",
+        ownerPluginId: a.plugin?.ownerPluginId || null,
+        visibility: a.plugin?.visibility || "public",
         isCurrent: a.isCurrent,
         isPrimary: a.isPrimary,
       }));
       return { agents };
+    }));
+
+    this._sessionHandlerCleanups.push(bus.handle("agent:profile", async ({ agentId }: any = {}) => {
+      const { agent, error } = resolveAgentForBus(engine, agentId);
+      if (error) throw new Error(error);
+      return { profile: publicAgentProfile(agent) };
+    }));
+
+    this._sessionHandlerCleanups.push(bus.handle("agent:create", async (payload: any = {}) => {
+      const name = textOrNull(payload.name);
+      if (!name) throw new Error("name is required");
+      const ownerPluginId = textOrNull(payload.ownerPluginId);
+      const visibility = textOrNull(payload.visibility) || "public";
+      const result = await engine.createAgent({
+        name,
+        ...(textOrNull(payload.id) ? { id: textOrNull(payload.id) } : {}),
+        ...(textOrNull(payload.yuan) ? { yuan: textOrNull(payload.yuan) } : {}),
+        ...(payload.initialFiles && typeof payload.initialFiles === "object" ? { initialFiles: payload.initialFiles } : {}),
+        ...(payload.initialMemory && typeof payload.initialMemory === "object" ? { initialMemory: payload.initialMemory } : {}),
+      });
+      if (ownerPluginId || visibility !== "public" || payload.kind) {
+        await engine.updateConfig?.({
+          plugin: {
+            ownerPluginId: ownerPluginId || null,
+            visibility,
+            ...(textOrNull(payload.kind) ? { kind: textOrNull(payload.kind) } : {}),
+          },
+        }, { agentId: result.id });
+        engine.invalidateAgentListCache?.();
+      }
+      if (payload.memoryPolicy && typeof payload.memoryPolicy === "object") {
+        await engine.updateConfig?.({
+          memory: { enabled: payload.memoryPolicy.enabled !== false },
+        }, { agentId: result.id });
+      }
+      const createdAgent = engine.getAgent?.(result.id);
+      return {
+        agent: {
+          id: result.id,
+          name: result.name,
+          ownerPluginId: ownerPluginId || null,
+          visibility,
+          profile: createdAgent ? publicAgentProfile(createdAgent) : null,
+        },
+      };
+    }));
+
+    this._sessionHandlerCleanups.push(bus.handle("agent:update", async ({
+      agentId,
+      name,
+      yuan,
+      visibility,
+      ownerPluginId,
+      kind,
+      memoryPolicy,
+      toolPolicy,
+      config,
+    }: any = {}) => {
+      if (!agentId) throw new Error("agentId is required");
+      const partial: any = {};
+      if (name !== undefined || yuan !== undefined) {
+        partial.agent = {
+          ...(name !== undefined ? { name } : {}),
+          ...(yuan !== undefined ? { yuan } : {}),
+        };
+      }
+      if (visibility !== undefined || ownerPluginId !== undefined || kind !== undefined) {
+        partial.plugin = {
+          ...(ownerPluginId !== undefined ? { ownerPluginId: textOrNull(ownerPluginId) } : {}),
+          ...(visibility !== undefined ? { visibility: textOrNull(visibility) || "public" } : {}),
+          ...(kind !== undefined ? { kind: textOrNull(kind) } : {}),
+        };
+      }
+      if (memoryPolicy && typeof memoryPolicy === "object") {
+        partial.memory = { enabled: memoryPolicy.enabled !== false };
+      }
+      if (toolPolicy && typeof toolPolicy === "object") {
+        partial.tools = {
+          ...(Array.isArray(toolPolicy.disabled) ? { disabled: toolPolicy.disabled } : {}),
+        };
+      }
+      if (config && typeof config === "object") {
+        Object.assign(partial, config);
+      }
+      await engine.updateConfig?.(partial, { agentId });
+      engine.invalidateAgentListCache?.();
+      const agent = engine.getAgent?.(agentId);
+      return { ok: true, agent: agent ? publicAgentProfile(agent) : { id: agentId } };
     }));
 
     // ── provider & agent handlers ──
@@ -533,6 +754,33 @@ export class Hub {
       }
     }));
 
+    this._sessionHandlerCleanups.push(bus.handle("media:generate-image", async (payload: any = {}) => {
+      const sessionPath = textOrNull(payload.sessionPath);
+      if (!sessionPath) throw new Error("sessionPath is required");
+      const input = payload.input && typeof payload.input === "object"
+        ? payload.input
+        : {
+          prompt: payload.prompt,
+          count: payload.count,
+          image: payload.image,
+          ratio: payload.ratio,
+          resolution: payload.resolution,
+          quality: payload.quality,
+          model: payload.model,
+          provider: payload.provider,
+        };
+      if (!textOrNull(input.prompt)) throw new Error("prompt is required");
+      return bus.request("media-gen:submit-image", {
+        input,
+        sessionPath,
+        metadata: {
+          ...(payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {}),
+          ...(textOrNull(payload.pluginId) ? { pluginId: textOrNull(payload.pluginId) } : {}),
+        },
+        ...(payload.deliveryTarget !== undefined ? { deliveryTarget: payload.deliveryTarget } : {}),
+      });
+    }));
+
     this._sessionHandlerCleanups.push(bus.handle("provider:add-media-model", async ({
       providerId,
       capability = "image_generation",
@@ -596,6 +844,55 @@ function matchesAgentPhoneAbortFilter( meta: any = {}, filter = null) {
     if (meta?.[key] !== value) return false;
   }
   return true;
+}
+
+function textOrNull(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function resolveRequestedModel(engine, raw) {
+  if (!raw) return undefined;
+  const models = engine?.availableModels || engine?._models?.availableModels || engine?.models?.availableModels || [];
+  if (typeof raw === "string") {
+    const model = models.find((item) => item?.id === raw || item?.modelId === raw);
+    if (!model) throw new Error(`model not found: ${raw}`);
+    return model;
+  }
+  if (raw && typeof raw === "object") {
+    const id = raw.id || raw.modelId || raw.model;
+    const provider = raw.provider || raw.providerId;
+    if (!id) throw new Error("model.id is required");
+    const model = provider
+      ? findModel(models, id, provider)
+      : models.find((item) => item?.id === id || item?.modelId === id);
+    if (!model) throw new Error(`model not found: ${provider ? `${provider}/` : ""}${id}`);
+    return model;
+  }
+  throw new Error("model must be a string or { id, provider } object");
+}
+
+function publicAgentProfile(agent) {
+  const config = agent?.config || {};
+  const plugin = config.plugin && typeof config.plugin === "object" ? config.plugin : {};
+  return {
+    id: agent?.id || null,
+    name: agent?.agentName || config.agent?.name || agent?.name || agent?.id || null,
+    yuan: config.agent?.yuan || "hanako",
+    ownerPluginId: plugin.ownerPluginId || null,
+    visibility: plugin.visibility || "public",
+    identity: agent?.personality || agent?.identity || "",
+    description: agent?.descriptionSource || "",
+    memoryPolicy: {
+      enabled: agent?.memoryMasterEnabled !== false,
+    },
+    experiencePolicy: {
+      enabled: agent?.experienceEnabled === true,
+    },
+    toolPolicy: {
+      disabled: Array.isArray(config.tools?.disabled) ? [...config.tools.disabled] : [],
+    },
+    models: config.models || {},
+  };
 }
 
 function resolveAgentForBus(engine, agentId) {

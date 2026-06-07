@@ -4,7 +4,7 @@
 
 import type { ChatListItem, ChatMessage, ContentBlock, SessionMessages, SessionModel, SessionRegistryFile } from './chat-types';
 import { invalidateSessionCache } from './selectors/file-refs';
-import { invalidateStreamBuffer } from './stream-invalidator';
+import { invalidateStreamBuffer, invalidateStreamResumeMeta } from './stream-invalidator';
 import { clearMessageLiveVersion } from './message-live-version';
 
 export interface ChatSlice {
@@ -76,6 +76,7 @@ export const createChatSlice = (
         delete scrollPositions[oldest];
         invalidateSessionCache(oldest);
         invalidateStreamBuffer(oldest);
+        invalidateStreamResumeMeta(oldest);
       }
     }
     return { chatSessions: sessions, sessionRegistryFilesByPath: registryFiles, scrollPositions };
@@ -180,6 +181,7 @@ export const createChatSlice = (
       const items = latest.items.slice(0, latestIdx);
       invalidateSessionCache(path);
       invalidateStreamBuffer(path);
+      invalidateStreamResumeMeta(path);
       return {
         chatSessions: {
           ...s.chatSessions,
@@ -212,6 +214,7 @@ export const createChatSlice = (
       }
 
       let insertAt = items.length;
+      let foundAnchor = !taskId;
       for (let i = items.length - 1; i >= 0; i--) {
         const item = items[i];
         if (item.type !== 'message' || item.data.role !== 'assistant') continue;
@@ -222,11 +225,14 @@ export const createChatSlice = (
         const blockIdx = blocks.findIndex((existing) => isInterludeResultAnchorBlock(existing, taskId));
         if (blockIdx < 0) continue;
 
+        foundAnchor = true;
         insertAt = shouldPlaceInterludeBeforeAnchor(blocks[blockIdx])
           ? i
           : insertAfterAssistantRun(items, i);
         break;
       }
+
+      if (!foundAnchor) return {};
 
       items.splice(insertAt, 0, { type: 'interlude', id: block.id, data: block });
       consumed = true;
@@ -396,6 +402,7 @@ export const createChatSlice = (
     // FileRef 缓存和 streamBuffer 都绑定 session 生命周期，归属方主动清
     invalidateSessionCache(path);
     invalidateStreamBuffer(path);
+    invalidateStreamResumeMeta(path);
     clearMessageLiveVersion(path);
     return {
       chatSessions: sessions,

@@ -58,11 +58,11 @@ describe("OPTIONAL_TOOL_NAMES frontend/backend drift", () => {
     const src = readFileSync(tsxPath, "utf8");
 
     const match = src.match(
-      /disabled=\{settingsConfig\?\.tools\?\.disabled\s*\?\?\s*\[([\s\S]*?)\]\}/
+      /disabled=\{settingsConfig\s*\?\s*settingsConfig\.tools\?\.disabled\s*\?\?\s*\[([\s\S]*?)\]\s*:\s*undefined\}/
     );
     expect(
       match,
-      "Could not find the default-disabled inline list in AgentTab.tsx"
+      "Could not find the config-loaded default-disabled inline list in AgentTab.tsx"
     ).toBeTruthy();
 
     const names = [...match[1].matchAll(/["']([^"']+)["']/g)].map((m) => m[1]);

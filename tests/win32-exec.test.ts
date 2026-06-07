@@ -1,12 +1,11 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const spawnAndStream = vi.fn(async () => ({ exitCode: 0 }));
+const spawnAndStream = vi.fn<(...args: any[]) => Promise<{ exitCode: number }>>(async () => ({ exitCode: 0 }));
 const classifyWin32Command = vi.fn();
-const prepareSandboxRuntime = vi.fn((runtimeInfo) => runtimeInfo);
-const existsSync = vi.fn(() => false);
+const prepareSandboxRuntime = vi.fn<(...args: any[]) => any>((runtimeInfo) => runtimeInfo);
+const existsSync = vi.fn<(...args: any[]) => boolean>(() => false);
 const mkdirSync = vi.fn();
-const spawnSync = vi.fn(() => ({ status: 1, stdout: "", stderr: "" }));
+const spawnSync = vi.fn<(...args: any[]) => { status: number; stdout: string; stderr: string }>(() => ({ status: 1, stdout: "", stderr: "" }));
 const systemCmdExe = "C:\\Windows\\System32\\cmd.exe";
 
 vi.mock("../lib/sandbox/exec-helper.js", () => ({
@@ -1233,6 +1232,55 @@ describe("createWin32Exec", () => {
     expect(diagnostic).toContain("Route: runner=cmd reason=cmd-builtin mode=sandbox-helper sandbox=true");
     expect(diagnostic).toContain(`Helper: ${helper}`);
     expect(diagnostic).toContain("HANA_HOME: <HANA_HOME>");
+    expect(diagnostic).not.toContain("C:\\Users\\Hana");
+    expect(spawnAndStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits helper launch diagnostics for sandbox CreateProcessAsUserW failures", async () => {
+    classifyWin32Command.mockReturnValue({ runner: "cmd", reason: "cmd-builtin" });
+    const helper = "C:\\Hanako\\resources\\sandbox\\windows\\hana-win-sandbox.exe";
+    existsSync.mockImplementation((p) => p === helper);
+    spawnAndStream.mockImplementationOnce(async (_cmd, _args, opts) => {
+      opts.onData(Buffer.from([
+        "hana-win-sandbox: CreateProcessAsUserW failed: Access is denied.",
+        "hana-win-sandbox: launch-failure error=\"5\" errorHex=\"0x00000005\"",
+        "hana-win-sandbox: launch-failure-context executable=\"C:\\Windows\\System32\\cmd.exe\" cwd=\"C:\\work\\project\" commandLine=\"cmd.exe /c dir\"",
+      ].join("\n")));
+      return { exitCode: 1 };
+    });
+    const chunks = [];
+    const createWin32Exec = await loadExecFactory();
+    const exec = createWin32Exec({
+      sandbox: {
+        helperPath: helper,
+        hanakoHome: "C:\\Users\\Hana\\.hanako",
+        grants: {
+          readPaths: [],
+          writePaths: ["C:\\work\\project"],
+        },
+      },
+    });
+
+    const result = await exec("dir", "C:\\work\\project", {
+      onData: (data) => chunks.push(String(data)),
+      signal: undefined,
+      timeout: 5,
+      env: {
+        PATH: "C:\\Windows\\System32",
+        COMSPEC: systemCmdExe,
+        SystemRoot: "C:\\Windows",
+        HANA_HOME: "C:\\Users\\Hana\\.hanako",
+        USERPROFILE: "C:\\Users\\Hana",
+      },
+    });
+
+    expect(result.exitCode).toBe(1);
+    const diagnostic = chunks.join("");
+    expect(diagnostic).toContain("CreateProcessAsUserW failed");
+    expect(diagnostic).toContain("[win32-exec] sandbox helper launch failed before command execution");
+    expect(diagnostic).toContain("Route: runner=cmd reason=cmd-builtin mode=sandbox-helper sandbox=true");
+    expect(diagnostic).toContain("Native helper reported CreateProcessAsUserW failure");
+    expect(diagnostic).toContain("Helper: C:\\Hanako\\resources\\sandbox\\windows\\hana-win-sandbox.exe");
     expect(diagnostic).not.toContain("C:\\Users\\Hana");
     expect(spawnAndStream).toHaveBeenCalledTimes(1);
   });

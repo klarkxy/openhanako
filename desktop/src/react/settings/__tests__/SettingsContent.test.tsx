@@ -10,6 +10,7 @@ vi.mock('../actions', () => ({
   loadAgents: vi.fn(async () => {}),
   loadAvatars: vi.fn(async () => {}),
   loadSettingsConfig: vi.fn(async () => {}),
+  loadSettingsSnapshot: vi.fn(async () => {}),
   loadPluginSettings: vi.fn(async () => {}),
 }));
 

@@ -26,6 +26,7 @@ import {
 } from '../../utils/font-presets';
 import { CUSTOM_FONT_STORAGE_KEY } from '../../../shared/theme';
 import type { SystemFontInfo } from '../../types';
+import { readConfigBoolean } from '../resource-state';
 import styles from '../Settings.module.css';
 import registry from '../../../shared/theme-registry';
 
@@ -132,7 +133,7 @@ export function InterfaceTab() {
       label: t(preset.labelKey),
     })),
   ];
-  const hardwareAccelerationEnabled = settingsConfig?.hardware_acceleration !== false;
+  const hardwareAccelerationEnabled = readConfigBoolean(settingsConfig, cfg => cfg.hardware_acceleration, true);
   const voiceShortcutKeys = platformName === 'darwin'
     ? VOICE_RECORD_SHORTCUT_MAC
     : VOICE_RECORD_SHORTCUT_DEFAULT;

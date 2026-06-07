@@ -6,6 +6,7 @@ import {
   createWebSession,
   revokeWebSession,
 } from "../../core/web-session-store.ts";
+import { normalizeAccessProfile, scopesForAccessProfile } from "../../shared/access-scope-profiles.ts";
 
 const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -109,7 +110,8 @@ function authenticatePasswordLogin(c, {
   const runtimeContext = typeof getRuntimeContext === "function" ? getRuntimeContext() : {};
   return {
     kind: "account_user",
-    credentialKind: "password",
+    credentialKind: "user_session",
+    authMethod: "password",
     connectionKind,
     trustState: connectionKind === "custom_remote" ? "tunnel" : connectionKind,
     serverId: runtimeContext?.serverId ?? null,
@@ -118,7 +120,7 @@ function authenticatePasswordLogin(c, {
     studioId: runtimeContext?.studioId ?? null,
     platformAccountId: runtimeContext?.platformAccountId ?? null,
     officialServiceKind: runtimeContext?.officialServiceKind ?? null,
-    scopes: ["chat", "resources.read", "files.read", "files.write"],
+    scopes: scopesForAccessProfile(normalizeAccessProfile(body?.clientKind, "mobile")),
   };
 }
 
@@ -183,6 +185,7 @@ function sanitizePrincipal(principal) {
     credentialId: principal.credentialId || null,
     platformAccountId: principal.platformAccountId || null,
     officialServiceKind: principal.officialServiceKind || null,
+    authMethod: principal.authMethod || null,
     scopes: Array.isArray(principal.scopes) ? [...principal.scopes] : [],
   };
 }

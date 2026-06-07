@@ -120,6 +120,27 @@ describe("Windows sandbox helper build script", () => {
     expect(source).toContain("CreateMutexW");
   });
 
+  it("logs structured launch diagnostics when CreateProcessAsUserW fails", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),
+      "utf8"
+    );
+
+    expect(source).toContain("emitCreateProcessLaunchFailureDiagnostic");
+    expect(source).toContain("hana-win-sandbox: launch-failure");
+    expect(source).toContain("errorHex=");
+    expect(source).toContain("executable=");
+    expect(source).toContain("cwd=");
+    expect(source).toContain("commandLine=");
+    expect(source).toContain("desktop=");
+    expect(source).toContain("flagsHex=");
+    expect(source).toContain("inheritHandles=");
+    expect(source).toContain("inheritedHandleCount=");
+    expect(source).toContain("probeRestrictedDesktopAccess");
+    expect(source).toContain("probeProcessWindowStationName");
+    expect(source).toContain("namedObjectsProbe=");
+  });
+
   it("keeps synthetic writable-root SIDs as the file write ACL grant surface", () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, "../desktop/native/HanaWindowsSandboxHelper/main.cpp"),

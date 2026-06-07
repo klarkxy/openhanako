@@ -22,7 +22,8 @@
  * 纪律：
  *   - 零 pi SDK 改动，全走官方 ExtensionAPI
  *   - 不调用任何私有方法（不碰 _overflowRecoveryAttempted / _runAutoCompaction）
- *   - 失败路径：hook 内部任何异常都 cancel，本项目不回落到 Pi 原生 summarizer
+ *   - 失败路径：auto 模式下 cache-preserving 链路失败时返回 undefined，让 Pi 原生 summarizer 接手；
+ *     显式 cache_preserving 模式仍 cancel，保留严格诊断能力
  */
 
 import { computeHardTruncation, estimatePreparationTokens, truncateTextHeadTail } from "../../core/compaction-utils.ts";
@@ -139,6 +140,11 @@ export function createCompactionGuardExtension(opts: Record<string, any> = {}) {
     }
   }
 
+  function fallBackToPiNative(reason: string) {
+    log.warn(`[L3] cache-preserving compaction unavailable; falling back to Pi SDK native summarizer: ${reason}`);
+    return undefined;
+  }
+
   return function (pi) {
     // ── L1: tool_result 单条硬限 ──
     pi.on("tool_result", (event) => {
@@ -170,6 +176,7 @@ export function createCompactionGuardExtension(opts: Record<string, any> = {}) {
 
     // ── L3: 压缩前预判，必败时走硬截断 ──
     pi.on("session_before_compact", async (event, ctx) => {
+      let allowNativeFallback = false;
       try {
         const preparation = stripInlineMediaFromCompactionPreparation(event?.preparation);
         const model = ctx?.model;
@@ -210,6 +217,7 @@ export function createCompactionGuardExtension(opts: Record<string, any> = {}) {
         }
 
         if (event.signal?.aborted) return { cancel: true };
+        allowNativeFallback = compactionMode === COMPACTION_MODES.AUTO;
 
         let thinkingLevel = normalizeRequestThinkingLevel(readThinkingLevel(ctx), "off");
         let reasoningLevel = typeof thinkingLevel === "string" && thinkingLevel !== "off" ? thinkingLevel : null;
@@ -272,6 +280,9 @@ export function createCompactionGuardExtension(opts: Record<string, any> = {}) {
         const auth = await ctx.modelRegistry?.getApiKeyAndHeaders?.(model);
         if (!auth?.ok || !auth.apiKey) {
           log.warn(`[L3] model auth unavailable for cache-preserving compaction: ${auth?.error || model.id}`);
+          if (allowNativeFallback) {
+            return fallBackToPiNative(`model auth unavailable for cache-preserving compaction: ${auth?.error || model.id}`);
+          }
           return { cancel: true };
         }
         const sessionSnapshot = buildSessionCacheSnapshot
@@ -368,6 +379,9 @@ export function createCompactionGuardExtension(opts: Record<string, any> = {}) {
         );
         return { compaction };
       } catch (err) {
+        if (allowNativeFallback) {
+          return fallBackToPiNative(err?.message || String(err));
+        }
         log.warn(`[L3] session_before_compact hook error (cancelled): ${err?.message || err}`);
         return { cancel: true };
       }

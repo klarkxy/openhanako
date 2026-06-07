@@ -1,4 +1,3 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -86,18 +85,18 @@ describe("SessionCoordinator", () => {
     expect(coordinator._sessions.get(path.join(tempDir, "idle.jsonl")).lastTouchedAt).toBeGreaterThan(1);
   });
 
-  it("applies session memory before creating the agent session", async () => {
-    let sessionMemoryEnabled = true;
+  it("builds the session prompt with path-scoped memory without mutating the agent session flag", async () => {
     const agent = {
       sessionDir: "/tmp/agent-sessions",
-      setMemoryEnabled: vi.fn((enabled) => {
-        sessionMemoryEnabled = !!enabled;
-      }),
-      buildSystemPrompt: () => sessionMemoryEnabled ? "MEMORY ON" : "MEMORY OFF",
+      memoryMasterEnabled: true,
+      sessionMemoryEnabled: true,
+      setMemoryEnabled: vi.fn(),
+      buildSystemPrompt: ({ forceMemoryEnabled }: any = {}) =>
+        forceMemoryEnabled ? "MEMORY ON" : "MEMORY OFF",
     };
 
     const resourceLoader = {
-      getSystemPrompt: () => (sessionMemoryEnabled ? "MEMORY ON" : "MEMORY OFF"),
+      getSystemPrompt: () => "BASE",
     };
 
     const coordinator = new SessionCoordinator({
@@ -127,9 +126,107 @@ describe("SessionCoordinator", () => {
 
     await coordinator.createSession(null, "/tmp/workspace", false);
 
-    expect(agent.setMemoryEnabled).toHaveBeenCalledWith(false);
+    expect(agent.setMemoryEnabled).not.toHaveBeenCalled();
     expect(createAgentSessionMock).toHaveBeenCalledOnce();
     expect(createAgentSessionMock.mock.calls[0][0].resourceLoader.getSystemPrompt()).toBe("MEMORY OFF");
+  });
+
+  it("keeps different cached session memory flags without mutating the agent session flag on switch", async () => {
+    const agentDir = path.join(tempDir, "agents", "hana");
+    const sessionDir = path.join(agentDir, "sessions");
+    const firstSessionPath = path.join(sessionDir, "memory-on.jsonl");
+    const secondSessionPath = path.join(sessionDir, "memory-off.jsonl");
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    const agent = {
+      id: "hana",
+      agentDir,
+      sessionDir,
+      memoryMasterEnabled: true,
+      sessionMemoryEnabled: true,
+      config: { tools: {} },
+      setMemoryEnabled: vi.fn(),
+      getToolsSnapshot: vi.fn(({ forceMemoryEnabled }: any = {}) =>
+        forceMemoryEnabled ? [{ name: "search_memory" }] : [{ name: "todo_write" }],
+      ),
+      buildSystemPrompt: vi.fn(({ forceMemoryEnabled }: any = {}) =>
+        forceMemoryEnabled ? "MEMORY ON" : "MEMORY OFF",
+      ),
+      tools: [],
+      _memoryTicker: { notifySessionEnd: vi.fn(async () => undefined) },
+    };
+    const model = { id: "m", provider: "test", name: "M" };
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: model,
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: (level) => level,
+      }),
+      getResourceLoader: () => ({
+        getSystemPrompt: () => "BASE",
+        getAppendSystemPrompt: () => [],
+        getExtensions: () => ({ extensions: [], errors: [] }),
+        getSkills: () => ({ skills: [], diagnostics: [] }),
+        getAgentsFiles: () => ({ agentsFiles: [] }),
+      }),
+      getSkills: () => null,
+      buildTools: (_cwd, customTools) => ({ tools: [], customTools }),
+      emitEvent: vi.fn(),
+      getHomeCwd: () => tempDir,
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map([["hana", agent]]),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [],
+    });
+
+    sessionManagerCreateMock
+      .mockReturnValueOnce({ getCwd: () => tempDir, getSessionFile: () => firstSessionPath })
+      .mockReturnValueOnce({ getCwd: () => tempDir, getSessionFile: () => secondSessionPath });
+    createAgentSessionMock
+      .mockResolvedValueOnce({
+        session: {
+          sessionManager: { getSessionFile: () => firstSessionPath, getCwd: () => tempDir },
+          subscribe: vi.fn(() => vi.fn()),
+          setActiveToolsByName: vi.fn(),
+          isStreaming: false,
+          isCompacting: false,
+          model,
+        },
+      })
+      .mockResolvedValueOnce({
+        session: {
+          sessionManager: { getSessionFile: () => secondSessionPath, getCwd: () => tempDir },
+          subscribe: vi.fn(() => vi.fn()),
+          setActiveToolsByName: vi.fn(),
+          isStreaming: false,
+          isCompacting: false,
+          model,
+        },
+      });
+
+    await coordinator.createSession(null, tempDir, true);
+    await coordinator.createSession(null, tempDir, false);
+    agent.setMemoryEnabled.mockClear();
+
+    await coordinator.switchSession(firstSessionPath);
+    expect(coordinator.getSessionMemoryEnabled(firstSessionPath)).toBe(true);
+    expect(coordinator.getSessionMemoryEnabled(secondSessionPath)).toBe(false);
+    expect(agent.setMemoryEnabled).not.toHaveBeenCalled();
+    expect(agent.sessionMemoryEnabled).toBe(true);
+
+    await coordinator.switchSession(secondSessionPath);
+    expect(coordinator.getSessionMemoryEnabled(firstSessionPath)).toBe(true);
+    expect(coordinator.getSessionMemoryEnabled(secondSessionPath)).toBe(false);
+    expect(agent.setMemoryEnabled).not.toHaveBeenCalled();
+    expect(agent.sessionMemoryEnabled).toBe(true);
   });
 
   it("uses explicit new-session thinking without changing the global default", async () => {
@@ -395,7 +492,7 @@ describe("SessionCoordinator", () => {
 
     const noDescriptionSessionPath = path.join(sessionDir, "deepseek-experiment-no-description.jsonl");
     fs.rmSync(path.join(agentDir, "description.md"), { force: true });
-    agent.config.agent = { description: "不应替代花名册简介" };
+    (agent.config as any).agent = { description: "不应替代花名册简介" };
     prefs.getExperimentValue.mockImplementation((id) => (
       id === DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID ? true : undefined
     ));
@@ -515,10 +612,10 @@ describe("SessionCoordinator", () => {
       authorizedFolders: [authorizedFolder],
     });
 
-    const buildOpts = buildTools.mock.calls[0][2];
-    expect(buildOpts.workspaceFolders).toEqual([workspaceFolder]);
-    expect(buildOpts.authorizedFolders).toEqual([authorizedFolder]);
-    expect(buildOpts.getAuthorizedFolders()).toEqual([authorizedFolder]);
+    const buildOpts = (buildTools.mock.calls as any)[0][2];
+    expect(buildOpts!.workspaceFolders).toEqual([workspaceFolder]);
+    expect(buildOpts!.authorizedFolders).toEqual([authorizedFolder]);
+    expect(buildOpts!.getAuthorizedFolders()).toEqual([authorizedFolder]);
     expect(coordinator.getSessionAuthorizedFolders(sessionPath)).toEqual([authorizedFolder]);
     expect(coordinator.getSessionFolderScope(sessionPath)).toMatchObject({
       cwd,
@@ -1029,6 +1126,62 @@ describe("SessionCoordinator", () => {
     expect(sessions[0].modified.toISOString()).toBe("2026-05-17T08:02:00.000Z");
   });
 
+  it("passes ownerPluginId through when listing plugin-private sessions", async () => {
+    const agentsDir = path.join(tempDir, "agents");
+    const sessionDir = path.join(agentsDir, "plugin-agent", "sessions");
+    const sessionPath = path.join(sessionDir, "tavern.jsonl");
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    const listAgents = vi.fn((options: any = {}) => (
+      options.ownerPluginId === "tavern"
+        ? [{ id: "plugin-agent", name: "Tavern Agent", plugin: { ownerPluginId: "tavern", visibility: "plugin_private" } }]
+        : []
+    ));
+
+    const coordinator = Object.create(SessionCoordinator.prototype);
+    coordinator._d = {
+      agentsDir,
+      listAgents,
+      listDeletedAgents: () => [],
+    };
+    coordinator._sessionListProjectionCache = {
+      list: vi.fn(async () => [{
+        path: sessionPath,
+        title: null,
+        firstMessage: "",
+        modified: new Date("2026-06-07T00:00:00.000Z"),
+        messageCount: 0,
+        cwd: "/workspace",
+      }]),
+    };
+    coordinator._loadSessionTitlesFor = vi.fn(async () => ({}));
+    coordinator._readMetaCached = vi.fn(async () => ({
+      [path.basename(sessionPath)]: {
+        plugin: {
+          ownerPluginId: "tavern",
+          kind: "tavern",
+          visibility: "plugin_private",
+        },
+      },
+    }));
+    coordinator._sessions = new Map();
+    coordinator._prePromptAbortControllers = new Map();
+    coordinator._currentSessionPath = null;
+    coordinator._sessionStarted = false;
+
+    const sessions = await coordinator.listSessions({ ownerPluginId: "tavern" });
+
+    expect(listAgents).toHaveBeenCalledWith(expect.objectContaining({ ownerPluginId: "tavern" }));
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      path: sessionPath,
+      agentId: "plugin-agent",
+      ownerPluginId: "tavern",
+      sessionKind: "tavern",
+      visibility: "plugin_private",
+    });
+  });
+
   it("lists user-created pending sessions before their JSONL projection exists", async () => {
     const agentsDir = path.join(tempDir, "agents");
     const sessionDir = path.join(agentsDir, "hana", "sessions");
@@ -1345,7 +1498,7 @@ describe("SessionCoordinator", () => {
       experienceEnabled: false,
       setMemoryEnabled: vi.fn(),
       buildSystemPrompt: () => "BASE",
-      getToolsSnapshot: vi.fn((options = {}) => [
+      getToolsSnapshot: vi.fn(( options: any = {}) => [
         { name: "stage_files" },
         ...(options.includeLegacyArtifactTool ? [{ name: "create_artifact" }] : []),
       ]),
@@ -2386,13 +2539,13 @@ describe("SessionCoordinator", () => {
       setMemoryEnabled: vi.fn((enabled) => {
         sessionMemoryEnabled = !!enabled;
       }),
-      getToolsSnapshot: vi.fn(({ forceMemoryEnabled } = {}) =>
+      getToolsSnapshot: vi.fn(({ forceMemoryEnabled }: any = {}) =>
         forceMemoryEnabled ? [{ name: "search_memory" }] : [{ name: "todo_write" }],
       ),
-      buildSystemPrompt: vi.fn(({ forceMemoryEnabled } = {}) =>
+      buildSystemPrompt: vi.fn(({ forceMemoryEnabled }: any = {}) =>
         forceMemoryEnabled ? "MEMORY ON" : "MEMORY OFF",
       ),
-      buildMemoryReflectionSnapshot: vi.fn(({ forceMemoryEnabled } = {}) => ({
+      buildMemoryReflectionSnapshot: vi.fn(({ forceMemoryEnabled }: any = {}) => ({
         version: 1,
         agentName: "Hana",
         userName: "测试用户",
@@ -2536,13 +2689,13 @@ describe("SessionCoordinator", () => {
 
     await coordinator.createSession(null, "/tmp/workspace", true);
 
-    await expect(session.agent.streamFn(model, {
+    await expect((session.agent.streamFn as any)(model, {
       systemPrompt: "FINAL CACHE PREFIX",
       tools: [readTool, bashTool],
       messages: [{ role: "user", content: "hello" }],
     }, {})).resolves.toBe("ok");
 
-    await expect(session.agent.streamFn(model, {
+    await expect((session.agent.streamFn as any)(model, {
       systemPrompt: "MUTATED CACHE PREFIX",
       tools: [readTool, bashTool],
       messages: [
@@ -2635,7 +2788,7 @@ describe("SessionCoordinator", () => {
     await coordinator.createSession(null, "/tmp/workspace", true);
     await coordinator.switchSessionModel(sessionFile, nextModel);
 
-    await expect(session.agent.streamFn(nextModel, {
+    await expect((session.agent.streamFn as any)(nextModel, {
       systemPrompt: "FINAL CACHE PREFIX",
       tools: [readTool],
       messages: [{ role: "user", content: "hello" }],
@@ -2769,7 +2922,7 @@ describe("SessionCoordinator", () => {
     const resumeFile = path.join(tempDir, "reuse-instance.jsonl");
     fs.writeFileSync(resumeFile, '{"type":"user","content":"hi"}\n');
     const piSdk = await import("../lib/pi-sdk/index.ts");
-    piSdk.SessionManager.open.mockReturnValue({ getCwd: () => tempDir, getSessionFile: () => resumeFile });
+    (piSdk.SessionManager.open as any).mockReturnValue({ getCwd: () => tempDir, getSessionFile: () => resumeFile });
     createAgentSessionMock.mockResolvedValue({
       session: { sessionManager: { getSessionFile: () => resumeFile }, subscribe: vi.fn(() => vi.fn()), abort: vi.fn() },
     });
@@ -2785,7 +2938,7 @@ describe("SessionCoordinator", () => {
     const resumeFile = path.join(tempDir, "reuse-keep.jsonl");
     fs.writeFileSync(resumeFile, '{"type":"user","content":"hi"}\n');
     const piSdk = await import("../lib/pi-sdk/index.ts");
-    piSdk.SessionManager.open.mockReturnValue({ getCwd: () => tempDir, getSessionFile: () => resumeFile });
+    (piSdk.SessionManager.open as any).mockReturnValue({ getCwd: () => tempDir, getSessionFile: () => resumeFile });
     const controller = new AbortController();
     createAgentSessionMock.mockImplementation(async () => {
       controller.abort();
@@ -2865,7 +3018,7 @@ describe("SessionCoordinator", () => {
     const builtinTool = { name: "read" };
     const plainTool = { name: "plain_custom" };
     const memoryTool = { name: "search_memory" };
-    const getToolsSnapshot = vi.fn(({ forceMemoryEnabled } = {}) => (
+    const getToolsSnapshot = vi.fn(({ forceMemoryEnabled }: any = {}) => (
       forceMemoryEnabled ? [plainTool, memoryTool] : [plainTool]
     ));
     const buildTools = vi.fn((_cwd, customTools) => ({
@@ -2945,7 +3098,7 @@ describe("SessionCoordinator", () => {
     const hasAnyRunningSpy = vi.spyOn(bm, "hasAnyRunning", "get").mockReturnValue(true);
     const isRunningSpy = vi.spyOn(bm, "isRunning").mockImplementation((sp) => sp === sessionFile);
     const setHeadlessSpy = vi.spyOn(bm, "setHeadless").mockImplementation(() => {});
-    const closeBrowserSpy = vi.spyOn(bm, "closeBrowserForSession").mockResolvedValue();
+    const closeBrowserSpy = (vi.spyOn(bm, "closeBrowserForSession").mockResolvedValue as any)();
 
     const agent = {
       id: "hana",
@@ -3451,7 +3604,7 @@ describe("SessionCoordinator", () => {
       memoryMasterEnabled: true,
       config: { models: { chat: { id: "default-model", provider: "test" } } },
       tools: [{ name: "write" }],
-      buildSystemPrompt: vi.fn(({ cwdOverride } = {}) => `SUBAGENT PROMPT ${cwdOverride || "missing"}`),
+      buildSystemPrompt: vi.fn(({ cwdOverride }: any = {}) => `SUBAGENT PROMPT ${cwdOverride || "missing"}`),
     };
 
     sessionManagerCreateMock.mockReturnValue({
@@ -3919,6 +4072,7 @@ describe("SessionCoordinator", () => {
     const confirmStore = { abortBySession: vi.fn() };
     const deferredStore = { clearBySession: vi.fn() };
     const closeTerminalsForSession = vi.fn();
+    const onSessionRuntimeDiscarded = vi.fn();
     const coordinator = new SessionCoordinator({
       agentsDir: path.join(tempDir, "agents"),
       getAgent: () => agent,
@@ -3940,6 +4094,7 @@ describe("SessionCoordinator", () => {
       getConfirmStore: () => confirmStore,
       getDeferredResultStore: () => deferredStore,
       closeTerminalsForSession,
+      onSessionRuntimeDiscarded,
     });
 
     coordinator._sessions.set(livePath, { session, agentId: "hana", unsub });
@@ -3950,6 +4105,7 @@ describe("SessionCoordinator", () => {
 
     await expect(coordinator.discardSessionRuntime(livePath, "archive")).resolves.toBe(true);
     await expect(coordinator.discardSessionRuntime(hibernatedPath, "archive")).resolves.toBe(true);
+    await expect(coordinator.discardSessionRuntime(path.join(agent.sessionDir, "missing.jsonl"), "archive")).resolves.toBe(false);
 
     expect(coordinator._sessions.has(livePath)).toBe(false);
     expect(coordinator._hibernatedSessionMeta.has(hibernatedPath)).toBe(false);
@@ -3963,5 +4119,58 @@ describe("SessionCoordinator", () => {
     expect(deferredStore.clearBySession).toHaveBeenCalledWith(hibernatedPath);
     expect(closeTerminalsForSession).toHaveBeenCalledWith(livePath);
     expect(closeTerminalsForSession).toHaveBeenCalledWith(hibernatedPath);
+    expect(onSessionRuntimeDiscarded).toHaveBeenCalledTimes(2);
+    expect(onSessionRuntimeDiscarded).toHaveBeenNthCalledWith(1, livePath, "archive");
+    expect(onSessionRuntimeDiscarded).toHaveBeenNthCalledWith(2, hibernatedPath, "archive");
+  });
+
+  it("discardSessionRuntime keeps a completed discard successful when the discard hook rejects", async () => {
+    const agent = {
+      id: "hana",
+      agentName: "小花",
+      sessionDir: path.join(tempDir, "agents", "hana", "sessions"),
+    };
+    const hibernatedPath = path.join(agent.sessionDir, "hook-reject.jsonl");
+    fs.mkdirSync(agent.sessionDir, { recursive: true });
+
+    const confirmStore = { abortBySession: vi.fn() };
+    const deferredStore = { clearBySession: vi.fn() };
+    const closeTerminalsForSession = vi.fn();
+    const onSessionRuntimeDiscarded = vi.fn(async () => {
+      throw new Error("cleanup failed");
+    });
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({ authStorage: {}, modelRegistry: {}, resolveThinkingLevel: () => "medium" }),
+      getResourceLoader: () => ({ getSystemPrompt: () => "BASE" }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: () => {},
+      getHomeCwd: () => "/tmp/home",
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [{ id: "hana", name: "小花" }],
+      getConfirmStore: () => confirmStore,
+      getDeferredResultStore: () => deferredStore,
+      closeTerminalsForSession,
+      onSessionRuntimeDiscarded,
+    });
+
+    coordinator._hibernatedSessionMeta.set(hibernatedPath, { agentId: "hana" });
+
+    await expect(coordinator.discardSessionRuntime(hibernatedPath, "archive")).resolves.toBe(true);
+
+    expect(coordinator._hibernatedSessionMeta.has(hibernatedPath)).toBe(false);
+    expect(confirmStore.abortBySession).toHaveBeenCalledWith(hibernatedPath);
+    expect(deferredStore.clearBySession).toHaveBeenCalledWith(hibernatedPath);
+    expect(closeTerminalsForSession).toHaveBeenCalledWith(hibernatedPath);
+    expect(onSessionRuntimeDiscarded).toHaveBeenCalledWith(hibernatedPath, "archive");
   });
 });

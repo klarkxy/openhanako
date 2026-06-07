@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const originalPlatform = process.platform;
+const describeUnlessWindows = process.platform === "win32" ? describe.skip : describe;
 
 async function importToolWrapperAsWin32() {
   Object.defineProperty(process, "platform", { value: "win32" });
@@ -69,7 +70,7 @@ describe("wrapBashTool Windows PathGuard preflight", () => {
   });
 });
 
-describe("wrapBashTool POSIX redirection preflight", () => {
+describeUnlessWindows("wrapBashTool POSIX redirection preflight", () => {
   it("allows redirection to the POSIX null device without treating it as a workspace write", async () => {
     const { wrapBashTool } = await import("../lib/sandbox/tool-wrapper.ts");
     const tool = { execute: vi.fn(async () => ({ content: [{ type: "text", text: "ok" }] })) };
@@ -227,7 +228,11 @@ describe("sandbox wrapper dynamic external read grants", () => {
         command: `cat "${externalFile}"`,
       });
 
-      expect(guard.check).toHaveBeenCalledWith(externalFile, "read");
+      if (process.platform === "win32") {
+        expect(guard.check).not.toHaveBeenCalled();
+      } else {
+        expect(guard.check).toHaveBeenCalledWith(externalFile, "read");
+      }
       expect(tool.execute).toHaveBeenCalledOnce();
       expect(result.content[0].text).toBe("ok");
     } finally {

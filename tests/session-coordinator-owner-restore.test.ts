@@ -1,4 +1,3 @@
-// @ts-nocheck
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -37,10 +36,10 @@ vi.mock("../lib/debug-log.js", () => ({
 }));
 
 vi.mock("../core/session-inline-media-prune.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal() as any;
   return {
     ...actual,
-    repairSessionInlineMediaEntriesInFile: (...args) => repairInlineMediaMock(...args),
+    repairSessionInlineMediaEntriesInFile: (...args: any[]) => repairInlineMediaMock(...args),
   };
 });
 
@@ -64,12 +63,12 @@ function makeAgent({ id, sessionDir, locale = "en", initialMemoryEnabled = true,
     setMemoryEnabled: vi.fn((val) => {
       sessionMemoryEnabled = !!val;
     }),
-    getToolsSnapshot: vi.fn(({ forceMemoryEnabled } = {}) => (
+    getToolsSnapshot: vi.fn(({ forceMemoryEnabled }: any = {}) => (
       (typeof forceMemoryEnabled === "boolean" ? forceMemoryEnabled : (memoryMasterEnabled && sessionMemoryEnabled))
         ? [makeTool(`${id}-tool`), makeTool(`search_memory-${id}`)]
         : [makeTool(`${id}-tool`)]
     )),
-    buildSystemPrompt: vi.fn(({ forceMemoryEnabled } = {}) => {
+    buildSystemPrompt: vi.fn(({ forceMemoryEnabled }: any = {}) => {
       const enabled = typeof forceMemoryEnabled === "boolean"
         ? forceMemoryEnabled
         : (memoryMasterEnabled && sessionMemoryEnabled);
@@ -194,9 +193,7 @@ describe("SessionCoordinator ensureSessionLoaded owner restore", () => {
     expect(capturedCreateOpts.resourceLoader.getSystemPrompt()).toBe("OWNER MEMORY OFF");
     expect(capturedCreateOpts.customTools.map((t) => t.name)).toEqual(["owner-tool"]);
     expect(capturedCreateOpts.resourceLoader.getSkills().skills.map((s) => s.name)).toEqual(["skill-owner"]);
-    expect(ownerAgent.setMemoryEnabled).toHaveBeenCalledTimes(2);
-    expect(ownerAgent.setMemoryEnabled).toHaveBeenNthCalledWith(1, false);
-    expect(ownerAgent.setMemoryEnabled).toHaveBeenNthCalledWith(2, true);
+    expect(ownerAgent.setMemoryEnabled).not.toHaveBeenCalled();
     expect(ownerAgent.sessionMemoryEnabled).toBe(true);
     expect(focusAgent.setMemoryEnabled).not.toHaveBeenCalled();
     expect(coordinator.session).toBe(focusSession);

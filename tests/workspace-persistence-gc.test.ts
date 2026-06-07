@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreferencesManager } from "../core/preferences-manager.ts";
 import { upsertWorkspaceUiState } from "../shared/workspace-ui-state.ts";
 
+/** Match runtime normalizeWorkspacePath: backslash → forward slash for cross-platform persistence */
+const n = (p: string) => p.replace(/\\/g, "/");
+
 describe("workspace persistence GC", () => {
   const tempRoots = [];
 
@@ -50,8 +53,8 @@ describe("workspace persistence GC", () => {
       deskExpandedPaths: ["keep"],
     });
     const stored = JSON.parse(fs.readFileSync(path.join(userDir, "preferences.json"), "utf-8"));
-    expect(stored.workspace_ui_state.workspaces[missingWorkspace]).toBeUndefined();
-    expect(stored.workspace_ui_state.workspaces[existingWorkspace]).toBeDefined();
+    expect(stored.workspace_ui_state.workspaces[n(missingWorkspace)]).toBeUndefined();
+    expect(stored.workspace_ui_state.workspaces[n(existingWorkspace)]).toBeDefined();
   });
 
   it("keeps workspace_ui_state when the root is temporarily inaccessible", () => {
@@ -60,7 +63,7 @@ describe("workspace persistence GC", () => {
     const blockedWorkspace = path.join(root, "blocked");
     const originalStatSync = fs.statSync;
     const statSpy = vi.spyOn(fs, "statSync").mockImplementation((target, ...args) => {
-      if (target === blockedWorkspace) {
+      if (typeof target === "string" && n(path.normalize(target)) === n(path.normalize(blockedWorkspace))) {
         throw Object.assign(new Error("permission denied"), { code: "EACCES" });
       }
       return originalStatSync.call(fs, target, ...args);
@@ -75,8 +78,8 @@ describe("workspace persistence GC", () => {
     expect(manager.getWorkspaceUiState(blockedWorkspace, "electron")).toMatchObject({
       deskExpandedPaths: ["blocked"],
     });
-    expect(statSpy).toHaveBeenCalledWith(blockedWorkspace);
+    expect(statSpy).toHaveBeenCalledWith(n(blockedWorkspace));
     const stored = JSON.parse(fs.readFileSync(path.join(userDir, "preferences.json"), "utf-8"));
-    expect(stored.workspace_ui_state.workspaces[blockedWorkspace]).toBeDefined();
+    expect(stored.workspace_ui_state.workspaces[n(blockedWorkspace)]).toBeDefined();
   });
 });

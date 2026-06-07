@@ -59,6 +59,7 @@ import { createRequestContext } from "../http/boundary.ts";
 import { createModuleLogger } from "../../lib/debug-log.ts";
 import { searchSessions } from "../../lib/search/session-search.ts";
 import { SessionSearchTokenizerUnavailableError } from "../../lib/search/session-search-tokenizer.ts";
+import { MountAwareFileError, MountAwareFileService } from "../../core/mount-aware-file-service.ts";
 
 const log = createModuleLogger("sessions");
 const lifecycleLog = createModuleLogger("sessions/lifecycle");
@@ -96,6 +97,57 @@ function authorizeSessionRoute(requestContext, capability, target) {
   if (requestContext.authPrincipal?.kind === "unknown") return { allowed: true, reason: "legacy_test_context" };
   if (typeof requestContext.authorize !== "function") return { allowed: false, reason: "missing_policy" };
   return requestContext.authorize(capability, target);
+}
+
+function resolveSessionWorkspaceSelection(engine, requestContext, body) {
+  const mountId = typeof body?.workspaceMountId === "string" && body.workspaceMountId.trim()
+    ? body.workspaceMountId.trim()
+    : null;
+  if (!mountId) {
+    return {
+      cwd: typeof body?.cwd === "string" && body.cwd.trim() ? body.cwd : null,
+      mount: null,
+    };
+  }
+  if (typeof body?.cwd === "string" && body.cwd.trim()) {
+    throw routeError("cwd and workspaceMountId cannot be combined", "ambiguous_workspace", 400);
+  }
+  try {
+    const files = new MountAwareFileService({
+      hanakoHome: engine.hanakoHome,
+      defaultRoot: engine.defaultDeskCwd || engine.homeCwd || engine.deskCwd,
+      studioId: requestContext?.studioId || engine.getRuntimeContext?.()?.studioId || null,
+    });
+    const root = files.resolveRoot(mountId);
+    return {
+      cwd: files.resolveDirectory(mountId, ""),
+      mount: {
+        mountId: root.mountId || root.id || mountId,
+        label: root.label || null,
+      },
+    };
+  } catch (err) {
+    if (err instanceof MountAwareFileError) {
+      throw routeError(err.message, err.code, err.status);
+    }
+    throw err;
+  }
+}
+
+function sessionWorkspaceMountFields(engine, sessionPath, fallback = null) {
+  const mount = engine.getSessionWorkspaceMount?.(sessionPath) || fallback || null;
+  if (!mount?.mountId) return {};
+  return {
+    workspaceMountId: mount.mountId,
+    workspaceLabel: mount.label || null,
+  };
+}
+
+function routeError(message, code, status) {
+  const err: any = new Error(message);
+  err.code = code;
+  err.status = status;
+  return err;
 }
 
 const TODO_COMPLETE_MESSAGE =
@@ -461,6 +513,8 @@ export function createSessionsRoute(engine, hub = null) {
           projectId: s.projectId || null,
           modelId: s.modelId || null,
           modelProvider: s.modelProvider || null,
+          workspaceMountId: s.workspaceMountId || null,
+          workspaceLabel: s.workspaceLabel || null,
           permissionMode: typeof engine.getSessionPermissionMode === "function"
             ? engine.getSessionPermissionMode(s.path)
             : engine.permissionMode || null,
@@ -479,7 +533,7 @@ export function createSessionsRoute(engine, hub = null) {
         });
       }));
     } catch (err) {
-      return c.json({ error: err.message }, 500);
+      return c.json({ error: err.message }, err.status || 500);
     }
   });
 
@@ -525,6 +579,8 @@ export function createSessionsRoute(engine, hub = null) {
         projectId: s.projectId || null,
         modelId: s.modelId || null,
         modelProvider: s.modelProvider || null,
+        workspaceMountId: s.workspaceMountId || null,
+        workspaceLabel: s.workspaceLabel || null,
         pinnedAt: s.pinnedAt || null,
         agentDeleted: s.agentDeleted === true,
         readOnlyReason: s.readOnlyReason || (s.agentDeleted === true ? "agent_deleted" : null),
@@ -565,7 +621,7 @@ export function createSessionsRoute(engine, hub = null) {
       const record = getSessionSummaryRecord(sessionPath);
       return c.json(serializeSessionSummaryRecord(record));
     } catch (err) {
-      return c.json({ error: err.message }, 500);
+      return c.json({ error: err.message }, err.status || 500);
     }
   });
 
@@ -596,7 +652,7 @@ export function createSessionsRoute(engine, hub = null) {
       const pinnedAt = await engine.setSessionPinned(sessionPath, pinned);
       return c.json({ ok: true, pinnedAt });
     } catch (err) {
-      return c.json({ error: err.message }, 500);
+      return c.json({ error: err.message, code: err.code || undefined }, err.status || 500);
     }
   });
 
@@ -624,7 +680,7 @@ export function createSessionsRoute(engine, hub = null) {
       }
       return c.json(sessionFolderScopeResponse(engine.getSessionFolderScope?.(sessionPath)));
     } catch (err) {
-      return c.json({ error: err.message }, 500);
+      return c.json({ error: err.message, code: err.code || undefined }, err.status || 500);
     }
   });
 
@@ -1047,7 +1103,9 @@ export function createSessionsRoute(engine, hub = null) {
       });
       if (!auth.allowed) return c.json({ error: "insufficient_scope", reason: auth.reason }, 403);
       const body = await safeJson(c);
-      const { cwd, memoryEnabled, agentId, currentSessionPath: oldSessionPath, thinkingLevel } = body;
+      const { memoryEnabled, agentId, currentSessionPath: oldSessionPath, thinkingLevel } = body;
+      const workspaceSelection = resolveSessionWorkspaceSelection(engine, requestContext, body);
+      const cwd = workspaceSelection.cwd;
       const workspaceFolders = Array.isArray(body.workspaceFolders)
         ? body.workspaceFolders.filter(p => typeof p === "string" && p.trim())
         : [];
@@ -1071,9 +1129,19 @@ export function createSessionsRoute(engine, hub = null) {
         await bm.suspendForSession(oldSessionPath);
       }
 
-      const createOptions: { workspaceFolders: any; visibleInSessionList: boolean; thinkingLevel?: any } = { workspaceFolders, visibleInSessionList: true };
+      const createOptions: {
+        workspaceFolders: any;
+        visibleInSessionList: boolean;
+        thinkingLevel?: any;
+        workspaceMountId?: string;
+        workspaceLabel?: string | null;
+      } = { workspaceFolders, visibleInSessionList: true };
       if (thinkingLevel !== undefined && thinkingLevel !== null) {
         createOptions.thinkingLevel = thinkingLevel;
+      }
+      if (workspaceSelection.mount?.mountId) {
+        createOptions.workspaceMountId = workspaceSelection.mount.mountId;
+        createOptions.workspaceLabel = workspaceSelection.mount.label || null;
       }
       let newSessionPath, newAgentId;
       if (agentId && agentId !== (body.currentAgentId || engine.currentAgentId)) {
@@ -1119,6 +1187,7 @@ export function createSessionsRoute(engine, hub = null) {
         accessMode: engine.accessMode,
         thinkingLevel: normalizeSessionThinkingLevel(engine.getSessionThinkingLevel?.(newSessionPath) || engine.getThinkingLevel?.()),
         memoryModelUnavailableReason: engine.memoryModelUnavailableReason || null,
+        ...sessionWorkspaceMountFields(engine, newSessionPath, workspaceSelection.mount),
       };
       hub?.eventBus?.emit?.({
         type: "session_created",
@@ -1143,13 +1212,25 @@ export function createSessionsRoute(engine, hub = null) {
       }
 
       const body = await safeJson(c);
-      const { cwd, memoryEnabled, agentId, permissionMode, thinkingLevel } = body;
+      const { memoryEnabled, agentId, permissionMode, thinkingLevel } = body;
+      const workspaceSelection = resolveSessionWorkspaceSelection(engine, requestContext, body);
+      const cwd = workspaceSelection.cwd;
       const workspaceFolders = Array.isArray(body.workspaceFolders)
         ? body.workspaceFolders.filter(p => typeof p === "string" && p.trim())
         : [];
       const memFlag = memoryEnabled !== false;
 
-      const detachedOptions: { cwd: any; memoryEnabled: boolean; agentId: string | null; workspaceFolders: any; visibleInSessionList: boolean; permissionMode: any; thinkingLevel?: any } = {
+      const detachedOptions: {
+        cwd: any;
+        memoryEnabled: boolean;
+        agentId: string | null;
+        workspaceFolders: any;
+        visibleInSessionList: boolean;
+        permissionMode: any;
+        thinkingLevel?: any;
+        workspaceMountId?: string;
+        workspaceLabel?: string | null;
+      } = {
         cwd: cwd || undefined,
         memoryEnabled: memFlag,
         agentId: typeof agentId === "string" && agentId.trim() ? agentId.trim() : null,
@@ -1159,6 +1240,10 @@ export function createSessionsRoute(engine, hub = null) {
       };
       if (thinkingLevel !== undefined && thinkingLevel !== null) {
         detachedOptions.thinkingLevel = thinkingLevel;
+      }
+      if (workspaceSelection.mount?.mountId) {
+        detachedOptions.workspaceMountId = workspaceSelection.mount.mountId;
+        detachedOptions.workspaceLabel = workspaceSelection.mount.label || null;
       }
 
       const result = await engine.createDetachedSession(detachedOptions);
@@ -1184,6 +1269,7 @@ export function createSessionsRoute(engine, hub = null) {
         accessMode: resolvedPermissionMode === "read_only" ? "read_only" : "operate",
         thinkingLevel: normalizeSessionThinkingLevel(engine.getSessionThinkingLevel?.(newSessionPath) || engine.getThinkingLevel?.()),
         memoryModelUnavailableReason: engine.memoryModelUnavailableReason || null,
+        ...sessionWorkspaceMountFields(engine, newSessionPath, workspaceSelection.mount),
       };
       hub?.eventBus?.emit?.({
         type: "session_created",
@@ -1288,8 +1374,9 @@ export function createSessionsRoute(engine, hub = null) {
       // 会被全局 gate 混淆。
       // agentId/agentName 已从 sessionPath 解析，不依赖焦点。
       const activeModel = engine.activeSessionModel ?? engine.currentModel;
-      const frozenSessionMemoryEnabled =
-        switchedAgent?.isSessionMemoryEnabledFor?.(sessionPath) ?? engine.memoryEnabled;
+      const frozenSessionMemoryEnabled = typeof engine.getSessionMemoryEnabled === "function"
+        ? engine.getSessionMemoryEnabled(sessionPath)
+        : (switchedAgent?.isSessionMemoryEnabledFor?.(sessionPath) ?? engine.memoryEnabled);
       return c.json({
         ok: true,
         messageCount: session?.messages?.length || 0,
@@ -1302,6 +1389,7 @@ export function createSessionsRoute(engine, hub = null) {
         cwd: engine.cwd,
         workspaceFolders: engine.getSessionWorkspaceFolders?.(sessionPath) || [],
         authorizedFolders: engine.getSessionAuthorizedFolders?.(sessionPath) || [],
+        ...sessionWorkspaceMountFields(engine, sessionPath),
         agentId: switchedAgentId,
         agentName: switchedAgent?.agentName || switchedAgentId,
         browserRunning: bm.isRunning(sessionPath),
