@@ -252,6 +252,72 @@ describe('image-gen media generation', () => {
     }]);
   });
 
+  it('preserves repeated non-replacement file blocks for stage_files delivery history', () => {
+    const blocks = [
+      {
+        type: 'file',
+        afterIndex: 1,
+        fileId: 'sf_doc',
+        filePath: '/tmp/doc.html',
+        label: 'doc.html',
+        ext: 'html',
+      },
+      {
+        type: 'file',
+        afterIndex: 4,
+        fileId: 'sf_doc',
+        filePath: '/tmp/doc.html',
+        label: 'doc.html',
+        ext: 'html',
+      },
+    ];
+
+    expect(resolveMediaGenerationBlocks(blocks)).toEqual(blocks);
+  });
+
+  it('deduplicates only media-generation replacement file blocks', () => {
+    const blocks = [
+      {
+        type: 'media_generation',
+        afterIndex: 1,
+        taskId: 'task-a',
+        kind: 'image',
+        status: 'pending',
+      },
+      {
+        type: 'media_generation',
+        afterIndex: 4,
+        taskId: 'task-b',
+        kind: 'image',
+        status: 'pending',
+      },
+    ];
+    const results = new Map([
+      ['task-a', {
+        status: 'success',
+        result: {
+          sessionFiles: [{ fileId: 'sf_img', filePath: '/tmp/generated.png', label: 'generated.png', ext: 'png' }],
+        },
+      }],
+      ['task-b', {
+        status: 'success',
+        result: {
+          sessionFiles: [{ fileId: 'sf_img', filePath: '/tmp/generated.png', label: 'generated.png', ext: 'png' }],
+        },
+      }],
+    ]);
+
+    expect(resolveMediaGenerationBlocks(blocks, results)).toEqual([{
+      type: 'file',
+      afterIndex: 1,
+      replacesTaskId: 'task-a',
+      fileId: 'sf_img',
+      filePath: '/tmp/generated.png',
+      label: 'generated.png',
+      ext: 'png',
+    }]);
+  });
+
   it('preserves resource links when replacing completed media generation files', () => {
     const resource = {
       schemaVersion: 1,

@@ -1621,6 +1621,86 @@ describe("sessions route", () => {
     })]);
   });
 
+  it("preserves repeated stage_files cards for the same SessionFile in history", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const sessionPath = "/tmp/agents/hana/sessions/repeated-stage.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "first delivery", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "second delivery", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "first delivery" },
+      {
+        role: "toolResult",
+        toolName: "stage_files",
+        details: {
+          files: [
+            { fileId: "sf_doc", filePath: "/workspace/doc.html", label: "doc.html", ext: "html" },
+          ],
+        },
+      },
+      { role: "assistant", content: "second delivery" },
+      {
+        role: "toolResult",
+        toolName: "stage_files",
+        details: {
+          files: [
+            { fileId: "sf_doc", filePath: "/workspace/doc.html", label: "doc.html", ext: "html" },
+          ],
+        },
+      },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: sessionPath,
+      runtimeContext: { studioId: "studio_route" },
+      deferredResults: null,
+      getSessionFile: vi.fn((fileId, options) => {
+        expect(fileId).toBe("sf_doc");
+        expect(options).toEqual({ sessionPath });
+        return {
+          id: "sf_doc",
+          filePath: "/workspace/doc.html",
+          label: "doc.html",
+          ext: "html",
+          mime: "text/html",
+          kind: "document",
+          storageKind: "external",
+          status: "available",
+        };
+      }),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request(`/api/sessions/messages?path=${encodeURIComponent(sessionPath)}`);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.messages).toHaveLength(2);
+    expect(data.blocks).toEqual([
+      expect.objectContaining({
+        type: "file",
+        afterIndex: 0,
+        fileId: "sf_doc",
+        filePath: "/workspace/doc.html",
+        label: "doc.html",
+        status: "available",
+      }),
+      expect.objectContaining({
+        type: "file",
+        afterIndex: 1,
+        fileId: "sf_doc",
+        filePath: "/workspace/doc.html",
+        label: "doc.html",
+        status: "available",
+      }),
+    ]);
+  });
+
   it("hydrates every legacy file block without fileId from the session file sidecar by path", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.ts");
     const msgUtils = await import("../core/message-utils.ts");

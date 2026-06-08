@@ -306,6 +306,7 @@ function mediaGenerationReplacementBlocks(block, result) {
 
 function fileBlockKey(block) {
   if (!block || block.type !== "file") return null;
+  if (!block.replacesTaskId) return null;
   return block.fileId || block.filePath || null;
 }
 
