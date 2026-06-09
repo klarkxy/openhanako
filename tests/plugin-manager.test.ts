@@ -137,6 +137,7 @@ describe("loadAll", () => {
         "beautify_create-cover",
         "beautify_apply-cover-candidate",
         "beautify_get-cover-style-guide",
+        "beautify_get-html-style-guide",
         "beautify_list-capabilities",
         "office_list-capabilities",
         "office_read-document",
