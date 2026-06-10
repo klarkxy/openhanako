@@ -4,6 +4,8 @@ import {
   createSubagentReplyTool,
   createSubagentTool,
 } from "../lib/tools/subagent-tool.ts";
+import { DeferredResultCoordinator } from "../lib/deferred-result-coordinator.ts";
+import { DeferredResultStore } from "../lib/deferred-result-store.ts";
 import { SubagentThreadStore } from "../lib/subagent-thread-store.ts";
 
 // ---- helpers ----------------------------------------------------------------
@@ -282,6 +284,51 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
       );
     });
     expect(mockStore.fail).not.toHaveBeenCalled();
+  });
+
+  it("routes subagent completion through deferred delivery and triggers the parent LLM turn", async () => {
+    const realStore = new (DeferredResultStore as any)();
+    const sessionCoordinator = {
+      deliverCustomMessage: vi.fn(async () => ({ ok: true, mode: "triggerTurn" })),
+      recordCustomEntry: vi.fn(),
+    };
+    const coordinator = new DeferredResultCoordinator({
+      store: realStore,
+      sessionCoordinator,
+      retryIntervalMs: 0,
+      log: { warn: vi.fn(), error: vi.fn(), log: vi.fn() } as any,
+    });
+    coordinator.start();
+    const tool = createSubagentTool(makeDeps({
+      getDeferredStore: () => realStore,
+      executeIsolated: makeExecuteIsolated({
+        replyText: "子任务完成，主任务可以继续。",
+        error: null,
+        sessionPath: "/test/child.jsonl",
+        stopReason: "stop",
+      } as any),
+    }));
+
+    try {
+      const result = await tool.execute("call_1", { task: "完成子任务后让主 agent 继续" }, null, null, mockCtx());
+      const { taskId } = result.details as any;
+
+      await vi.waitFor(() => {
+        expect(sessionCoordinator.deliverCustomMessage).toHaveBeenCalledWith(
+          "/test/session.jsonl",
+          expect.objectContaining({
+            customType: "hana-background-result",
+            display: false,
+            content: expect.stringContaining(`task-id="${taskId}"`),
+          }),
+          { triggerTurn: true },
+        );
+      });
+      expect(realStore.query(taskId)).toMatchObject({ delivered: true });
+    } finally {
+      coordinator.dispose();
+      realStore.dispose();
+    }
   });
 
   it("inherits cwd and parent session identity from the tool execution ctx", async () => {
