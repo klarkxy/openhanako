@@ -40,6 +40,22 @@ export interface DesktopNotificationOptions {
 
 export type SessionPermissionMode = 'auto' | 'operate' | 'ask' | 'read_only';
 
+/**
+ * #1624：服务端在 session restore 时算好的"工具能力有更新"提示数据
+ * （冻结快照 vs 当前 agent 配置）。前端只消费，不自行计算。
+ */
+export interface SessionCapabilityDrift {
+  version: number;
+  /** 当前 live 配置的能力 fingerprint（dismiss 时回传） */
+  fingerprint: string;
+  frozenFingerprint: string;
+  addedToolNames: string[];
+  removedToolNames: string[];
+  invalidToolNames: string[];
+  promptChanged: boolean;
+  hasDrift: boolean;
+}
+
 export interface Session {
   path: string;
   title: string | null;

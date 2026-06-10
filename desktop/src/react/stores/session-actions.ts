@@ -148,6 +148,7 @@ function clearSessionRuntimeCaches(path: string): void {
     const { [path]: _todos, ...todosBySession } = s.todosBySession || {};
     const { [path]: _todosLive, ...todosLiveVersionBySession } = s.todosLiveVersionBySession || {};
     const { [path]: _authorizedFolders, ...sessionAuthorizedFoldersByPath } = s.sessionAuthorizedFoldersByPath || {};
+    const { [path]: _capabilityDrift, ...capabilityDriftBySession } = s.capabilityDriftBySession || {};
     return {
       attachedFilesBySession,
       sessionRegistryFilesByPath,
@@ -162,6 +163,8 @@ function clearSessionRuntimeCaches(path: string): void {
       todosBySession,
       todosLiveVersionBySession,
       sessionAuthorizedFoldersByPath,
+      capabilityDriftBySession,
+      capabilityRefreshingSessions: (s.capabilityRefreshingSessions || []).filter((sessionPath: string) => sessionPath !== path),
       inlineErrors: s.inlineErrors ? { ...s.inlineErrors, [path]: null } : s.inlineErrors,
     };
   });
@@ -552,6 +555,9 @@ export async function switchSession(path: string): Promise<void> {
         contextWindow: data.currentModelContextWindow ?? undefined,
       });
     }
+
+    // #1624：服务端在 restore 时算好的工具能力漂移提示（无漂移 / 已 dismiss → null）
+    useStore.getState().setSessionCapabilityDrift(path, data.capabilityDrift || null);
 
     await requestActiveSessionStreamResume(path, isStreaming);
     if (myVersion !== _switchVersion) return;
@@ -1033,6 +1039,64 @@ export async function pinSession(path: string, pinned: boolean): Promise<boolean
     console.error('[session] pin failed:', err);
     showSidebarToast(window.t(pinned ? 'session.pinFailed' : 'session.unpinFailed'));
     return false;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// #1624 工具能力漂移：dismiss / 显式刷新（fresh compact）
+// ══════════════════════════════════════════════════════
+
+/** 关闭当前 fingerprint 的提示；服务端持久化在 session-meta，指纹再变才重新提示 */
+export async function dismissSessionCapabilityDrift(path: string, fingerprint: string): Promise<boolean> {
+  // 乐观隐藏：dismiss 是低风险操作，失败时恢复提示
+  const prevDrift = useStore.getState().capabilityDriftBySession[path] || null;
+  useStore.getState().setSessionCapabilityDrift(path, null);
+  try {
+    const res = await hanaFetch('/api/sessions/capability-drift/dismiss', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, fingerprint }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || res.statusText);
+    return true;
+  } catch (err) {
+    console.warn('[session] capability drift dismiss failed:', err);
+    useStore.getState().setSessionCapabilityDrift(path, prevDrift);
+    return false;
+  }
+}
+
+/**
+ * 显式刷新 Agent 工具：fresh compact——旧对话压缩成摘要 checkpoint，
+ * 用当前配置重建 prompt/工具快照。成功后重新拉取消息（jsonl 多了 compact 记录）。
+ */
+export async function refreshSessionCapabilities(path: string): Promise<boolean> {
+  const store = useStore.getState();
+  if (store.capabilityRefreshingSessions.includes(path)) return false;
+  store.setSessionCapabilityRefreshing(path, true);
+  try {
+    const res = await hanaFetch('/api/sessions/fresh-compact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+      // Fresh compact runs an LLM summarization over the whole conversation;
+      // long sessions routinely exceed the 30s hanaFetch default. A premature
+      // abort here surfaces a false failure while the server keeps compacting.
+      timeout: 180_000,
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || res.statusText);
+    useStore.getState().setSessionCapabilityDrift(path, data.capabilityDrift || null);
+    await loadMessages(path);
+    return true;
+  } catch (err) {
+    console.error('[session] capability refresh failed:', err);
+    const state = useStore.getState();
+    state.setInlineError?.(path, `${tr('session.capabilityDrift.refreshFailed')}: ${errorMessage(err)}`, 6000);
+    return false;
+  } finally {
+    useStore.getState().setSessionCapabilityRefreshing(path, false);
   }
 }
 

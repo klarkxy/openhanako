@@ -202,7 +202,21 @@
       "daysAgo": "Archived {days} days ago"
     },
     "subagentRunStateUnrecoverable": "Historical sub-session run state is unrecoverable",
-    "subagentLinkUnrecoverable": "Historical sub-session link is unrecoverable"
+    "subagentLinkUnrecoverable": "Historical sub-session link is unrecoverable",
+    "capabilityDrift": {
+      "title": "Tool capabilities have changed",
+      "addedTools": "{count} new tools",
+      "removedTools": "{count} tools no longer available",
+      "promptUpdated": "prompt updated",
+      "separator": ", ",
+      "refreshButton": "Refresh agent tools",
+      "dismissButton": "Dismiss",
+      "confirmText": "Refreshing compacts the old conversation into a summary; details may be lost. Continue?",
+      "confirmButton": "Refresh now",
+      "cancelButton": "Cancel",
+      "refreshing": "Compacting conversation and refreshing tools…",
+      "refreshFailed": "Refresh failed"
+    }
   },
   "common": {
     "on": "On",
@@ -1385,7 +1399,6 @@
       "totalTokens": "Total tokens",
       "cacheRead": "Cache read",
       "cacheHitRate": "Hit rate",
-
       "uncached": "Uncached",
       "modelMix": "Model mix",
       "dailyUsage": "Daily usage",

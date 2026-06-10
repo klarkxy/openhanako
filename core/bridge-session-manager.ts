@@ -41,6 +41,8 @@ import {
 import {
   buildFreshCompactMetaPatch,
   buildFreshCompactSnapshot,
+  getFreshCompactNoopReason,
+  normalizeFreshCompactNoopReason,
   shouldRunFreshCompact,
 } from "../lib/fresh-compact/policy.ts";
 import {
@@ -289,19 +291,6 @@ function warnVisionContextInjection(entry) {
     return;
   }
   log.warn(`vision context injection diagnostic: ${JSON.stringify(entry)}`);
-}
-
-function normalizeFreshCompactNoopReason(reason) {
-  const value = String(reason || "").trim();
-  if (value === "already_compacted" || value === "nothing_to_compact") return value;
-  return null;
-}
-
-function getFreshCompactNoopReason(error) {
-  const message = error?.message || String(error || "");
-  if (message.includes("Already compacted")) return "already_compacted";
-  if (message.includes("Nothing to compact")) return "nothing_to_compact";
-  return null;
 }
 
 function readLastJsonlEntry(filePath) {

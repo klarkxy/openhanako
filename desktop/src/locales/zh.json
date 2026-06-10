@@ -202,7 +202,21 @@
       "daysAgo": "归档于 {days} 天前"
     },
     "subagentRunStateUnrecoverable": "历史子会话运行状态不可恢复",
-    "subagentLinkUnrecoverable": "历史子会话链接不可恢复"
+    "subagentLinkUnrecoverable": "历史子会话链接不可恢复",
+    "capabilityDrift": {
+      "title": "工具能力有更新",
+      "addedTools": "新增 {count} 个工具",
+      "removedTools": "{count} 个工具已失效",
+      "promptUpdated": "提示词有更新",
+      "separator": "、",
+      "refreshButton": "刷新 Agent 工具",
+      "dismissButton": "忽略",
+      "confirmText": "刷新会把旧对话压缩成摘要，细节可能丢失。继续吗？",
+      "confirmButton": "确认刷新",
+      "cancelButton": "取消",
+      "refreshing": "正在压缩对话并刷新工具…",
+      "refreshFailed": "刷新失败"
+    }
   },
   "common": {
     "on": "开",
@@ -1385,7 +1399,6 @@
       "totalTokens": "Tokens",
       "cacheRead": "缓存命中",
       "cacheHitRate": "命中率",
-
       "uncached": "未缓存消耗",
       "modelMix": "模型分布",
       "dailyUsage": "每日用量",

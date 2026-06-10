@@ -194,6 +194,20 @@
       "deleteConfirm": "이 보관 항목을 영구 삭제할까요? 되돌릴 수 없습니다.",
       "deleteFailed": "삭제 실패",
       "daysAgo": "{days}일 전 보관됨"
+    },
+    "capabilityDrift": {
+      "title": "도구 구성이 업데이트되었습니다",
+      "addedTools": "새 도구 {count}개",
+      "removedTools": "도구 {count}개 사용 불가",
+      "promptUpdated": "프롬프트 업데이트됨",
+      "separator": ", ",
+      "refreshButton": "에이전트 도구 새로고침",
+      "dismissButton": "닫기",
+      "confirmText": "새로고침하면 이전 대화가 요약으로 압축되며 세부 내용이 손실될 수 있습니다. 계속할까요?",
+      "confirmButton": "새로고침",
+      "cancelButton": "취소",
+      "refreshing": "대화를 압축하고 도구를 새로고침하는 중…",
+      "refreshFailed": "새로고침 실패"
     }
   },
   "common": {
@@ -1249,7 +1263,6 @@
       "totalTokens": "총 Tokens",
       "cacheRead": "캐시 읽기",
       "cacheHitRate": "히트율",
-
       "uncached": "비캐시 사용",
       "modelMix": "모델 분포",
       "dailyUsage": "일별 사용량",

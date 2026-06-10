@@ -42,6 +42,8 @@ const initialStateFactory = (): MockState => ({
   drafts: {} as Record<string, string>,
   streamingSessions: [] as string[],
   unreadOutputSessionPaths: [] as string[],
+  capabilityDriftBySession: {} as Record<string, unknown>,
+  capabilityRefreshingSessions: [] as string[],
   inlineErrors: {} as Record<string, string | null>,
   addToast: vi.fn(),
   activePanel: null,
@@ -232,6 +234,17 @@ function installStoreMethods() {
     }
   });
   s.setPendingNewSessionPermissionMode = vi.fn((mode: string | null) => { mockState.pendingNewSessionPermissionMode = mode; });
+  s.setSessionCapabilityDrift = vi.fn((path: string, drift: unknown) => {
+    const bySession = mockState.capabilityDriftBySession as Record<string, unknown>;
+    if (drift) bySession[path] = drift;
+    else delete bySession[path];
+  });
+  s.setSessionCapabilityRefreshing = vi.fn((path: string, refreshing: boolean) => {
+    const list = mockState.capabilityRefreshingSessions as string[];
+    mockState.capabilityRefreshingSessions = refreshing
+      ? (list.includes(path) ? list : [...list, path])
+      : list.filter((p) => p !== path);
+  });
   s.setDeskBasePath = vi.fn((path: string) => { mockState.deskBasePath = path; });
   s.setDeskCurrentPath = vi.fn((path: string) => { mockState.deskCurrentPath = path; });
   s.setDeskFiles = vi.fn((files: unknown[]) => { mockState.deskFiles = files; });
@@ -242,7 +255,7 @@ import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { clearChat } from '../../stores/agent-actions';
 import { loadDeskFiles } from '../../stores/desk-actions';
 import { bumpMessageLiveVersion, clearMessageLiveVersion } from '../../stores/message-live-version';
-import { archiveSession, completeSessionTodos, continueDeletedAgentSession, createNewSession, ensureSession, loadMessages, loadSessions, pinSession, reconcileCurrentSessionMessages, switchSession } from '../../stores/session-actions';
+import { archiveSession, completeSessionTodos, continueDeletedAgentSession, createNewSession, dismissSessionCapabilityDrift, ensureSession, loadMessages, loadSessions, pinSession, reconcileCurrentSessionMessages, refreshSessionCapabilities, switchSession } from '../../stores/session-actions';
 import { snapshotStreamBuffer } from '../../stores/stream-invalidator';
 
 const mockFetch = vi.mocked(hanaFetch);
@@ -1654,6 +1667,118 @@ function jsonResponse(body: unknown, ok = true): Response {
       expect(mockFetch).not.toHaveBeenCalledWith(
         `/api/sessions/messages?path=${encodeURIComponent(target)}`,
       );
+    });
+  });
+
+  describe('capability drift actions (#1624)', () => {
+    const target = '/session/drift.jsonl';
+    const drift = {
+      version: 1,
+      fingerprint: 'fp-live',
+      frozenFingerprint: 'fp-frozen',
+      addedToolNames: ['office'],
+      removedToolNames: [],
+      invalidToolNames: [],
+      promptChanged: false,
+      hasDrift: true,
+    };
+
+    it('switchSession hydrates capabilityDrift from the response into the keyed store', async () => {
+      Object.assign(mockState, { sessions: [{ path: target, cwd: '/tmp/work' }] });
+      mockFetch.mockImplementation(async (url: string) => {
+        if (String(url) === '/api/sessions/switch') {
+          return jsonResponse({ ok: true, isStreaming: false, capabilityDrift: drift });
+        }
+        if (String(url).startsWith('/api/sessions/messages')) {
+          return jsonResponse({ messages: [], blocks: [], todos: [], hasMore: false });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+      await switchSession(target);
+
+      expect((mockState.capabilityDriftBySession as Record<string, unknown>)[target]).toEqual(drift);
+    });
+
+    it('switchSession clears stale drift when the response has none', async () => {
+      Object.assign(mockState, {
+        sessions: [{ path: target, cwd: '/tmp/work' }],
+        capabilityDriftBySession: { [target]: drift },
+      });
+      mockFetch.mockImplementation(async (url: string) => {
+        if (String(url) === '/api/sessions/switch') {
+          return jsonResponse({ ok: true, isStreaming: false });
+        }
+        if (String(url).startsWith('/api/sessions/messages')) {
+          return jsonResponse({ messages: [], blocks: [], todos: [], hasMore: false });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+      await switchSession(target);
+
+      expect((mockState.capabilityDriftBySession as Record<string, unknown>)[target]).toBeUndefined();
+    });
+
+    it('dismiss hides optimistically and posts the fingerprint', async () => {
+      Object.assign(mockState, { capabilityDriftBySession: { [target]: drift } });
+      mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+      const ok = await dismissSessionCapabilityDrift(target, 'fp-live');
+
+      expect(ok).toBe(true);
+      expect((mockState.capabilityDriftBySession as Record<string, unknown>)[target]).toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/capability-drift/dismiss', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ path: target, fingerprint: 'fp-live' }),
+      }));
+    });
+
+    it('dismiss restores the notice when the server rejects', async () => {
+      Object.assign(mockState, { capabilityDriftBySession: { [target]: drift } });
+      mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'nope' }, false));
+
+      const ok = await dismissSessionCapabilityDrift(target, 'fp-live');
+
+      expect(ok).toBe(false);
+      expect((mockState.capabilityDriftBySession as Record<string, unknown>)[target]).toEqual(drift);
+    });
+
+    it('refresh marks busy, clears drift on success, and reloads messages', async () => {
+      Object.assign(mockState, { capabilityDriftBySession: { [target]: drift } });
+      const busyDuringRequest: boolean[] = [];
+      mockFetch.mockImplementation(async (url: string) => {
+        if (String(url) === '/api/sessions/fresh-compact') {
+          busyDuringRequest.push((mockState.capabilityRefreshingSessions as string[]).includes(target));
+          return jsonResponse({ ok: true, tokensBefore: 100, tokensAfter: 10, capabilityDrift: null });
+        }
+        if (String(url).startsWith('/api/sessions/messages')) {
+          return jsonResponse({ messages: [], blocks: [], todos: [], hasMore: false });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+      const ok = await refreshSessionCapabilities(target);
+
+      expect(ok).toBe(true);
+      expect(busyDuringRequest).toEqual([true]);
+      expect((mockState.capabilityDriftBySession as Record<string, unknown>)[target]).toBeUndefined();
+      expect((mockState.capabilityRefreshingSessions as string[]).includes(target)).toBe(false);
+      expect(mockFetch).toHaveBeenCalledWith(
+        `/api/sessions/messages?path=${encodeURIComponent(target)}`,
+      );
+    });
+
+    it('refresh failure keeps the notice, surfaces an inline error, and clears busy', async () => {
+      Object.assign(mockState, { capabilityDriftBySession: { [target]: drift } });
+      mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'already compacting' }, false));
+
+      const ok = await refreshSessionCapabilities(target);
+
+      expect(ok).toBe(false);
+      expect((mockState.capabilityDriftBySession as Record<string, unknown>)[target]).toEqual(drift);
+      expect((mockState.capabilityRefreshingSessions as string[]).includes(target)).toBe(false);
+      expect((mockState.inlineErrors as Record<string, string | null>)[target]).toContain('already compacting');
     });
   });
 });
