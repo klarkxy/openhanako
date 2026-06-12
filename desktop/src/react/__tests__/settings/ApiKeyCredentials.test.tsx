@@ -180,6 +180,75 @@ describe('ApiKeyCredentials', () => {
     expect(body).not.toHaveProperty('api_key', 'sk-real-provider-key');
   });
 
+  it('persists edited Kimi API keys on input blur without requiring connection verification', async () => {
+    const onRefresh = vi.fn(async () => {});
+    const { container } = render(
+      <ApiKeyCredentials
+        providerId="kimi-coding"
+        summary={providerSummary({
+          display_name: 'Kimi Coding',
+          base_url: 'https://api.kimi.com/coding',
+          api: 'anthropic-messages',
+          api_key: 'old-kimi-key',
+          has_credentials: true,
+        })}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    const input = await waitFor(() => {
+      const el = container.querySelector('input[type="password"]') as HTMLInputElement | null;
+      expect(el).toHaveValue('old-kimi-key');
+      return el as HTMLInputElement;
+    });
+    fireEvent.change(input, { target: { value: 'new-kimi-key' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => expect(mocks.hanaFetch).toHaveBeenCalledWith(
+      '/api/config',
+      expect.objectContaining({ method: 'PUT' }),
+    ));
+    expect(mocks.hanaFetch).not.toHaveBeenCalledWith(
+      '/api/providers/test',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const configCall = mocks.hanaFetch.mock.calls.find(([path]) => path === '/api/config');
+    expect(JSON.parse(String((configCall?.[1] as RequestInit).body))).toEqual({
+      providers: { 'kimi-coding': { api_key: 'new-kimi-key' } },
+    });
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
+  it('persists an intentionally cleared API key instead of leaving the old provider secret active', async () => {
+    const onRefresh = vi.fn(async () => {});
+    const { container } = render(
+      <ApiKeyCredentials
+        providerId="kimi-coding"
+        summary={providerSummary({
+          display_name: 'Kimi Coding',
+          base_url: 'https://api.kimi.com/coding',
+          api: 'anthropic-messages',
+          api_key: 'old-kimi-key',
+          has_credentials: true,
+        })}
+        onRefresh={onRefresh}
+      />,
+    );
+
+    const input = await waitFor(() => container.querySelector('input[type="password"]') as HTMLInputElement);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => expect(mocks.hanaFetch).toHaveBeenCalledWith(
+      '/api/config',
+      expect.objectContaining({ method: 'PUT' }),
+    ));
+    const configCall = mocks.hanaFetch.mock.calls.find(([path]) => path === '/api/config');
+    expect(JSON.parse(String((configCall?.[1] as RequestInit).body))).toEqual({
+      providers: { 'kimi-coding': { api_key: '' } },
+    });
+  });
+
   it('saves discovered Gemini models during preset setup instead of static defaults', async () => {
     const onRefresh = vi.fn(async () => {});
     mocks.hanaFetch
