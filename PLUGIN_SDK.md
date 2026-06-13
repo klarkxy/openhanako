@@ -30,7 +30,7 @@ Plugin server code is installed and loaded by the Studio server. Plugin iframe a
 - Tool-only plugins usually need only `tools/*.js` and `@hana/plugin-runtime` helpers. They can stay `restricted`.
 - Runtime plugins use `index.js` for lifecycle, EventBus handlers, background tasks, schedules, or dynamic tools. They require `trust: "full-access"`.
 - UI plugins use iframe routes plus `@hana/plugin-sdk` and, for React UI, `@hana/plugin-components`. They require `trust: "full-access"` and explicit `ui.hostCapabilities` grants for host calls such as `external.open` or `clipboard.writeText`.
-- Provider contribution plugins use `providers/*.js` declarations. They require `trust: "full-access"` and should declare `capabilities.chat` separately from `capabilities.media.*` so chat selectors stay clean while image, video, or speech tools discover media providers.
+- Provider contribution plugins use `providers/*.js` declarations. They require `trust: "full-access"` and should declare `capabilities.chat` separately from `capabilities.media.*` so chat selectors stay clean while image, video, or speech tools discover media providers. Provider declarations are the long-term model discovery entrypoint; legacy `media-gen:*` adapter/runtime events remain compatibility-only for older image generation plugins.
 - Pi SDK extension plugins use `extensions/*.js` factories. They require `trust: "full-access"` because they run inside the LLM request pipeline. Hana reloads idle sessions after full-access plugin install/enable/reload so existing chats can pick up new extension handlers without requiring an app restart; busy sessions are not reloaded and will retain old extension handlers until the session is naturally rebuilt.
 - Marketplace metadata lives outside the app repo in `OH-Plugins`, the official community plugin catalog. The app reads the generated catalog URL by default, installs `distribution.kind = "release"` entries by downloading the zip package and verifying `sha256`, and keeps `distribution.kind = "source"` for local file marketplace development only. `versions[]` lets the catalog keep multiple SemVer releases; Hana selects the highest app-compatible version, blocks implicit downgrades, backs up old installs, and records successful installs in `${HANA_HOME}/plugin-installs.json`. `readmePath` is resolved relative to the catalog when the official URL is used.
 
@@ -285,6 +285,13 @@ const provider = defineProvider({
 
 export const { id, displayName, authType, runtime, capabilities } = provider;
 ```
+
+Provider declarations own model discovery and capability metadata. Media adapters own protocol execution. A plugin that only calls legacy `media-gen:register-adapter` can still provide an executor during the compatibility window, but it should also contribute a ProviderPlugin with `capabilities.media.*`; otherwise the model will not appear in provider settings, default media model selectors, or `listMediaProviders()`.
+
+Migration rule for older image-generation plugins:
+
+- `providers/*.js` with image capability: keep the provider entrypoint and add/verify `capabilities.media.imageGeneration.models[].protocolId`.
+- Adapter-only `media-gen:*` plugin: add a ProviderPlugin declaration, then keep the adapter registration only as the execution layer until a stable Adapter Plugin API replaces the compatibility namespace.
 
 CLI-backed providers must use structured argument bindings. Avoid shell command strings; the host runtime validates the contract and runs local commands through non-shell execution.
 
