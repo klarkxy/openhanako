@@ -2660,7 +2660,6 @@ body.resizing .channel-inspector-rail {
     min-height: 0;       /* 关键：允许 flex 项被约束，overflow-y 才能生效 */
     overflow-y: auto;
     padding: var(--space-sm) var(--space-lg);
-    scroll-behavior: smooth;
 }
 
 .channel-messages > * {
