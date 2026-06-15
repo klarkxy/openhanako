@@ -59,6 +59,13 @@ function readLocalProviderManifest(providerId) {
   ));
 }
 
+function readOnlyLocalProviderPluginDir() {
+  const root = path.join(tmpDir, "provider-plugins");
+  const dirs = fs.readdirSync(root).filter((entry) => fs.statSync(path.join(root, entry)).isDirectory());
+  expect(dirs).toHaveLength(1);
+  return dirs[0];
+}
+
 /** 创建一个 registry，注册一个测试插件 */
 function makeRegistry(pluginOverrides = {}) {
   const reg = new ProviderRegistry(tmpDir);
@@ -917,6 +924,58 @@ describe("saveProvider", () => {
       base_url: "https://old.example/v1",
       api: "openai-completions",
       models: ["old-chat"],
+    });
+  });
+
+  it("把中文名旧 catalog-only provider 迁移到 safe storage slug 且保留 provider id", () => {
+    const providerId = "硅基流动";
+    writeProviderCatalog({
+      catalogVersion: 2,
+      providers: {
+        [providerId]: {
+          display_name: "硅基流动",
+          auth_type: "api-key",
+          api_key: "sk-silicon",
+          base_url: "https://api.siliconflow.cn/v1",
+          api: "openai-completions",
+          models: ["deepseek-ai/DeepSeek-V3.2"],
+        },
+      },
+      capabilities: {},
+      meta: {},
+    });
+
+    const reg = new ProviderRegistry(tmpDir);
+    const entry = reg.get(providerId);
+
+    expect(entry).toMatchObject({
+      id: providerId,
+      displayName: "硅基流动",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      api: "openai-completions",
+      source: { kind: "local-provider-plugin" },
+    });
+
+    const storageId = readOnlyLocalProviderPluginDir();
+    expect(storageId).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+    expect(storageId).not.toBe(providerId);
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(tmpDir, "provider-plugins", storageId, "manifest.json"), "utf-8"));
+    expect(manifest).toMatchObject({
+      id: storageId,
+      provider: providerId,
+    });
+    const providerFile = JSON.parse(fs.readFileSync(
+      path.join(tmpDir, "provider-plugins", storageId, "providers", `${storageId}.json`),
+      "utf-8",
+    ));
+    expect(providerFile).toMatchObject({
+      id: providerId,
+      displayName: "硅基流动",
+      defaultBaseUrl: "https://api.siliconflow.cn/v1",
+    });
+    expect(readProviderCatalog().providers[providerId]).toEqual({
+      api_key: "sk-silicon",
     });
   });
 

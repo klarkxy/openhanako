@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { atomicWriteSync } from "../shared/safe-fs.ts";
 import { normalizeProviderAuthType } from "../shared/provider-auth.ts";
 
@@ -51,11 +52,38 @@ export function isSafeLocalProviderPluginId(providerId: any) {
   return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id);
 }
 
-function assertSafeLocalProviderPluginId(providerId: any) {
-  if (!isSafeLocalProviderPluginId(providerId)) {
+export function isSafeLocalProviderPluginProviderId(providerId: any) {
+  if (typeof providerId !== "string") return false;
+  const id = providerId.trim();
+  if (!id || id === "." || id === "..") return false;
+  if (id.includes("/") || id.includes("\\") || id.includes("\0")) return false;
+  return true;
+}
+
+function isLegacyLocalProviderPluginPathSegment(providerId: any) {
+  if (!isSafeLocalProviderPluginProviderId(providerId)) return false;
+  return !/[<>:"|?*]/.test(providerId.trim());
+}
+
+function assertSafeLocalProviderPluginProviderId(providerId: any) {
+  if (!isSafeLocalProviderPluginProviderId(providerId)) {
     throw new Error(`Invalid local provider plugin id: ${String(providerId)}`);
   }
   return providerId.trim();
+}
+
+function assertSafeLocalProviderPluginStorageId(storageId: any) {
+  if (!isSafeLocalProviderPluginId(storageId)) {
+    throw new Error(`Invalid local provider plugin storage id: ${String(storageId)}`);
+  }
+  return storageId.trim();
+}
+
+export function localProviderPluginStorageId(providerId: any) {
+  const id = assertSafeLocalProviderPluginProviderId(providerId);
+  if (isSafeLocalProviderPluginId(id)) return id;
+  const digest = crypto.createHash("sha256").update(id).digest("hex").slice(0, 16);
+  return `provider-${digest}`;
 }
 
 function normalizeModels(value: any) {
@@ -93,7 +121,7 @@ function pickProviderDefinitionFields(config: Record<string, any>) {
 }
 
 function normalizeLocalProviderPlugin(providerId: string, config: Record<string, any>) {
-  const id = assertSafeLocalProviderPluginId(providerId);
+  const id = assertSafeLocalProviderPluginProviderId(providerId);
   const models = normalizeModels(config.models);
   const runtime = isPlainObject(config.runtime) ? cloneData(config.runtime) : null;
   const capabilities = normalizeCapabilities(config);
@@ -173,7 +201,7 @@ export class LocalProviderPluginStore {
   }
 
   providerDir(providerId: string) {
-    return path.join(this.rootDir, assertSafeLocalProviderPluginId(providerId));
+    return path.join(this.rootDir, localProviderPluginStorageId(providerId));
   }
 
   manifestPath(providerId: string) {
@@ -181,18 +209,26 @@ export class LocalProviderPluginStore {
   }
 
   providerPath(providerId: string) {
-    return path.join(this.providerDir(providerId), "providers", `${assertSafeLocalProviderPluginId(providerId)}.json`);
+    const storageId = localProviderPluginStorageId(providerId);
+    return path.join(this.providerDir(providerId), "providers", `${storageId}.json`);
   }
 
   readAll() {
     if (!fs.existsSync(this.rootDir)) return [];
     const plugins = [];
     for (const dirent of fs.readdirSync(this.rootDir, { withFileTypes: true })) {
-      if (!dirent.isDirectory() || !isSafeLocalProviderPluginId(dirent.name)) continue;
-      const providerPath = this.providerPath(dirent.name);
+      if (!dirent.isDirectory() || !isSafeLocalProviderPluginProviderId(dirent.name)) continue;
+      const storageId = dirent.name;
+      const dir = path.join(this.rootDir, storageId);
+      const manifestPath = path.join(dir, "manifest.json");
+      const manifest = fs.existsSync(manifestPath)
+        ? JSON.parse(fs.readFileSync(manifestPath, "utf-8"))
+        : null;
+      const providerId = assertSafeLocalProviderPluginProviderId(manifest?.provider || storageId);
+      const providerPath = path.join(dir, "providers", `${storageId}.json`);
       if (!fs.existsSync(providerPath)) continue;
       const raw = JSON.parse(fs.readFileSync(providerPath, "utf-8"));
-      const plugin = normalizeLocalProviderPlugin(dirent.name, raw);
+      const plugin = normalizeLocalProviderPlugin(providerId, { ...raw, id: providerId });
       plugins.push({
         ...plugin,
         source: { kind: LOCAL_PROVIDER_PLUGIN_SOURCE_KIND },
@@ -202,11 +238,12 @@ export class LocalProviderPluginStore {
   }
 
   writeProvider(providerId: string, config: Record<string, any>) {
-    const id = assertSafeLocalProviderPluginId(providerId);
+    const id = assertSafeLocalProviderPluginProviderId(providerId);
+    const storageId = assertSafeLocalProviderPluginStorageId(localProviderPluginStorageId(id));
     const plugin = normalizeLocalProviderPlugin(id, config);
     fs.mkdirSync(path.dirname(this.providerPath(id)), { recursive: true });
     atomicWriteSync(this.manifestPath(id), JSON.stringify({
-      id,
+      id: storageId,
       type: "provider-plugin",
       schemaVersion: LOCAL_PROVIDER_PLUGIN_SCHEMA_VERSION,
       provider: id,
@@ -219,7 +256,11 @@ export class LocalProviderPluginStore {
   }
 
   removeProvider(providerId: string) {
-    if (!isSafeLocalProviderPluginId(providerId)) return;
+    if (!isSafeLocalProviderPluginProviderId(providerId)) return;
     fs.rmSync(this.providerDir(providerId), { recursive: true, force: true });
+    const legacyDir = path.join(this.rootDir, providerId.trim());
+    if (legacyDir !== this.providerDir(providerId) && isLegacyLocalProviderPluginPathSegment(providerId)) {
+      fs.rmSync(legacyDir, { recursive: true, force: true });
+    }
   }
 }

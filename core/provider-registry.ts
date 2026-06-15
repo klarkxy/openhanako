@@ -33,7 +33,7 @@ import { ProviderCatalogStore } from "./provider-catalog.ts";
 import {
   LocalProviderPluginStore,
   isLocalProviderPlugin,
-  isSafeLocalProviderPluginId,
+  isSafeLocalProviderPluginProviderId,
   providerConfigHasLocalDefinition,
   providerPluginToCatalogDefinition,
   splitLocalProviderConfig,
@@ -501,7 +501,7 @@ export class ProviderRegistry {
     const nextConfig = cloneData(userConfig || {});
     for (const [providerId, config] of Object.entries(userConfig || {}) as [string, any][]) {
       if (this._plugins.has(providerId)) continue;
-      if (!isSafeLocalProviderPluginId(providerId)) continue;
+      if (!isSafeLocalProviderPluginProviderId(providerId)) continue;
       if (!providerConfigHasLocalDefinition(config)) continue;
       nextConfig[providerId] = this._writeLocalProviderPlugin(providerId, config, null);
       changed = true;
