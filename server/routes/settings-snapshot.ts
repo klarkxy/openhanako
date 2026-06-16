@@ -11,6 +11,7 @@ import { buildBridgeStatus } from "./bridge.ts";
 import { buildComputerUsePreferences } from "./preferences.ts";
 import { normalizeNotificationPreferences } from "../../shared/notification-preferences.ts";
 import { normalizeQuickChatPreferences } from "../../shared/quick-chat-preferences.ts";
+import { normalizeBrowserPreferences } from "../../shared/browser-preferences.ts";
 import { normalizeSearchApiKeys, SEARCH_API_PROVIDER_IDS } from "../../shared/search-providers.ts";
 import { maskObjectSecrets, maskSecretValue } from "../../shared/secret-custody.ts";
 import { listResolvedExperiments } from "../../lib/experiments/registry.ts";
@@ -18,6 +19,7 @@ import { normalizeBridgePermissionMode } from "../../core/session-permission-mod
 import { agentExists, validateId } from "../utils/validation.ts";
 import { readAuthPrincipal } from "../http/capability-guard.ts";
 import { isLocalOwnerPrincipal } from "../http/route-security.ts";
+import { readUserProfile } from "../../lib/user-profile-store.ts";
 
 function agentDir(engine: any, id: string) {
   return path.join(engine.agentsDir, id);
@@ -175,6 +177,7 @@ function buildBridgePreferences(engine: any) {
     permissionMode,
     readOnly: engine.getBridgeReadOnly?.() === true,
     receiptEnabled: engine.getBridgeReceiptEnabled?.() !== false,
+    richStreamingEnabled: engine.getBridgeRichStreamingEnabled?.() !== false,
   };
 }
 
@@ -217,17 +220,19 @@ export function createSettingsSnapshotRoute(engine: any, options: Record<string,
         identity,
         ishiki,
         publicIshiki,
-        userProfile: await readTextFile(path.join(engine.userDir, "profile.md")),
+        userProfile: await readUserProfile(engine.userDir),
         experience: readExperience(engine, agentId, config),
         pinned: { pins: readPinned(baseDir) },
         globalModels: buildGlobalModels(engine),
         preferences: {
           quickChat: engine.getQuickChatPreferences?.() || normalizeQuickChatPreferences({}),
+          browser: engine.getBrowserPreferences?.() || normalizeBrowserPreferences({}),
           notifications: engine.getNotificationPreferences?.() || normalizeNotificationPreferences({}),
           bridge: buildBridgePreferences(engine),
           computerUse: await buildComputerUsePreferences(engine, {
             platform: options.platform || process.platform,
           }),
+          imageGeneration: engine.media?.getImageConfig?.() || engine.preferences?.getImageGenerationConfig?.() || {},
           speechRecognition: engine.speechRecognition?.getConfig?.() || engine.getSpeechRecognitionConfig?.() || { enabled: false },
           experiments: listResolvedExperiments(engine.preferences),
         },

@@ -13,7 +13,7 @@ describe("install_skill global skill-pool installation", () => {
     tmpDir = null;
   });
 
-  it("installs skill_content into the global skill pool and enables the current agent through the callback", async () => {
+  it("rejects skill_content so model-facing installs cannot create partial package shells", async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-install-skill-tool-"));
     const agentDir = path.join(tmpDir, "agent");
     const userSkillsDir = path.join(tmpDir, "user-skills");
@@ -61,39 +61,14 @@ describe("install_skill global skill-pool installation", () => {
     });
 
     const skillFilePath = path.join(userSkillsDir, "demo-skill", "SKILL.md");
-    expect(registerSessionFile).toHaveBeenCalledWith({
-      sessionPath,
-      filePath: skillFilePath,
-      label: "SKILL.md",
-      origin: "install_skill_output",
-      storageKind: "install_output",
-    });
-    expect(result.details).toMatchObject({
-      skillName: "demo-skill",
-      skillFilePath,
-      installedSkillSource: {
-        kind: "skill_source",
-        owner: "user",
-        skillName: "demo-skill",
-        filePath: skillFilePath,
-        baseDir: path.dirname(skillFilePath),
-        editable: true,
-        readonly: false,
-      },
-      installedFile: {
-        id: "sf_installed_skill",
-        fileId: "sf_installed_skill",
-        sessionPath,
-        filePath: skillFilePath,
-        origin: "install_skill_output",
-        storageKind: "install_output",
-      },
-    });
-    expect(fs.readFileSync(skillFilePath, "utf-8")).toContain("default-enabled: false");
-    expect(onInstalled).toHaveBeenCalledWith("demo-skill");
+    expect(result.content?.[0]?.text).toContain("完整 skill package");
+    expect(result.details).toEqual({ rejectedInput: "skill_content" });
+    expect(fs.existsSync(skillFilePath)).toBe(false);
+    expect(registerSessionFile).not.toHaveBeenCalled();
+    expect(onInstalled).not.toHaveBeenCalled();
   });
 
-  it("replaces an existing global skill with the same semantics as manual install", async () => {
+  it("does not overwrite an existing skill when skill_content is provided", async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-install-skill-tool-"));
     const agentDir = path.join(tmpDir, "agents", "agent-b");
     const userSkillsDir = path.join(tmpDir, "user-skills");
@@ -125,9 +100,10 @@ describe("install_skill global skill-pool installation", () => {
     }, null, null, {});
 
     const originalPath = path.join(userSkillsDir, "demo-skill", "SKILL.md");
-    expect(fs.readFileSync(originalPath, "utf-8")).toContain("# Different");
-    expect((result as any).details.skillName).toBe("demo-skill");
-    expect(onInstalled).toHaveBeenCalledWith("demo-skill");
+    expect(fs.readFileSync(originalPath, "utf-8")).toContain("# Existing");
+    expect(result.content?.[0]?.text).toContain("完整 skill package");
+    expect((result as any).details).toEqual({ rejectedInput: "skill_content" });
+    expect(onInstalled).not.toHaveBeenCalled();
     expect(fs.existsSync(path.join(userSkillsDir, "demo-skill-agent-b"))).toBe(false);
   });
 
@@ -189,5 +165,148 @@ describe("install_skill global skill-pool installation", () => {
     expect(fs.existsSync(path.join(userSkillsDir, "kami", "assets", "templates", "page.html"))).toBe(true);
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("raw.githubusercontent.com"), expect.anything());
     expect(onInstalled).toHaveBeenCalledWith("kami");
+  });
+
+  it("installs a complete local skill package from local_path without GitHub fetch enabled", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-install-skill-tool-"));
+    const agentDir = path.join(tmpDir, "agents", "agent-local");
+    const userSkillsDir = path.join(tmpDir, "user-skills");
+    const sourceDir = path.join(tmpDir, "source-skill");
+    fs.mkdirSync(path.join(sourceDir, "references"), { recursive: true });
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, "SKILL.md"), "---\nname: local-skill\n---\n# Local\n", "utf-8");
+    fs.writeFileSync(path.join(sourceDir, "references", "guide.md"), "# Guide\n", "utf-8");
+
+    const onInstalled = vi.fn();
+    const registerSessionFile = vi.fn();
+    const tool = createInstallSkillTool({
+      agentDir,
+      getUserSkillsDir: () => userSkillsDir,
+      getConfig: () => ({
+        capabilities: {
+          learn_skills: {
+            enabled: true,
+            allow_github_fetch: false,
+            safety_review: false,
+          },
+        },
+      }),
+      resolveUtilityConfig: () => null,
+      onInstalled,
+      registerSessionFile,
+    });
+
+    const result = await tool.execute("call-1", {
+      local_path: sourceDir,
+      reason: "test local package",
+    }, null, null, {});
+
+    expect((result as any).details.skillName).toBe("local-skill");
+    expect((result as any).details.source).toBe("local_path");
+    expect(fs.existsSync(path.join(userSkillsDir, "local-skill", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(userSkillsDir, "local-skill", "references", "guide.md"))).toBe(true);
+    expect(onInstalled).toHaveBeenCalledWith("local-skill");
+    expect(registerSessionFile).not.toHaveBeenCalled();
+  });
+
+  it("installs a local package through a typed path FileRef source", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-install-skill-tool-"));
+    const agentDir = path.join(tmpDir, "agents", "agent-fileref");
+    const userSkillsDir = path.join(tmpDir, "user-skills");
+    const cwd = path.join(tmpDir, "workspace");
+    const sourceDir = path.join(cwd, "skills", "ref-skill");
+    fs.mkdirSync(path.join(sourceDir, "assets"), { recursive: true });
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, "SKILL.md"), "---\nname: ref-skill\n---\n# Ref\n", "utf-8");
+    fs.writeFileSync(path.join(sourceDir, "assets", "template.txt"), "template\n", "utf-8");
+
+    const onInstalled = vi.fn();
+    const tool = createInstallSkillTool({
+      agentDir,
+      getUserSkillsDir: () => userSkillsDir,
+      getConfig: () => ({
+        capabilities: {
+          learn_skills: {
+            enabled: true,
+            safety_review: false,
+          },
+        },
+      }),
+      resolveUtilityConfig: () => null,
+      onInstalled,
+      registerSessionFile: vi.fn(),
+    });
+
+    const result = await tool.execute("call-1", {
+      source: { type: "path", path: "skills/ref-skill" },
+      reason: "test FileRef package",
+    }, null, null, {
+      sessionManager: { getCwd: () => cwd },
+    });
+
+    expect((result as any).details.skillName).toBe("ref-skill");
+    expect((result as any).details.source).toBe("file_ref");
+    expect(fs.existsSync(path.join(userSkillsDir, "ref-skill", "assets", "template.txt"))).toBe(true);
+    expect(onInstalled).toHaveBeenCalledWith("ref-skill");
+  });
+
+  it("installs an uploaded skill package through a SessionFile fileId source", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-install-skill-tool-"));
+    const agentDir = path.join(tmpDir, "agents", "agent-session-file");
+    const userSkillsDir = path.join(tmpDir, "user-skills");
+    const packageDir = path.join(tmpDir, "package");
+    const sessionPath = "/sessions/skill-upload.jsonl";
+    fs.mkdirSync(path.join(packageDir, "phone-skill", "references"), { recursive: true });
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "phone-skill", "SKILL.md"), "---\nname: phone-skill\n---\n# Phone\n", "utf-8");
+    fs.writeFileSync(path.join(packageDir, "phone-skill", "references", "guide.md"), "# Guide\n", "utf-8");
+    const zipPath = path.join(tmpDir, "phone-skill.zip");
+    await writeZipFromDirectory(packageDir, zipPath);
+    const resolveSessionFile = vi.fn((fileId, options) => {
+      if (fileId !== "sf_uploaded_skill" || options?.sessionPath !== sessionPath) return null;
+      return {
+        id: "sf_uploaded_skill",
+        fileId: "sf_uploaded_skill",
+        sessionPath,
+        filePath: zipPath,
+        realPath: zipPath,
+        filename: "phone-skill.zip",
+        label: "phone-skill.zip",
+        mime: "application/zip",
+        kind: "archive",
+        status: "available",
+      };
+    });
+
+    const onInstalled = vi.fn();
+    const tool = createInstallSkillTool({
+      agentDir,
+      getUserSkillsDir: () => userSkillsDir,
+      getConfig: () => ({
+        capabilities: {
+          learn_skills: {
+            enabled: true,
+            safety_review: false,
+          },
+        },
+      }),
+      resolveUtilityConfig: () => null,
+      onInstalled,
+      registerSessionFile: vi.fn(),
+      resolveSessionFile,
+    });
+
+    const result = await tool.execute("call-1", {
+      fileId: "sf_uploaded_skill",
+      reason: "test uploaded package",
+    }, null, null, {
+      sessionManager: { getSessionFile: () => sessionPath },
+    });
+
+    expect((result as any).details.skillName).toBe("phone-skill");
+    expect((result as any).details.source).toBe("file_ref");
+    expect(fs.existsSync(path.join(userSkillsDir, "phone-skill", "references", "guide.md"))).toBe(true);
+    expect(resolveSessionFile).toHaveBeenCalledWith("sf_uploaded_skill", { sessionPath });
+    expect(onInstalled).toHaveBeenCalledWith("phone-skill");
   });
 });

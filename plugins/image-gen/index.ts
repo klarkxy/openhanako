@@ -4,12 +4,7 @@ import fs from "node:fs";
 import { AdapterRegistry } from "./lib/adapter-registry.ts";
 import { TaskStore } from "./lib/task-store.ts";
 import { Poller } from "./lib/poller.ts";
-import { volcengineImageAdapter } from "./adapters/volcengine.ts";
-import { openaiImageAdapter } from "./adapters/openai.ts";
-import { openaiCodexImageAdapter } from "./adapters/openai-codex.ts";
-import { minimaxImageAdapter } from "./adapters/minimax.ts";
-import { dashscopeImageAdapter } from "./adapters/dashscope.ts";
-import { geminiImageAdapter } from "./adapters/gemini.ts";
+import { builtinImageGenAdapters } from "./builtin-adapters.ts";
 import { submitImageGeneration } from "./lib/submit-image.ts";
 
 export default class ImageGenPlugin {
@@ -17,6 +12,20 @@ export default class ImageGenPlugin {
   declare register: any;
   async onload() {
     const { dataDir, bus, log } = this.ctx;
+
+    try {
+      if (typeof bus?.hasHandler === "function" && bus.hasHandler("media:runtime")) {
+        const result = await bus.request("media:runtime", { consumer: "image-gen" });
+        if (result?.runtime?.registry && result?.runtime?.store && result?.runtime?.poller) {
+          this.ctx._mediaGen = result.runtime;
+          if (result.config) this.ctx.config = result.config;
+          log.info("image-gen plugin bound to native media runtime");
+          return;
+        }
+      }
+    } catch (err) {
+      log.warn(`native media runtime unavailable, falling back to plugin runtime: ${err?.message || err}`);
+    }
 
     const generatedDir = path.join(dataDir, "generated");
     fs.mkdirSync(generatedDir, { recursive: true });
@@ -35,12 +44,9 @@ export default class ImageGenPlugin {
     });
 
     // Built-in adapters
-    registry.register(volcengineImageAdapter);
-    registry.register(openaiImageAdapter);
-    registry.register(openaiCodexImageAdapter);
-    registry.register(minimaxImageAdapter);
-    registry.register(dashscopeImageAdapter);
-    registry.register(geminiImageAdapter);
+    for (const adapter of builtinImageGenAdapters) {
+      registry.register(adapter);
+    }
 
     // Attach to ctx for tools
     this.ctx._mediaGen = { registry, store, poller, generatedDir };

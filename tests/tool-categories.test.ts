@@ -31,7 +31,7 @@ describe("tool-categories constants", () => {
 
   it("OPTIONAL_TOOL_NAMES is exactly the user-toggleable whitelist", () => {
     expect(new Set(OPTIONAL_TOOL_NAMES)).toEqual(
-      new Set(["automation", "beautify", "browser", "dm", "install_skill", "update_settings", "workflow"])
+      new Set(["automation", "beautify", "browser", "dm", "install_skill", "office", "update_settings", "workflow"])
     );
   });
 
@@ -77,7 +77,7 @@ describe("assertAllToolsCategorized", () => {
 describe("computeSettingsAvailableToolNames", () => {
   it("adds built-in optional tool categories to runtime tool names", () => {
     expect(computeSettingsAvailableToolNames(["current_status"], {
-      pluginTools: [{ _pluginId: "beautify" }],
+      pluginTools: [{ _pluginId: "beautify" }, { _pluginId: "office" }],
     })).toEqual(expect.arrayContaining([
       "current_status",
       "automation",
@@ -85,6 +85,7 @@ describe("computeSettingsAvailableToolNames", () => {
       "browser",
       "dm",
       "install_skill",
+      "office",
       "update_settings",
     ]));
   });
@@ -94,6 +95,7 @@ describe("computeSettingsAvailableToolNames", () => {
 
     expect(result).toContain("browser");
     expect(result).not.toContain("beautify");
+    expect(result).not.toContain("office");
   });
 });
 

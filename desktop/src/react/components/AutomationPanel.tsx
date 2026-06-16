@@ -6,6 +6,7 @@ import { AgentAvatar, resolveAgentDisplayInfo } from '../utils/agent-display';
 import fp from './FloatingPanels.module.css';
 import styles from './automation/AutomationPanel.module.css';
 import { AutomationCard } from './automation/AutomationCard';
+import { AgentTabScroller, type AgentTabScrollerItem } from './automation/AgentTabScroller';
 import type { CronJob, ModelOption } from './automation/automation-types';
 import { jobAgentId } from './automation/automation-utils';
 import type { Agent } from '../types';
@@ -160,6 +161,20 @@ export function AutomationPanel() {
     ? selectedAgentId
     : tabs[0] || null;
   const activeJobs = activeAgentId ? groups.get(activeAgentId) || [] : [];
+  const agentTabItems = useMemo<AgentTabScrollerItem[]>(() => tabs.map(agentId => {
+    const info = resolveAgentDisplayInfo({
+      id: agentId === '__unknown__' ? null : agentId,
+      agents,
+      fallbackAgentName: agentName,
+      fallbackAgentYuan: agentYuan,
+      fallbackAgentAvatarUrl: agentAvatarUrl,
+    });
+    return {
+      id: agentId,
+      label: info.displayName,
+      avatar: <AgentAvatar info={info} className={styles.agentTabAvatar} />,
+    };
+  }), [agentAvatarUrl, agentName, agentYuan, agents, tabs]);
 
   useEffect(() => {
     if (activeAgentId && activeAgentId !== selectedAgentId) {
@@ -195,36 +210,14 @@ export function AutomationPanel() {
               <div className={fp.automationEmpty}>{t('automation.empty')}</div>
             ) : (
               <>
-                <div className={styles.agentTabsShell}>
-                  <div className={styles.agentTabs} role="tablist" aria-label={t('automation.agentTabs')}>
-                    {tabs.map(agentId => {
-                      const info = resolveAgentDisplayInfo({
-                        id: agentId === '__unknown__' ? null : agentId,
-                        agents,
-                        fallbackAgentName: agentName,
-                        fallbackAgentYuan: agentYuan,
-                        fallbackAgentAvatarUrl: agentAvatarUrl,
-                      });
-                      const active = agentId === activeAgentId;
-                      return (
-                        <button
-                          key={agentId}
-                          className={styles.agentTab}
-                          type="button"
-                          role="tab"
-                          aria-selected={active}
-                          data-active={active}
-                          onClick={() => setSelectedAgentId(agentId)}
-                        >
-                          <span className={styles.agentTabAvatarWrap}>
-                            <AgentAvatar info={info} className={styles.agentTabAvatar} />
-                          </span>
-                          <span className={styles.agentTabName}>{info.displayName}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <AgentTabScroller
+                  items={agentTabItems}
+                  activeId={activeAgentId}
+                  ariaLabel={t('automation.agentTabs')}
+                  previousLabel={t('automation.previousAgent')}
+                  nextLabel={t('automation.nextAgent')}
+                  onSelect={setSelectedAgentId}
+                />
                 <div className={styles.groupList}>
                   {activeJobs.length === 0 ? (
                     <div className={fp.automationEmpty}>{t('automation.emptyForAgent')}</div>

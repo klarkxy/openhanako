@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { convertMessages } from "../../node_modules/@mariozechner/pi-ai/dist/providers/openai-completions.js";
+import { normalizeProviderPayload } from "../../core/provider-compat.ts";
 import * as deepseek from "../../core/provider-compat/deepseek.ts";
 
 describe("provider-compat/deepseek — matches", () => {
@@ -315,6 +317,65 @@ describe("provider-compat/deepseek — apply 主流程接入 reasoning_content �
     const result = deepseek.apply(payload, deepseekModel, { mode: "chat", reasoningLevel: "high" });
     expect(result.messages[1].reasoning_content).toBe("调用 date");
     expect(result.thinking).toEqual({ type: "enabled" });
+  });
+
+  it("normalizeProviderPayload 在真实 SDK 转换后恢复 DeepSeek tool-call reasoning_content", () => {
+    // Regression for #468: pi-ai convertMessages may downgrade a previous
+    // thinking block to assistant.content before a DeepSeek V4 sub-version
+    // switch. The provider compat boundary must restore reasoning_content
+    // before the outgoing request reaches DeepSeek.
+    const context = {
+      messages: [
+        { role: "user", content: "之前用 V4-Pro 问的" },
+        {
+          role: "assistant",
+          provider: "deepseek",
+          api: "openai-completions",
+          model: "deepseek-v4-pro",
+          content: [
+            { type: "thinking", thinking: "V4-Pro 时代的思考", thinkingSignature: "reasoning_content" },
+            { type: "toolCall", id: "c1", name: "search", arguments: {} },
+          ],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "c1",
+          toolName: "search",
+          content: [{ type: "text", text: "search ok" }],
+          isError: false,
+        },
+        { role: "user", content: "切到 V4-Flash 继续" },
+      ],
+    };
+    const v4FlashModel = {
+      id: "deepseek-v4-flash",
+      name: "DeepSeek V4 Flash",
+      provider: "deepseek",
+      api: "openai-completions" as const,
+      baseUrl: "https://api.deepseek.com/v1",
+      input: ["text" as const],
+      reasoning: true,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 384000,
+      maxTokens: 384000,
+    };
+    const convertedMessages = convertMessages(
+      v4FlashModel,
+      context as Parameters<typeof convertMessages>[1],
+      {} as Parameters<typeof convertMessages>[2],
+    );
+    const result = normalizeProviderPayload({
+      model: "deepseek-v4-flash",
+      messages: convertedMessages,
+      tools: [{ type: "function", function: { name: "search" } }],
+    }, v4FlashModel, {
+      mode: "chat",
+      reasoningLevel: "high",
+    });
+
+    expect(result.thinking).toEqual({ type: "enabled" });
+    expect(result.messages[1].content).toBe("V4-Pro 时代的思考");
+    expect(result.messages[1].reasoning_content).toBe("V4-Pro 时代的思考");
   });
 
   it("chat mode + 思考开启：tool_calls 历史已有 reasoning_content 时也补 assistant content 空字符串", () => {

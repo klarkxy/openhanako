@@ -153,6 +153,40 @@ describe("callText provider-compat routing", () => {
     ]);
   });
 
+  it("disables MiMo thinking for custom proxy utility requests inferred from model ID", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        choices: [{ message: { content: "ok" } }],
+      }),
+    } as any);
+
+    await callText({
+      api: "openai-completions",
+      baseUrl: "https://proxy.example.test/v1",
+      model: {
+        id: "mimo-v2.5-pro",
+        provider: "ch",
+        api: "openai-completions",
+        baseUrl: "https://proxy.example.test/v1",
+        reasoning: true,
+        compat: { supportsDeveloperRole: false },
+      },
+      messages: [{ role: "user", content: "remember this" }],
+      maxTokens: 80,
+      timeoutMs: 5_000,
+    } as any);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(url).toBe("https://proxy.example.test/v1/chat/completions");
+    expect(body.model).toBe("mimo-v2.5-pro");
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).not.toHaveProperty("thinking");
+  });
+
   it("lets future OpenAI-compatible audio providers opt in through an explicit transport", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
@@ -349,6 +383,46 @@ describe("callText provider-compat routing", () => {
         cache_control: { type: "ephemeral" },
       },
     ]);
+  });
+
+  it("marks auxiliary vision calls as utility intent and disables Kimi Anthropic-compatible thinking", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        content: [{ type: "text", text: "ok" }],
+      }),
+    } as any);
+
+    await callText({
+      api: "anthropic-messages",
+      baseUrl: "https://api.kimi.com/coding",
+      model: {
+        id: "kimi-k2.6",
+        provider: "kimi-coding",
+        api: "anthropic-messages",
+        input: ["text", "image"],
+        reasoning: true,
+        compat: { thinkingFormat: "anthropic" },
+      },
+      callPurpose: "auxiliary_vision",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this image." },
+          { type: "image", data: "BASE64", mimeType: "image/jpeg" },
+        ],
+      }],
+      timeoutMs: 5_000,
+    } as any);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.thinking).toEqual({ type: "disabled" });
+    expect(body.messages[0].content[1]).toMatchObject({
+      type: "image",
+      source: { media_type: "image/jpeg", data: "BASE64" },
+    });
   });
 
   it("adds cache_control to anthropic utility system prompts", async () => {
@@ -618,6 +692,42 @@ describe("callText provider-compat routing", () => {
     });
   });
 
+  it("includes provider error details when the upstream rejects a request", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({
+        error: {
+          type: "invalid_request_error",
+          code: "invalid_image",
+          message: "Invalid request Error",
+        },
+      }),
+    } as any);
+
+    await expect(callText({
+      api: "anthropic-messages",
+      baseUrl: "https://api.kimi.com/coding",
+      model: {
+        id: "kimi-k2.6",
+        provider: "kimi-coding",
+        api: "anthropic-messages",
+      },
+      messages: [{ role: "user", content: "hi" }],
+      timeoutMs: 5_000,
+    } as any)).rejects.toMatchObject({
+      code: "UNKNOWN",
+      message: expect.stringContaining("Invalid request Error"),
+      context: expect.objectContaining({
+        provider: "kimi-coding",
+        model: "kimi-k2.6",
+        status: 400,
+        errorType: "invalid_request_error",
+        errorCode: "invalid_image",
+      }),
+    });
+  });
+
   it("returns anthropic visible text while ignoring thinking content blocks", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
@@ -699,6 +809,32 @@ describe("callText provider-compat routing", () => {
       store: false,
       stream: true,
     });
+  });
+
+  it("always sends non-empty instructions for Codex Responses utility calls (#1664)", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ output_text: "Codex OK" }),
+    } as any);
+
+    await callText({
+      api: "openai-codex-responses",
+      apiKey: "oauth-token",
+      baseUrl: "https://chatgpt.com/backend-api",
+      model: {
+        id: "gpt-5.4-codex",
+        provider: "openai-codex-oauth",
+        accountId: "acct_123",
+      },
+      messages: [{ role: "user", content: "Reply OK." }],
+      timeoutMs: 5_000,
+    } as any);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.instructions).toEqual(expect.stringContaining("utility model"));
+    expect(body.instructions.trim().length).toBeGreaterThan(0);
   });
 
   it("derives the Codex account id from the OAuth token when the model omits it", async () => {

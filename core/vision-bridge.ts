@@ -17,7 +17,11 @@ const MAX_VISUAL_PRIMITIVES = 16;
 const MAX_PRIMITIVE_REF_CHARS = 96;
 const VISION_ANALYSIS_TIMEOUT_MS = 120_000;
 const VISION_NOTES_FILE = "session-vision-notes.json";
-const DEFAULT_VISION_MAX_TOKENS = 4096;
+const AUXILIARY_VISION_SYSTEM_PROMPT = [
+  "You are Hana's auxiliary vision model.",
+  "Analyze the supplied image for the target model and follow the requested output format exactly.",
+  "Do not mention hidden reasoning, internal tools, or that another model will read your answer.",
+].join("\n");
 
 function normalizeUserRequest(text) {
   return String(text || "")
@@ -41,15 +45,6 @@ function imagePromptCacheKey(img, userRequest, modelSignature = "") {
 function truncate(text, max = MAX_NOTE_CHARS) {
   const s = String(text || "").trim();
   return s.length > max ? `${s.slice(0, max - 20)}\n[truncated]` : s;
-}
-
-function positiveInteger(value) {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-function visionOutputLimit(model) {
-  return positiveInteger(model?.maxTokens ?? model?.maxOutput ?? model?.maxOutputTokens);
 }
 
 function abortError() {
@@ -387,7 +382,6 @@ export class VisionBridge {
   declare _noteByPath: any;
   declare _now: any;
   declare _resolveVisionConfig: any;
-  declare _visionMaxTokens: any;
   constructor({
     resolveVisionConfig,
     callText = defaultCallText,
@@ -395,7 +389,6 @@ export class VisionBridge {
     getActiveAgentId = null,
     now = () => Date.now(),
     maxCacheEntries = MAX_CACHE_ENTRIES,
-    visionMaxTokens = DEFAULT_VISION_MAX_TOKENS,
   }: any = {}) {
     this._resolveVisionConfig = resolveVisionConfig || (() => null);
     this._callText = callText;
@@ -403,7 +396,6 @@ export class VisionBridge {
     this._getActiveAgentId = typeof getActiveAgentId === "function" ? getActiveAgentId : () => null;
     this._now = now;
     this._maxCacheEntries = maxCacheEntries;
-    this._visionMaxTokens = positiveInteger(visionMaxTokens) || DEFAULT_VISION_MAX_TOKENS;
     this._analysisByPrompt = new Map();
     this._noteByPath = new Map();
   }
@@ -612,11 +604,6 @@ export class VisionBridge {
     return restored;
   }
 
-  _maxTokensForModel(model) {
-    const limit = visionOutputLimit(model);
-    return limit ? Math.min(this._visionMaxTokens, limit) : this._visionMaxTokens;
-  }
-
   async _analyzeImage(config, img, index, userRequest, signal, sessionPath = null) {
     const normalizedImg = normalizeModelImageInput(img, index);
     const visionCapabilities = getVisionCapabilities(config.model);
@@ -666,6 +653,7 @@ export class VisionBridge {
       apiKey: config.api_key,
       baseUrl: config.base_url,
       model: config.model,
+      systemPrompt: AUXILIARY_VISION_SYSTEM_PROMPT,
       messages: [{
         role: "user",
         content: [
@@ -690,8 +678,8 @@ export class VisionBridge {
           img,
         ],
       }],
-      maxTokens: this._maxTokensForModel(config.model),
       timeoutMs: VISION_ANALYSIS_TIMEOUT_MS,
+      callPurpose: "auxiliary_vision",
       signal,
       usageLedger: this._getUsageLedger?.(),
       usageContext: this._usageContextForImageAnalysis(sessionPath),
@@ -705,6 +693,7 @@ export class VisionBridge {
       apiKey: config.api_key,
       baseUrl: config.base_url,
       model: config.model,
+      systemPrompt: AUXILIARY_VISION_SYSTEM_PROMPT,
       messages: [{
         role: "user",
         content: [
@@ -738,8 +727,8 @@ export class VisionBridge {
           img,
         ],
       }],
-      maxTokens: this._maxTokensForModel(config.model),
       timeoutMs: VISION_ANALYSIS_TIMEOUT_MS,
+      callPurpose: "auxiliary_vision",
       signal,
       usageLedger: this._getUsageLedger?.(),
       usageContext: this._usageContextForImageAnalysis(sessionPath),

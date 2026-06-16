@@ -1,8 +1,21 @@
+export interface ActiveSessionStream {
+  streamId: string | null;
+  turnId: string | null;
+}
+
+export interface StreamingStatusIdentity {
+  streamId?: string | null;
+  turnId?: string | null;
+}
+
 export interface StreamingSlice {
   /** 所有正在 streaming 的 session path 集合（单一事实源） */
   streamingSessions: string[];
-  addStreamingSession: (path: string) => void;
-  removeStreamingSession: (path: string) => void;
+  /** 正在 streaming 的 session 身份。用于忽略旧 turn/status 迟到事件。 */
+  activeSessionStreams: Record<string, ActiveSessionStream>;
+  addStreamingSession: (path: string, identity?: StreamingStatusIdentity) => void;
+  removeStreamingSession: (path: string, identity?: StreamingStatusIdentity) => boolean;
+  forceRemoveStreamingSession: (path: string) => boolean;
   /** 后台 session 已完成新输出，但用户尚未切回查看。 */
   unreadOutputSessionPaths: string[];
   markSessionOutputUnread: (path: string) => void;
@@ -33,19 +46,109 @@ function cancelTimer(path: string): void {
   }
 }
 
+function normalizeIdentityPart(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function hasExplicitIdentity(identity: StreamingStatusIdentity | undefined): boolean {
+  return !!identity
+    && (Object.prototype.hasOwnProperty.call(identity, 'streamId')
+      || Object.prototype.hasOwnProperty.call(identity, 'turnId'));
+}
+
+function hasKnownIdentityPart(identity: ActiveSessionStream | StreamingStatusIdentity | undefined): boolean {
+  return !!normalizeIdentityPart(identity?.streamId) || !!normalizeIdentityPart(identity?.turnId);
+}
+
+function identitiesMatch(
+  current: ActiveSessionStream | undefined,
+  incoming: StreamingStatusIdentity | undefined,
+): boolean {
+  if (!current || !hasKnownIdentityPart(current)) return true;
+  const currentStreamId = normalizeIdentityPart(current.streamId);
+  const incomingStreamId = normalizeIdentityPart(incoming?.streamId);
+  let matchedKnownPart = false;
+  if (currentStreamId && incomingStreamId) {
+    if (currentStreamId !== incomingStreamId) return false;
+    matchedKnownPart = true;
+  }
+
+  const currentTurnId = normalizeIdentityPart(current.turnId);
+  const incomingTurnId = normalizeIdentityPart(incoming?.turnId);
+  if (currentTurnId && incomingTurnId) {
+    if (currentTurnId !== incomingTurnId) return false;
+    matchedKnownPart = true;
+  }
+
+  return matchedKnownPart;
+}
+
 export const createStreamingSlice = (
   set: (partial: Partial<StreamingSlice> | ((s: StreamingSlice) => Partial<StreamingSlice>)) => void,
   get?: () => StreamingSlice,
 ): StreamingSlice => ({
   streamingSessions: [],
-  addStreamingSession: (path) => set((s) => ({
-    streamingSessions: s.streamingSessions.includes(path)
-      ? s.streamingSessions
-      : [...s.streamingSessions, path],
-  })),
-  removeStreamingSession: (path) => set((s) => ({
-    streamingSessions: s.streamingSessions.filter(p => p !== path),
-  })),
+  activeSessionStreams: {},
+  addStreamingSession: (path, identity) => set((s) => {
+    const active = s.activeSessionStreams || {};
+    const current = active[path];
+    const currentStreamId = normalizeIdentityPart(current?.streamId);
+    const currentTurnId = normalizeIdentityPart(current?.turnId);
+    const incomingStreamId = normalizeIdentityPart(identity?.streamId);
+    const incomingTurnId = normalizeIdentityPart(identity?.turnId);
+    const explicitIdentity = hasExplicitIdentity(identity);
+    const streamChanged = !!incomingStreamId && incomingStreamId !== currentStreamId;
+    return {
+      streamingSessions: s.streamingSessions.includes(path)
+        ? s.streamingSessions
+        : [...s.streamingSessions, path],
+      activeSessionStreams: {
+        ...active,
+        [path]: {
+          streamId: explicitIdentity
+            ? (incomingStreamId ?? currentStreamId ?? null)
+            : (currentStreamId ?? null),
+          turnId: explicitIdentity
+            ? (incomingTurnId ?? (streamChanged ? null : currentTurnId) ?? null)
+            : (currentTurnId ?? null),
+        },
+      },
+    };
+  }),
+  removeStreamingSession: (path, identity) => {
+    let applied = true;
+    set((s) => {
+      const active = s.activeSessionStreams || {};
+      if (!identitiesMatch(active[path], identity)) {
+        applied = false;
+        return {};
+      }
+      const restActive = { ...active };
+      delete restActive[path];
+      return {
+        streamingSessions: s.streamingSessions.filter(p => p !== path),
+        activeSessionStreams: restActive,
+      };
+    });
+    return applied;
+  },
+  forceRemoveStreamingSession: (path) => {
+    let applied = false;
+    set((s) => {
+      const active = s.activeSessionStreams || {};
+      const hadSession = s.streamingSessions.includes(path);
+      const hadIdentity = Object.prototype.hasOwnProperty.call(active, path);
+      if (!hadSession && !hadIdentity) return {};
+      const restActive = { ...active };
+      delete restActive[path];
+      applied = hadSession || hadIdentity;
+      return {
+        streamingSessions: s.streamingSessions.filter(p => p !== path),
+        activeSessionStreams: restActive,
+      };
+    });
+    return applied;
+  },
   unreadOutputSessionPaths: [],
   markSessionOutputUnread: (path) => set((s) => ({
     unreadOutputSessionPaths: s.unreadOutputSessionPaths.includes(path)

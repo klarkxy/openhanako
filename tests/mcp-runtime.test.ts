@@ -885,6 +885,61 @@ describe("MCP runtime OAuth persistence", () => {
     expect(saved.oauth.refreshToken).toBe("refresh-1");
   });
 
+  it("fails OAuth completion when the saved connector cannot read back the token", async () => {
+    let current = {
+      enabled: true,
+      connectors: [{ id: "notion", name: "Notion", url: "https://mcp.example.com/mcp", authType: "oauth" }],
+    };
+    const runtime = new McpRuntime({
+      dataDir: "/tmp/mcp-readback-test",
+      config: {
+        get: vi.fn(() => current),
+        set: vi.fn((_key, value) => {
+          current = {
+            ...current,
+            ...value,
+            connectors: (value.connectors || []).map((connector: any) => {
+              const { oauth, ...rest } = connector;
+              return rest;
+            }),
+          };
+        }),
+      },
+      registerTool: vi.fn(() => () => {}),
+      bus: { request: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    });
+
+    runtime.oauthSessions.set("state-1", {
+      status: "pending",
+      state: "state-1",
+      connectorId: "notion",
+      connectorUrl: "https://mcp.example.com/mcp",
+      clientId: "dcr-client",
+      clientSecret: "dcr-secret",
+      clientIdSource: "dcr",
+      redirectUri: "http://127.0.0.1:3210/api/plugins/mcp/oauth/callback",
+      codeVerifier: "verifier-1",
+      tokenEndpoint: "https://auth.example.com/token",
+      scope: "files:read offline_access",
+      resource: "https://mcp.example.com/mcp",
+    });
+    runtime.fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      access_token: "access-1",
+      refresh_token: "refresh-1",
+      expires_in: 3600,
+      token_type: "Bearer",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await expect(runtime.completeOAuth({ state: "state-1", code: "code-1" } as any))
+      .rejects
+      .toThrow("OAuth token was not persisted");
+    expect(runtime.getOAuthStatus("state-1")).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("OAuth token was not persisted"),
+    });
+  });
+
   it("defaults clientIdSource to manual for legacy connectors that already have a client id", () => {
     const config = normalizeMcpConfig({
       enabled: true,

@@ -5,31 +5,65 @@
     margin-bottom: var(--space-sm);
 }
 
-.agentTabsShell {
+.agentTabsFrame {
     margin: 0 calc(var(--space-lg) * -1) var(--space-md);
     padding: 2px var(--space-lg) 10px;
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr) 26px;
+    align-items: start;
+    gap: 7px;
+}
+
+.agentTabsShell {
+    min-width: 0;
     overflow-x: auto;
     overflow-y: visible;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    scroll-behavior: smooth;
 }
 
 .agentTabsShell::-webkit-scrollbar {
     display: none;
 }
 
+.agentTabsArrow {
+    width: 26px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 2px;
+    border: 1px solid rgba(0, 0, 0, 0.055);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.52);
+    color: var(--text-muted);
+    cursor: default;
+    transition: color var(--duration-fast), background var(--duration-fast), border-color var(--duration-fast), opacity var(--duration-fast);
+}
+
+.agentTabsArrow:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: rgba(var(--accent-rgb), 0.24);
+    background: rgba(var(--accent-rgb), 0.055);
+}
+
+.agentTabsArrow:disabled {
+    opacity: 0.34;
+}
+
 .agentTabs {
     width: max-content;
-    min-width: 100%;
+    min-width: max-content;
     display: flex;
     align-items: flex-start;
-    justify-content: center;
-    gap: 18px;
+    justify-content: flex-start;
+    gap: 14px;
 }
 
 .agentTab {
-    width: 58px;
-    flex: 0 0 58px;
+    width: 64px;
+    flex: 0 0 64px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -71,7 +105,8 @@
 }
 
 .agentTabName {
-    max-width: 68px;
+    width: 64px;
+    max-width: 64px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

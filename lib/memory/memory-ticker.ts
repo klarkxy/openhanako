@@ -28,6 +28,7 @@ import { isAgentPhoneSessionPath } from "../conversations/agent-phone-session.ts
 import { buildSourceTimeRange } from "./time-context.ts";
 import { writeCacheSnapshotObservation } from "./cache-snapshot-observation.ts";
 import { runMemoryReflection as defaultRunMemoryReflection } from "./memory-reflection-runner.ts";
+import { validateRollingSummaryFormat } from "./rolling-summary-format.ts";
 import { CACHE_STRATEGIES } from "../llm/cache-strategy-contract.ts";
 
 const log = createModuleLogger("memory-ticker");
@@ -259,6 +260,12 @@ export function createMemoryTicker(opts) {
     };
   }
 
+  function _isRecoverableSessionSnapshotUnavailable(err) {
+    const message = String(err?.message || err || "");
+    if (/session cache snapshot unavailable/i.test(message)) return true;
+    return /snapshot/i.test(message) && /unknown session/i.test(message);
+  }
+
   async function _runSessionSnapshotMemoryReflection({
     sessionPath,
     sessionId,
@@ -311,10 +318,16 @@ export function createMemoryTicker(opts) {
         },
         usageLedger: resolvedModel?.usageLedger,
         usageContext: {
-          subsystem: "memory",
-          operation: "cache_snapshot_reflection",
-          surface: "system",
-          trigger,
+          source: {
+            subsystem: "memory",
+            operation: "cache_snapshot_reflection",
+            surface: "system",
+            trigger,
+          },
+          attribution: {
+            kind: "memory",
+            agentId: agentId || resolvedModel?.usageAgentId || null,
+          },
         },
       });
       const metadata = reflection?.metadata || {};
@@ -327,6 +340,16 @@ export function createMemoryTicker(opts) {
       }
 
       if (mode === "write" && reflection?.data) {
+        // 写入前结构校验（#1628）：reflection runner 是可注入依赖，落盘边界
+        // 不信任上游；不满足 compileFacts 提取假设的摘要禁止覆盖旧摘要。
+        const formatValidation = validateRollingSummaryFormat(String(reflection.data.summary || ""));
+        if (!formatValidation.ok) {
+          const err: any = new Error(
+            `cache snapshot reflection summary violates the rolling summary format: ${formatValidation.issues.join("; ")}`,
+          );
+          err.cacheMetadata = metadata;
+          throw err;
+        }
         summaryManager.saveSummary(sessionId, reflection.data);
       }
 
@@ -407,15 +430,24 @@ export function createMemoryTicker(opts) {
       const resolvedModel = getResolvedMemoryModel();
       const cacheSnapshotMode = _getCacheSnapshotReflectionMode();
       if (cacheSnapshotMode === "write") {
-        await _runSessionSnapshotMemoryReflection({
-          sessionPath,
-          sessionId,
-          messages,
-          resolvedModel,
-          rollingOptions,
-          mode: "write",
-          trigger,
-        });
+        try {
+          await _runSessionSnapshotMemoryReflection({
+            sessionPath,
+            sessionId,
+            messages,
+            resolvedModel,
+            rollingOptions,
+            mode: "write",
+            trigger,
+          });
+        } catch (err) {
+          if (!_isRecoverableSessionSnapshotUnavailable(err)) throw err;
+          debugLog()?.warn?.(
+            "memory",
+            `cache snapshot unavailable for ${path.basename(sessionPath)}; falling back to rolling summary`,
+          );
+          await summaryManager.rollingSummary(sessionId, messages, resolvedModel, rollingOptions);
+        }
       } else {
         await summaryManager.rollingSummary(sessionId, messages, resolvedModel, rollingOptions);
         if (cacheSnapshotMode === "shadow") {

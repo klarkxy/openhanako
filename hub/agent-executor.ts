@@ -16,6 +16,7 @@ import { createDefaultSettings } from "../core/session-defaults.ts";
 import { SESSION_PERMISSION_MODES } from "../core/session-permission-mode.ts";
 import { teardownSessionResources } from "../core/session-teardown.ts";
 import {
+  applyConversationScopedMemorySearch,
   filterAgentPhoneTools,
   getAgentPhoneActiveToolNames,
   getAgentPhonePermissionMode,
@@ -358,11 +359,20 @@ export async function runAgentPhoneSession(agentId, rounds, {
     workspace: engine.getHomeCwd(agentId),
     getSessionPath: () => sessionManager?.getSessionFile?.() || null,
     getPermissionMode: () => phonePermissionMode,
+    // 拦截分层（#1614）：标记 conversation surface，read_only 拦截时错误提示
+    // 指向"会话设置面板可切换"而非通用 plan 模式提示。
+    permissionContext: { surface: "conversation" },
   });
   // @ts-expect-error filterAgentPhoneTools signature accepts 1 arg; second arg ({ toolMode }) is unused at runtime
   const { tools, customTools } = filterAgentPhoneTools(built, { toolMode });
+  // 频道会话使用作用域化的 search_memory：默认排除其它频道事实，
+  // 跨频道检索需显式 cross_channel 参数（#1670 群聊记忆混淆）。
+  const scopedMemorySearch = conversationType === "channel"
+    && typeof agent.createConversationScopedMemorySearchTool === "function"
+    ? agent.createConversationScopedMemorySearchTool({ kind: "channel", channelId: conversationId })
+    : null;
   const sessionCustomTools = [
-    ...customTools,
+    ...applyConversationScopedMemorySearch(customTools, scopedMemorySearch),
     ...(Array.isArray(extraCustomTools) ? extraCustomTools : []),
   ];
   const activeToolNames = getAgentPhoneActiveToolNames({

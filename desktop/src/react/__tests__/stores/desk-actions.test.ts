@@ -38,6 +38,7 @@ describe('desk-actions workspace roots', () => {
           content: `content:${filePath}`,
           version: { mtimeMs: 1, size: 10, sha256: 'hash' },
         })),
+        getFileUrl: vi.fn((filePath: string) => `file://${filePath}`),
       },
     };
     useStore.setState({
@@ -128,6 +129,81 @@ describe('desk-actions workspace roots', () => {
     );
     expect(useStore.getState().deskFiles).toEqual([{ name: 'remote.md', isDir: false }]);
     expect(useStore.getState().deskBasePath).toBe('studio:mount_docs');
+  });
+
+  it('stores the disclosed native root of a local_fs workspace from the workbench files response', async () => {
+    useStore.setState({
+      deskBasePath: 'studio:mount_docs',
+      deskWorkspaceMountId: 'mount_docs',
+      deskWorkspaceLabel: 'Docs',
+    } as never);
+    mockHanaFetch
+      .mockResolvedValueOnce(jsonResponse({
+        mountId: 'mount_docs',
+        mount: { label: 'Docs', nativeRootPath: '/Users/me/docs' },
+        files: [{ name: 'remote.md', isDir: false }],
+      }))
+      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '' } as unknown as Response);
+
+    const { loadDeskFiles } = await import('../../stores/desk-actions');
+    await loadDeskFiles();
+
+    expect(useStore.getState().deskWorkspaceNativeRoot).toBe('/Users/me/docs');
+  });
+
+  it('clears the stored native root when the workbench files response stops disclosing it', async () => {
+    useStore.setState({
+      deskBasePath: 'studio:mount_docs',
+      deskWorkspaceMountId: 'mount_docs',
+      deskWorkspaceLabel: 'Docs',
+      deskWorkspaceNativeRoot: '/Users/me/docs',
+    } as never);
+    mockHanaFetch
+      .mockResolvedValueOnce(jsonResponse({
+        mountId: 'mount_docs',
+        mount: { label: 'Docs' },
+        files: [],
+      }))
+      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '' } as unknown as Response);
+
+    const { loadDeskFiles } = await import('../../stores/desk-actions');
+    await loadDeskFiles();
+
+    expect(useStore.getState().deskWorkspaceNativeRoot).toBeNull();
+  });
+
+  it('seeds the native root when applying a studio workspace and resets it for plain folders', async () => {
+    mockHanaFetch.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/workbench/files')) {
+        return jsonResponse({
+          mountId: 'mount_docs',
+          mount: { label: 'Docs', nativeRootPath: '/Users/me/docs' },
+          files: [],
+        });
+      }
+      if (url.startsWith('/api/workbench/content')) {
+        return { ok: false, status: 404, text: async () => '' } as unknown as Response;
+      }
+      if (url.startsWith('/api/preferences/workspace-ui-state')) return jsonResponse({ state: null });
+      if (url.startsWith('/api/desk/')) return jsonResponse({ files: [], content: null });
+      if (url.startsWith('/api/config/workspaces/recent')) return jsonResponse({ cwd_history: [] });
+      return jsonResponse({});
+    });
+
+    const { applyStudioWorkspace, applyFolder } = await import('../../stores/desk-actions');
+    await applyStudioWorkspace({
+      mountId: 'mount_docs',
+      label: 'Docs',
+      nativeRootPath: '/Users/me/docs',
+    });
+
+    expect(useStore.getState().deskWorkspaceMountId).toBe('mount_docs');
+    expect(useStore.getState().deskWorkspaceNativeRoot).toBe('/Users/me/docs');
+
+    await applyFolder('/Users/me/plain');
+
+    expect(useStore.getState().deskWorkspaceMountId).toBeNull();
+    expect(useStore.getState().deskWorkspaceNativeRoot).toBeNull();
   });
 
   it('adds and removes extra workspace folders without changing the primary folder', async () => {
@@ -496,6 +572,47 @@ describe('desk-actions workspace roots', () => {
       }),
     ]);
     expect(window.platform?.readFileSnapshot).toHaveBeenCalledWith('/workspace/src/react/App.tsx');
+  });
+
+  it('hydrates persisted preview metadata needed by PDF and HTML renderers', async () => {
+    const { hydratePersistedPreviewItems } = await import('../../stores/workspace-ui-state-actions');
+
+    const items = await hydratePersistedPreviewItems('/workspace', {
+      previewTabs: [
+        {
+          id: 'file-docs/report.pdf',
+          relativePath: 'docs/report.pdf',
+          title: 'report.pdf',
+          type: 'pdf',
+          ext: 'pdf',
+        },
+        {
+          id: 'file-pages/demo.html',
+          relativePath: 'pages/demo.html',
+          title: 'demo.html',
+          type: 'html',
+          ext: 'html',
+        },
+      ],
+    });
+
+    expect(window.platform?.getFileUrl).toHaveBeenCalledWith('/workspace/docs/report.pdf');
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: 'file-docs/report.pdf',
+        type: 'pdf',
+        filePath: '/workspace/docs/report.pdf',
+        content: '',
+        sourceUrl: 'file:///workspace/docs/report.pdf',
+      }),
+      expect.objectContaining({
+        id: 'file-pages/demo.html',
+        type: 'html',
+        filePath: '/workspace/pages/demo.html',
+        content: 'content:/workspace/pages/demo.html',
+        sourceRootPath: '/workspace',
+      }),
+    ]);
   });
 
   it('renames a tree item by explicit parent subdir and updates that tree cache', async () => {

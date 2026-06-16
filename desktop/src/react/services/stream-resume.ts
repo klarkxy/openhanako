@@ -16,11 +16,21 @@ import { registerStreamResumeMetaInvalidator } from '../stores/stream-invalidato
 
 // 延迟导入，打破循环依赖
 let _handleServerMessage: ((msg: any) => void) | null = null;
-let _applyStreamingStatus: ((isStreaming: boolean, sessionPath: string | null) => void) | null = null;
+let _applyStreamingStatus: ((
+  isStreaming: boolean,
+  sessionPath: string | null,
+  identity?: { streamId?: string | null; turnId?: string | null },
+  options?: { force?: boolean },
+) => boolean | void) | null = null;
 
 export function injectHandlers(
   handleServerMessage: (msg: any) => void,
-  applyStreamingStatus: (isStreaming: boolean, sessionPath: string | null) => void,
+  applyStreamingStatus: (
+    isStreaming: boolean,
+    sessionPath: string | null,
+    identity?: { streamId?: string | null; turnId?: string | null },
+    options?: { force?: boolean },
+  ) => boolean | void,
 ): void {
   _handleServerMessage = handleServerMessage;
   _applyStreamingStatus = applyStreamingStatus;
@@ -133,6 +143,10 @@ function resolveRuntimeStreaming(msg: any): boolean {
     : !!msg.isStreaming;
 }
 
+function shouldForceApplyRuntimeStreamingStatus(msg: any): boolean {
+  return msg?.runtimeIsStreaming === false;
+}
+
 function prepareStreamMeta(sessionPath: string, streamId: string | null, opts: { resetConsumed?: boolean } = {}): SessionStreamMeta | null {
   const meta = getSessionStreamMeta(sessionPath);
   if (!meta) return null;
@@ -222,7 +236,9 @@ async function rebuildSessionFromResume(msg: any, opts: { finishTurnBeforeHydrat
       meta.lastSeq = Math.max(meta.lastSeq || 0, Math.max(0, msg.nextSeq - 1));
     }
 
-    _applyStreamingStatus?.(resolveRuntimeStreaming(msg), sessionPath);
+    _applyStreamingStatus?.(resolveRuntimeStreaming(msg), sessionPath, {
+      streamId: msg.streamId || null,
+    }, { force: shouldForceApplyRuntimeStreamingStatus(msg) });
 
     const ws = getWebSocket();
     if (isCurrentSession && useStore.getState().currentSessionPath === sessionPath && ws?.readyState === WebSocket.OPEN && msg.isStreaming) {
@@ -260,7 +276,9 @@ export function replayStreamResume(msg: any): void {
     meta.lastSeq = Math.max(meta.lastSeq || 0, Math.max(0, msg.nextSeq - 1));
   }
 
-  _applyStreamingStatus?.(resolveRuntimeStreaming(msg), sessionPath);
+  _applyStreamingStatus?.(resolveRuntimeStreaming(msg), sessionPath, {
+    streamId: msg.streamId || null,
+  }, { force: shouldForceApplyRuntimeStreamingStatus(msg) });
 }
 
 registerStreamResumeMetaInvalidator((sessionPath) => {

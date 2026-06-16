@@ -69,6 +69,10 @@ function makeMockEngine( overrides: any = {}) {
       return prefs._store.computer_use;
     }),
     setThinkingLevel: vi.fn(function (v) { prefs.setThinkingLevel(v); }),
+    getDefaultThinkingLevel: vi.fn(() => overrides.defaultThinkingLevel || prefs.getThinkingLevel()),
+    setDefaultThinkingLevel: vi.fn(async function (v) { prefs.setThinkingLevel(v); }),
+    getSessionThinkingLevel: vi.fn((sessionPath) => overrides.sessionThinkingLevels?.[sessionPath] || overrides.sessionThinkingLevel || null),
+    setSessionThinkingLevel: vi.fn(async () => ({ ok: true })),
     setDefaultModel: vi.fn(),
     getEventBus: vi.fn(() => eventBus),
     currentSessionPath: "/sessions/test",
@@ -138,33 +142,53 @@ describe("update-settings-tool", () => {
     expect(result.content[0].text).toContain("Locale");
   });
 
-  describe("sandbox toggle — this 绑定 + boolean 转换", () => {
-    it("apply sandbox=false 实际关闭沙盒", async () => {
+  describe("sandbox security boundary", () => {
+    it("does not expose sandbox controls through settings search", async () => {
+      const { tool } = buildTool({ prefsData: { sandbox: true, sandbox_network: false } });
+
+      const securityResult = await tool.execute("c-sandbox-search-security", { action: "search", query: "security" });
+      const networkResult = await tool.execute("c-sandbox-search-network", { action: "search", query: "sandbox" });
+
+      expect(securityResult.content[0].text).not.toContain("sandbox");
+      expect(networkResult.content[0].text).not.toContain("sandbox_network");
+    });
+
+    it("rejects legacy direct sandbox=false apply without mutating preferences", async () => {
       const { tool, engine } = buildTool({ prefsData: { sandbox: true } });
-      await tool.execute("c1", { action: "apply", key: "sandbox", value: "false" });
+      const result = await tool.execute("c1", { action: "apply", key: "sandbox", value: "false" });
 
-      expect(engine.setSandbox).toHaveBeenCalled();
-      // 传入的是 boolean false（调度侧 toggle parse）
-      expect(engine.setSandbox.mock.calls[0][0]).toBe(false);
-      // preferences 存的也是 boolean false
-      expect(engine._prefs._store.sandbox).toBe(false);
+      expect(engine.setSandbox).not.toHaveBeenCalled();
+      expect(engine._prefs._store.sandbox).toBe(true);
+      expect(result.details.settingsUpdate).toMatchObject({
+        status: "blocked",
+        key: "sandbox",
+      });
+      expect(result.content[0].text).toContain("Settings");
     });
 
-    it("apply sandbox=true 存入 boolean true", async () => {
+    it("rejects legacy direct sandbox=true apply without mutating preferences", async () => {
       const { tool, engine } = buildTool({ prefsData: { sandbox: false } });
-      await tool.execute("c2", { action: "apply", key: "sandbox", value: "true" });
+      const result = await tool.execute("c2", { action: "apply", key: "sandbox", value: "true" });
 
-      expect(engine.setSandbox.mock.calls[0][0]).toBe(true);
-      expect(engine._prefs._store.sandbox).toBe(true);
+      expect(engine.setSandbox).not.toHaveBeenCalled();
+      expect(engine._prefs._store.sandbox).toBe(false);
+      expect(result.details.settingsUpdate).toMatchObject({
+        status: "blocked",
+        key: "sandbox",
+      });
     });
 
-    it("apply sandbox_network=true 只开启沙盒联网子开关", async () => {
+    it("rejects legacy direct sandbox_network apply without mutating preferences", async () => {
       const { tool, engine } = buildTool({ prefsData: { sandbox: true, sandbox_network: false } });
-      await tool.execute("c-network", { action: "apply", key: "sandbox_network", value: "true" });
+      const result = await tool.execute("c-network", { action: "apply", key: "sandbox_network", value: "true" });
 
-      expect(engine.setSandboxNetwork).toHaveBeenCalledWith(true);
-      expect(engine._prefs._store.sandbox_network).toBe(true);
+      expect(engine.setSandboxNetwork).not.toHaveBeenCalled();
+      expect(engine._prefs._store.sandbox_network).toBe(false);
       expect(engine._prefs._store.sandbox).toBe(true);
+      expect(result.details.settingsUpdate).toMatchObject({
+        status: "blocked",
+        key: "sandbox_network",
+      });
     });
   });
 
@@ -247,6 +271,42 @@ describe("update-settings-tool", () => {
 
       expect(engine.updateComputerUseSettings).toHaveBeenCalledWith({ enabled: true });
       expect(engine._prefs._store.computer_use.enabled).toBe(true);
+    });
+  });
+
+  describe("thinking_level session boundary", () => {
+    it("reads the current session thinking level before the model default", async () => {
+      const { tool } = buildTool({
+        defaultThinkingLevel: "high",
+        sessionThinkingLevels: { "/sessions/test": "off" },
+      });
+
+      const result = await tool.execute("c-thinking-get", { action: "search", query: "thinking" });
+
+      expect(result.content[0].text).toContain("thinking_level");
+      expect(result.content[0].text).toContain("off");
+    });
+
+    it("applies thinking_level to the active session when one exists (#1653)", async () => {
+      const { tool, engine } = buildTool({
+        defaultThinkingLevel: "high",
+        sessionThinkingLevels: { "/sessions/test": "high" },
+      });
+
+      await tool.execute("c-thinking-apply", { action: "apply", key: "thinking_level", value: "off" });
+
+      expect(engine.setSessionThinkingLevel).toHaveBeenCalledWith("/sessions/test", "off");
+      expect(engine.setDefaultThinkingLevel).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the model default when there is no active session", async () => {
+      const { tool, engine } = buildTool({ defaultThinkingLevel: "medium" });
+      engine.currentSessionPath = null;
+
+      await tool.execute("c-thinking-default", { action: "apply", key: "thinking_level", value: "low" });
+
+      expect(engine.setSessionThinkingLevel).not.toHaveBeenCalled();
+      expect(engine.setDefaultThinkingLevel).toHaveBeenCalledWith("low");
     });
   });
 

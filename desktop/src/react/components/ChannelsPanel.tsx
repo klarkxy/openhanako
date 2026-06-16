@@ -34,6 +34,21 @@ const EMPTY_CHAT_ITEMS: ChatListItem[] = [];
 const PHONE_STREAM_MESSAGE_PREFIX = 'agent-phone-stream';
 const CHANNEL_COMPOSER_FOCUS_EVENT = 'hana-channel-composer-focus';
 
+function channelMaxScrollTop(el: HTMLElement): number {
+  return Math.max(0, el.scrollHeight - el.clientHeight);
+}
+
+function setChannelScrollTopInstant(el: HTMLElement, top: number): void {
+  const previousScrollBehavior = el.style.scrollBehavior;
+  el.style.scrollBehavior = 'auto';
+  el.scrollTop = top;
+  if (previousScrollBehavior) {
+    el.style.scrollBehavior = previousScrollBehavior;
+  } else {
+    el.style.removeProperty('scroll-behavior');
+  }
+}
+
 export function requestChannelComposerFocus(channelId: string) {
   if (!channelId || typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(CHANNEL_COMPOSER_FOCUS_EVENT, {
@@ -105,12 +120,12 @@ export function ChannelMessages() {
   const scrollToBottom = useCallback(() => {
     const el = getScrollContainer();
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    setChannelScrollTopInstant(el, channelMaxScrollTop(el));
     isNearBottomRef.current = true;
     setShowNewMessages(false);
   }, [getScrollContainer]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     isNearBottomRef.current = true;
     previousChannelRef.current = null;
     previousLengthRef.current = 0;
@@ -125,7 +140,7 @@ export function ChannelMessages() {
     return () => el.removeEventListener('scroll', onScroll);
   }, [checkNearBottom, getScrollContainer, messages.length]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = getScrollContainer();
     const channelChanged = previousChannelRef.current !== currentChannel;
     const previousLength = previousLengthRef.current;

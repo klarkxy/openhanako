@@ -134,6 +134,11 @@ describe("file-watch-registry", () => {
       fs.renameSync(tmpPath, filePath);
       await vi.waitFor(() => expect(notified).toContain("three\n"));
 
+      // Chokidar's atomic write normalization keeps a short merge window open
+      // after rename-based writes; the contract here is that the subscription
+      // survives the replacement once that normalization window has settled.
+      await new Promise(resolve => setTimeout(resolve, 120));
+
       fs.writeFileSync(filePath, "four\n", "utf-8");
       await vi.waitFor(() => expect(notified).toContain("four\n"));
     } finally {

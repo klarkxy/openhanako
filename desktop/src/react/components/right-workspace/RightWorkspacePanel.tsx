@@ -124,6 +124,7 @@ export function RightWorkspacePanel({ compact = false }: { compact?: boolean }) 
 
   return (
     <div className={styles.shell}>
+      {!compact && <SessionTodoCard />}
       <div
         className={`jian-card ${styles.workspaceCard}`}
         data-right-workspace-card=""
@@ -156,7 +157,6 @@ export function RightWorkspacePanel({ compact = false }: { compact?: boolean }) 
       </div>
       {!compact && (
         <>
-          <SessionTodoCard />
           <WorkflowCard />
           <AgentActivityCard />
           <SessionStatusCard />

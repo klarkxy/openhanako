@@ -15,6 +15,7 @@ const OPTIONAL_TOOL_NAMES = [
   "browser",
   "dm",
   "install_skill",
+  "office",
   "update_settings",
   "workflow",
 ] as const;

@@ -44,6 +44,7 @@ describe("agents route: tools.disabled", () => {
         { name: "read" },
         { name: "bash" },
         { name: "beautify_create-cover", _pluginId: "beautify" },
+        { name: "office_html-to-pdf", _pluginId: "office" },
         { name: "browser" },
         { name: "computer" },
         { name: "install_skill" },
@@ -76,7 +77,10 @@ describe("agents route: tools.disabled", () => {
       getHeartbeatMaster: vi.fn(() => true),
       getComputerUseSettings: vi.fn(() => ({ enabled: false })),
       pluginManager: {
-        getAllTools: vi.fn(() => [{ name: "beautify_create-cover", _pluginId: "beautify" }]),
+        getAllTools: vi.fn(() => [
+          { name: "beautify_create-cover", _pluginId: "beautify" },
+          { name: "office_html-to-pdf", _pluginId: "office" },
+        ]),
       },
     };
 
@@ -92,7 +96,7 @@ describe("agents route: tools.disabled", () => {
     const res = await app.request(`/api/agents/${agentId}/config`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tools: { disabled: ["browser", "automation", "beautify"] } }),
+      body: JSON.stringify({ tools: { disabled: ["browser", "automation", "beautify", "office"] } }),
     });
     expect(res.status).toBe(200);
   });
@@ -166,6 +170,7 @@ describe("agents route: tools.disabled", () => {
     expect(body.availableTools).toContain("read");
     expect(body.availableTools).toContain("browser");
     expect(body.availableTools).toContain("beautify");
+    expect(body.availableTools).toContain("office");
     expect(body.availableTools).not.toContain("computer");
     expect(body.availableTools).not.toContain("cron");
     expect(engine.getAgent).toHaveBeenCalledWith(agentId);
@@ -199,6 +204,7 @@ describe("agents route: tools.disabled", () => {
       "install_skill",
       "update_settings",
       "beautify",
+      "office",
     ]));
   });
 });

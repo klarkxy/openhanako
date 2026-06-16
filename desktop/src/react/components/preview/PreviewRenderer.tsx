@@ -89,16 +89,16 @@ interface PreviewRendererProps {
 }
 
 // ── HtmlPreview ──
-// srcDoc/blob 会继承主窗口 CSP，无法安全地为 Tailwind 等 CDN 单独放权。
-// HTML preview 改走短期 server 文档：iframe 继续 sandbox，响应自己携带 preview 专用 CSP。
+// HTML 内容由 server 注册为 token 化短期文档；右侧 Preview 只承载本地
+// artifact/file-backed HTML，用 DOM iframe 渲染，外部网页访问交给内置浏览器。
 
 function HtmlPreview({ previewItem }: { previewItem: PreviewItem }) {
-  const [src, setSrc] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setSrc(null);
+    setPreviewUrl(null);
     setError(null);
 
     hanaFetch('/api/preview/html', {
@@ -108,6 +108,7 @@ function HtmlPreview({ previewItem }: { previewItem: PreviewItem }) {
         title: previewItem.title,
         content: previewItem.content,
         sourceFilePath: previewItem.filePath,
+        sourceRootPath: previewItem.sourceRootPath,
       }),
     })
       .then(async (res) => {
@@ -115,7 +116,7 @@ function HtmlPreview({ previewItem }: { previewItem: PreviewItem }) {
         if (!data || typeof data.previewUrl !== 'string' || !data.previewUrl) {
           throw new Error('invalid html preview response');
         }
-        if (!cancelled) setSrc(data.previewUrl);
+        if (!cancelled) setPreviewUrl(data.previewUrl);
       })
       .catch((err) => {
         console.error('[PreviewRenderer] HTML preview registration failed:', err);
@@ -125,7 +126,7 @@ function HtmlPreview({ previewItem }: { previewItem: PreviewItem }) {
     return () => {
       cancelled = true;
     };
-  }, [previewItem.content, previewItem.filePath, previewItem.title]);
+  }, [previewItem.content, previewItem.filePath, previewItem.sourceRootPath, previewItem.title]);
 
   if (error) {
     return <pre className="preview-code">{error}</pre>;
@@ -133,10 +134,12 @@ function HtmlPreview({ previewItem }: { previewItem: PreviewItem }) {
 
   return (
     <iframe
+      className="preview-html-frame"
+      data-html-preview-frame=""
       title={previewItem.title}
+      src={previewUrl || 'about:blank'}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
-      src={src || undefined}
     />
   );
 }
@@ -594,21 +597,42 @@ function CsvPreview({ content }: { content: string }) {
 }
 
 // ── PdfPreview ──
-// data: URL 在 Electron 中无法渲染大 PDF，改用 blob URL 触发 Chromium 内置查看器
+// sourceUrl 是新路径；content/base64 只保留给旧 previewItem 兼容。
 
-function PdfPreview({ content }: { content: string }) {
-  const url = useMemo(() => {
-    const raw = atob(content);
+function appendPdfViewerHash(url: string): string {
+  if (!url || url === 'about:blank') return url;
+  const params = 'toolbar=0&navpanes=0';
+  const hashIndex = url.indexOf('#');
+  if (hashIndex < 0) return `${url}#${params}`;
+  const prefix = url.slice(0, hashIndex + 1);
+  const hash = url.slice(hashIndex + 1);
+  return `${prefix}${hash ? `${hash}&` : ''}${params}`;
+}
+
+function PdfPreview({ previewItem }: { previewItem: PreviewItem }) {
+  const source = useMemo(() => {
+    if (previewItem.sourceUrl) {
+      return { url: previewItem.sourceUrl, revoke: false };
+    }
+    if (!previewItem.content) {
+      return { url: 'about:blank', revoke: false };
+    }
+    const raw = atob(previewItem.content);
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-  }, [content]);
+    if (typeof URL.createObjectURL !== 'function') {
+      return { url: `data:application/pdf;base64,${previewItem.content}`, revoke: false };
+    }
+    return { url: URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })), revoke: true };
+  }, [previewItem.content, previewItem.sourceUrl]);
 
   useEffect(() => {
-    return () => URL.revokeObjectURL(url);
-  }, [url]);
+    return () => {
+      if (source.revoke) URL.revokeObjectURL(source.url);
+    };
+  }, [source]);
 
-  return <iframe className="preview-pdf" src={`${url}#toolbar=0&navpanes=0`} />;
+  return <iframe className="preview-pdf" src={appendPdfViewerHash(source.url)} />;
 }
 
 // ── FileInfoPreview ──
@@ -668,7 +692,7 @@ export function PreviewRenderer({ previewItem }: PreviewRendererProps) {
       return <LegacyMediaFallback previewItem={previewItem} />;
 
     case 'pdf':
-      return <PdfPreview content={previewItem.content} />;
+      return <PdfPreview previewItem={previewItem} />;
 
     case 'docx':
       return (

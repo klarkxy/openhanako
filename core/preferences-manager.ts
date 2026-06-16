@@ -41,6 +41,10 @@ import {
   mergeQuickChatPreferences,
   normalizeQuickChatPreferences,
 } from "../shared/quick-chat-preferences.ts";
+import {
+  mergeBrowserPreferences,
+  normalizeBrowserPreferences,
+} from "../shared/browser-preferences.ts";
 import { createModuleLogger } from "../lib/debug-log.ts";
 import { normalizeSessionThinkingLevel } from "./session-thinking-level.ts";
 
@@ -282,6 +286,22 @@ export class PreferencesManager {
     this.savePreferences(prefs);
   }
 
+  /** 读取 bridge 富文本流式开关（全局，默认开启） */
+  getBridgeRichStreamingEnabled() {
+    return this._cache.bridge?.richStreamingEnabled !== false;
+  }
+
+  /** 保存 bridge 富文本流式开关；false 表示强制走旧兼容路径 */
+  setBridgeRichStreamingEnabled(enabled) {
+    const prefs = this._mutableCopy();
+    const bridge = { ...(prefs.bridge || {}) };
+    if (enabled === false) bridge.richStreamingEnabled = false;
+    else delete bridge.richStreamingEnabled;
+    if (Object.keys(bridge).length === 0) delete prefs.bridge;
+    else prefs.bridge = bridge;
+    this.savePreferences(prefs);
+  }
+
   /** 读取自动化运行权限模式（全局，默认自动审核）。 */
   getAutomationPermissionMode() {
     return normalizeAutomationPermissionMode(this._cache.automation || {});
@@ -458,6 +478,19 @@ export class PreferencesManager {
     return prefs.quick_chat;
   }
 
+  /** 读取内置浏览器偏好。 */
+  getBrowserPreferences() {
+    return normalizeBrowserPreferences(this._cache.browser || {});
+  }
+
+  /** 合并写入内置浏览器偏好。 */
+  setBrowserPreferences(partial) {
+    const prefs = this._mutableCopy();
+    prefs.browser = mergeBrowserPreferences(prefs.browser || {}, partial || {});
+    this.savePreferences(prefs);
+    return prefs.browser;
+  }
+
   /** 读取指定工作区的 UI 状态（文件夹展开、预览 tabs 等）。 */
   getWorkspaceUiState(workspaceRoot, surface) {
     const workspace = normalizeWorkspacePath(workspaceRoot);
@@ -629,6 +662,46 @@ export class PreferencesManager {
     return this.getPluginUiPrefs();
   }
 
+  getImageGenerationConfig() {
+    return normalizeImageGenerationConfig(this._cache.imageGeneration);
+  }
+
+  hasImageGenerationLegacyConfigMigrated() {
+    return this._cache._imageGenerationLegacyConfigMigrated === true;
+  }
+
+  migrateImageGenerationConfigFromLegacy(legacyConfig) {
+    if (this.hasImageGenerationLegacyConfigMigrated()) {
+      return this.getImageGenerationConfig();
+    }
+    const prefs = this._mutableCopy();
+    prefs.imageGeneration = mergeImageGenerationConfig(
+      normalizeImageGenerationConfig(legacyConfig),
+      normalizeImageGenerationConfig(prefs.imageGeneration),
+    );
+    prefs._imageGenerationLegacyConfigMigrated = true;
+    this.savePreferences(prefs);
+    return this.getImageGenerationConfig();
+  }
+
+  setImageGenerationConfig(config) {
+    const prefs = this._mutableCopy();
+    prefs.imageGeneration = normalizeImageGenerationConfig(config);
+    this.savePreferences(prefs);
+    return this.getImageGenerationConfig();
+  }
+
+  getVideoGenerationConfig() {
+    return normalizeVideoGenerationConfig(this._cache.videoGeneration);
+  }
+
+  setVideoGenerationConfig(config) {
+    const prefs = this._mutableCopy();
+    prefs.videoGeneration = normalizeVideoGenerationConfig(config);
+    this.savePreferences(prefs);
+    return this.getVideoGenerationConfig();
+  }
+
   getSpeechRecognitionConfig() {
     const raw = this._cache.speechRecognition;
     const defaultModel = raw?.defaultModel && typeof raw.defaultModel === "object" && !Array.isArray(raw.defaultModel)
@@ -740,6 +813,74 @@ export class PreferencesManager {
     } catch {}
     return null;
   }
+}
+
+export function normalizeImageGenerationConfig(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const defaultModel = raw.defaultImageModel && typeof raw.defaultImageModel === "object" && !Array.isArray(raw.defaultImageModel)
+    ? {
+      provider: typeof raw.defaultImageModel.provider === "string" ? raw.defaultImageModel.provider.trim() : "",
+      id: typeof raw.defaultImageModel.id === "string" ? raw.defaultImageModel.id.trim() : "",
+    }
+    : null;
+  const providerDefaults = raw.providerDefaults && typeof raw.providerDefaults === "object" && !Array.isArray(raw.providerDefaults)
+    ? structuredClone(raw.providerDefaults)
+    : null;
+  return {
+    ...(defaultModel?.provider && defaultModel.id ? { defaultImageModel: defaultModel } : {}),
+    ...(providerDefaults ? { providerDefaults } : {}),
+  };
+}
+
+export function normalizeVideoGenerationConfig(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const defaultModel = raw.defaultVideoModel && typeof raw.defaultVideoModel === "object" && !Array.isArray(raw.defaultVideoModel)
+    ? {
+      provider: typeof raw.defaultVideoModel.provider === "string" ? raw.defaultVideoModel.provider.trim() : "",
+      id: typeof raw.defaultVideoModel.id === "string" ? raw.defaultVideoModel.id.trim() : "",
+    }
+    : null;
+  const providerDefaults = raw.providerDefaults && typeof raw.providerDefaults === "object" && !Array.isArray(raw.providerDefaults)
+    ? structuredClone(raw.providerDefaults)
+    : null;
+  return {
+    ...(defaultModel?.provider && defaultModel.id ? { defaultVideoModel: defaultModel } : {}),
+    ...(providerDefaults ? { providerDefaults } : {}),
+  };
+}
+
+export function mergeImageGenerationConfig(base, override) {
+  const left = normalizeImageGenerationConfig(base);
+  const right = normalizeImageGenerationConfig(override);
+  const next: any = {};
+  const defaultModel = right.defaultImageModel || left.defaultImageModel || null;
+  if (defaultModel) next.defaultImageModel = defaultModel;
+  const providerDefaults = mergeProviderDefaults(left.providerDefaults, right.providerDefaults);
+  if (providerDefaults) next.providerDefaults = providerDefaults;
+  return next;
+}
+
+function mergeProviderDefaults(base, override) {
+  const left = base && typeof base === "object" && !Array.isArray(base) ? base : {};
+  const right = override && typeof override === "object" && !Array.isArray(override) ? override : {};
+  const providerIds = new Set([...Object.keys(left), ...Object.keys(right)]);
+  if (providerIds.size === 0) return null;
+  const next = {};
+  for (const providerId of providerIds) {
+    const baseValue = left[providerId];
+    const overrideValue = right[providerId];
+    if (
+      baseValue && typeof baseValue === "object" && !Array.isArray(baseValue)
+      && overrideValue && typeof overrideValue === "object" && !Array.isArray(overrideValue)
+    ) {
+      next[providerId] = { ...structuredClone(baseValue), ...structuredClone(overrideValue) };
+    } else if (overrideValue !== undefined) {
+      next[providerId] = structuredClone(overrideValue);
+    } else {
+      next[providerId] = structuredClone(baseValue);
+    }
+  }
+  return next;
 }
 
 function normalizeBridgeMediaPublicBaseUrl(value) {

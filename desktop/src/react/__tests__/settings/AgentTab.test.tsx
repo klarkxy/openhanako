@@ -8,7 +8,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSettingsStore } from '../../settings/store';
 
-type MockResponse = { json: () => Promise<any> };
+type MockResponse = { json: () => Promise<unknown> };
 
 const hanaFetchMock = vi.fn(async (_url: string, _opts?: RequestInit): Promise<MockResponse> => ({
   json: async () => ({ models: [] }),
@@ -34,10 +34,24 @@ vi.mock('../../settings/actions', () => ({
 }));
 
 vi.mock('@/ui', () => ({
-  SelectWidget: ({ value }: { value?: string }) => (
-    <div data-testid="model-select">{value || ''}</div>
-  ),
+  SelectWidget: ({
+    value,
+    options = [],
+    renderTrigger,
+  }: {
+    value?: string;
+    options?: Array<{ value: string; label: string; group?: string }>;
+    renderTrigger?: (option: { value: string; label: string; group?: string } | undefined, isOpen: boolean) => React.ReactNode;
+  }) => {
+    const current = options.find(o => o.value === value);
+    return (
+      <div data-testid="model-select">
+        {renderTrigger ? renderTrigger(current, false) : (value || '')}
+      </div>
+    );
+  },
   ProviderGroupHeader: ({ provider }: { provider: string }) => <div>{provider}</div>,
+  ProviderIcon: ({ provider }: { provider?: string }) => <svg data-testid={`provider-icon-${provider || 'none'}`} />,
   selectWidgetStyles: { providerInset: 'providerInset' },
 }));
 
@@ -145,8 +159,29 @@ describe('AgentTab settings agent selection', () => {
     expect(screen.getByTestId('memory-section')).toHaveAttribute('data-memory-enabled', 'true');
   });
 
+  it('shows the provider icon in the selected agent chat model trigger', async () => {
+    hanaFetchMock.mockImplementation(async (_url: string, _opts?: RequestInit): Promise<MockResponse> => ({
+      json: async () => ({
+        models: [{ id: 'glm-5.2', name: 'GLM-5.2', provider: 'zhipu-coding' }],
+      }),
+    }));
+    useSettingsStore.setState({
+      settingsConfig: {
+        agent: { name: 'Hana', yuan: 'hanako' },
+        memory: { enabled: true },
+        models: { chat: { id: 'glm-5.2', provider: 'zhipu-coding' } },
+      },
+    });
+    const { AgentTab } = await import('../../settings/tabs/AgentTab');
+
+    render(<AgentTab />);
+
+    expect(await screen.findByTestId('provider-icon-zhipu-coding')).toBeTruthy();
+    expect(screen.getByTestId('model-select')).toHaveTextContent('GLM-5.2');
+  });
+
   it('confirms character-card export from the live preview overlay', async () => {
-    hanaFetchMock.mockImplementation(async (url: string, opts?: RequestInit): Promise<MockResponse> => {
+    hanaFetchMock.mockImplementation(async (url: string, _opts?: RequestInit): Promise<MockResponse> => {
       if (url === '/api/models') return { json: async () => ({ models: [] }) };
       if (url === '/api/character-cards/export/preview') {
         return {
@@ -226,6 +261,37 @@ describe('AgentTab settings agent selection', () => {
     }) as [string, RequestInit | undefined] | undefined;
     expect(cfgCall).toBeTruthy();
     expect(JSON.parse(String(cfgCall?.[1]?.body))).toEqual({ agent: { name: 'NewName' } });
+  });
+
+  it('saves only the agent name from the compact name save button', async () => {
+    const { AgentTab } = await import('../../settings/tabs/AgentTab');
+    const { container } = render(<AgentTab />);
+
+    const nameInput = screen.getByPlaceholderText('settings.agent.agentNameHint');
+    const identityInput = container.querySelectorAll('textarea')[0];
+    expect(identityInput).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: 'NewName' } });
+      fireEvent.change(identityInput, { target: { value: 'changed identity' } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'settings.save' })[0]);
+      await Promise.resolve();
+    });
+
+    const cfgCall = hanaFetchMock.mock.calls.find((call) => {
+      const [url, opts] = call as [string, RequestInit | undefined];
+      return url === '/api/agents/hana/config' && opts?.method === 'PUT';
+    }) as [string, RequestInit | undefined] | undefined;
+    const identityCall = hanaFetchMock.mock.calls.find((call) => {
+      const [url, opts] = call as [string, RequestInit | undefined];
+      return url === '/api/agents/hana/identity' && opts?.method === 'PUT';
+    });
+
+    expect(cfgCall).toBeTruthy();
+    expect(JSON.parse(String(cfgCall?.[1]?.body))).toEqual({ agent: { name: 'NewName' } });
+    expect(identityCall).toBeUndefined();
   });
 
   it('does not save on Enter while composing with an IME (#1306)', async () => {

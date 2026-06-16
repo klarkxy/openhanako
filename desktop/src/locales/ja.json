@@ -194,6 +194,20 @@
       "deleteConfirm": "このアーカイブを完全に削除しますか？取り消せません。",
       "deleteFailed": "削除に失敗しました",
       "daysAgo": "{days} 日前にアーカイブ"
+    },
+    "capabilityDrift": {
+      "title": "ツール構成が更新されています",
+      "addedTools": "新しいツール {count} 件",
+      "removedTools": "{count} 件のツールが利用不可",
+      "promptUpdated": "プロンプト更新",
+      "separator": "、",
+      "refreshButton": "エージェントのツールを更新",
+      "dismissButton": "閉じる",
+      "confirmText": "更新すると古い会話は要約に圧縮され、詳細が失われる可能性があります。続行しますか？",
+      "confirmButton": "更新する",
+      "cancelButton": "キャンセル",
+      "refreshing": "会話を圧縮してツールを更新中…",
+      "refreshFailed": "更新に失敗しました"
     }
   },
   "common": {
@@ -301,10 +315,10 @@
     "accessModeLocked": "現在アクセスモードを変更できません",
     "deskContext": "デスクのコンテキスト付き",
     "pastedImage": "貼り付け画像",
-    "textModelImageBlocked": "現在のモデルはテキスト専用のため、画像を直接送信できません。設定でモデル能力を調整するか、補助ビジョンを設定して有効にしてください。",
+    "textModelImageFileOnly": "現在のモデルは画像を表示できず、補助ビジョンも有効になっていません。画像はファイルとして送信され、モデルにはファイルパスのみが見え、画像の内容は見えません。",
     "textModelVideoBlocked": "現在のモデルは動画入力に対応していません。設定で動画能力を有効にするか、動画対応モデルに切り替えてください。",
     "textModelAudioBlocked": "現在のモデルは音声入力に対応していません。音声対応モデルに切り替えてください。",
-    "imageReadFailed": "画像を読み取れなかったため、メッセージは送信されませんでした。もう一度貼り付けるか添付してください。",
+    "imageReadFailedSentAsFile": "画像データの読み込みに失敗したため、この画像はファイルパスとして送信されました。モデルには内容が見えません。",
     "videoReadFailed": "動画を読み取れなかったため、メッセージは送信されませんでした。もう一度添付してください。",
     "audioReadFailed": "音声を読み取れなかったため、メッセージは送信されませんでした。もう一度添付してください。",
     "recordAudio": "録音",
@@ -324,17 +338,23 @@
       "auto": "自動",
       "medium": "中",
       "high": "深い",
-      "xhigh": "最大"
+      "xhigh": "最大",
+      "max": "最大"
     },
     "thinkingDesc": {
       "off": "推論なし",
       "auto": "モデルが深さを判断",
       "medium": "バランス推論",
       "high": "深い推論",
-      "xhigh": "フル推論"
+      "xhigh": "最大推論",
+      "max": "最大推論"
     },
     "contextWindow": "コンテキスト {windowK}k",
-    "tokensUsed": "使用済み {tokensK}k ({pct}%)"
+    "tokensUsed": "使用済み {tokensK}k ({pct}%)",
+    "contextActions": "コンテキスト操作",
+    "refreshAndCompact": "更新して圧縮",
+    "refreshAndCompactTooltip": "最新の記憶とツールセットに更新",
+    "compact": "圧縮"
   },
   "slash": {
     "diary": "今日の日記を書く",
@@ -391,6 +411,9 @@
     "folder": "フォルダ",
     "copy": "コピー",
     "copied": "コピーしました ✓"
+  },
+  "codeBlock": {
+    "wordWrap": "折り返し"
   },
   "cron": {
     "typeAt": "一回のみ",
@@ -801,9 +824,16 @@
     "fileChangedOnDisk": "ファイルが外部で変更されたため、古い保存をスキップしました",
     "noChanges": "変更はありません",
     "autoSaved": "自動保存しました ✿",
+    "settingsSearch": {
+      "placeholder": "設定を検索",
+      "clear": "検索をクリア",
+      "results": "検索結果",
+      "noResults": "一致する設定がありません"
+    },
     "tabs": {
       "interface": "インターフェース",
       "general": "一般",
+      "browser": "ブラウザ",
       "agent": "エージェント",
       "me": "自分",
       "providers": "プロバイダー",
@@ -819,6 +849,20 @@
       "plugins": "プラグイン",
       "about": "概要",
       "security": "セキュリティ"
+    },
+    "browser": {
+      "cookiesTitle": "Cookies",
+      "acceptCookies": "Cookies を受け入れる",
+      "acceptCookiesHint": "オンにすると、内蔵ブラウザは通常のブラウザのようにサイトの Cookies を保存して送信します。",
+      "clearCookies": "Cookies を消去",
+      "clearCookiesHint": "内蔵ブラウザに保存された Cookies とサイトデータを消去します。",
+      "clearCookiesButton": "消去",
+      "clearCookiesSuccess": "Cookies を消去しました",
+      "agentTitle": "Agent の既定動作",
+      "agentOpenBehavior": "Web ページを開く時",
+      "agentOpenBehaviorHint": "Agent がブラウザを使う時に、現在のタブを使うか新しいタブを開くかを選びます。",
+      "agentOpenBehaviorCurrentTab": "現在のタブで操作",
+      "agentOpenBehaviorNewTab": "新しいタブを開く"
     },
     "general": {
       "title": "一般",
@@ -1256,7 +1300,6 @@
       "totalTokens": "合計 Tokens",
       "cacheRead": "キャッシュ読込",
       "cacheHitRate": "ヒット率",
-      "estimatedCost": "推定コスト",
       "uncached": "非キャッシュ",
       "modelMix": "モデル分布",
       "dailyUsage": "日別使用量",
@@ -1376,8 +1419,8 @@
       "searchProviderField": "検索エンジン",
       "searchApiKey": "検索 API Key",
       "searchApiKeyHint": "選択した検索プロバイダーの API Key を入力してください",
-      "searchApiKeysAutoHint": "Auto は設定済みの Tavily、Brave、Serper を優先し、次に AnySearch の無料検索を使い、上限、エラー、空結果、関連度不足の場合はブラウザー検索へフォールバックします。",
-      "searchApiKeyNotRequired": "ブラウザー検索に API Key は不要です。ローカルのバックグラウンドで検索ページを開き、結果を整形します。",
+      "searchApiKeysAutoHint": "Auto は設定済みの AnySearch、Tavily、Brave、Serper の有料 API を優先し、次に AnySearch の無料検索を使い、上限、エラー、空結果、関連度不足の場合はブラウザー検索へフォールバックします。",
+      "searchApiKeyNotRequired": "この検索エンジンに API Key は不要です。ブラウザー検索ではローカルのバックグラウンドで検索ページを開き、結果を整形します。",
       "favorites": "お気に入り",
       "searchModel": "モデルを検索...",
       "noFavorites": "☆ をクリックしてモデルをお気に入りに追加",
@@ -1399,6 +1442,7 @@
         "medium": "標準",
         "high": "高",
         "auto": "自動",
+        "max": "最大",
         "xhigh": "最大"
       },
       "addedModels": "追加済みモデル",
@@ -1559,7 +1603,7 @@
       "copied": "コピーしました ✓",
       "copyFailed": "コピーに失敗しました",
       "dropzone": "スキルフォルダをドロップしてインストール、またはクリックして参照",
-      "learnHint": "アシスタントに聞いてみてください：GitHub から安全で便利なスキルを探して",
+      "learnHint": "アシスタントに聞いてみてください：このローカルスキルパッケージをインストールして / GitHub から安全で便利なスキルを探して",
       "reloaded": "スキルを再読み込みしました",
       "reload": "スキルを再読み込み",
       "compatTitle": "互換スキル",
@@ -1570,7 +1614,7 @@
       "compatAutoDiscovered": "自動検出",
       "compatNotInstalled": "未インストール",
       "learnCreate": "スキルを作成 / インストール",
-      "learnCreateDesc": "エージェントが新しいスキルを作成したり、共有スキルプールへインストールすることを許可します。デフォルトでは現在の Agent のみ有効になります",
+      "learnCreateDesc": "エージェントが新しいスキルを作成したり、GitHub、サーバーローカルパス、アップロード済みパッケージから共有スキルプールへインストールすることを許可します。デフォルトでは現在の Agent のみ有効になります",
       "fetchRemote": "GitHub / ClawHub からスキルを取得",
       "fetchRemoteDesc": "有効にすると、エージェントは専門タスクの実行時にスキルを検索してインストールします。慎重にご使用ください",
       "safetyReview": "インストール前の安全審査",
@@ -1780,6 +1824,8 @@
       "permissionModeReadOnly": "読み取り専用モード",
       "receiptEnabled": "返信前の通知",
       "receiptEnabledDesc": "メッセージ受信後、返信前に「受信済み・返信中」の短い通知を送信します",
+      "richStreamingEnabled": "リッチテキストストリーミング",
+      "richStreamingEnabledDesc": "既定では各プラットフォームのリッチテキストとストリーミング機能を使い、オフにすると従来の互換送信に戻します",
       "readOnly": "読み取り専用モード",
       "readOnlyDesc": "ブリッジボットはファイルの読み取りのみ可能で、書き込みやコマンド実行はできません",
       "howTo": "セットアップガイド",
@@ -1945,6 +1991,8 @@
     "patrolRuns": "巡回",
     "otherRuns": "その他のバックグラウンド作業",
     "agentTabs": "Agent で活動を絞り込み",
+    "previousAgent": "前の Agent を表示",
+    "nextAgent": "さらに Agent を表示",
     "categoryTabs": "活動タイプで絞り込み",
     "emptyForCategory": "この分類にはまだ活動がありません。",
     "patrolDone": "巡回完了",
@@ -1964,9 +2012,12 @@
     "empty": "スケジュールタスクはまだありません。\n必要に応じてアシスタントが作成します。",
     "emptyForAgent": "この Agent にはスケジュールタスクがまだありません。",
     "agentTabs": "Agent で自動化を絞り込み",
+    "previousAgent": "前の Agent を表示",
+    "nextAgent": "さらに Agent を表示",
     "draftTitle": "自動化ドラフト",
     "suggestionTitle": "提案",
     "suggested": "提案",
+    "viewSuggestion": "提案を見る",
     "openDraft": "自動化ドラフトを開く",
     "closeDraft": "自動化ドラフトを閉じる",
     "confirmCreate": "追加を確認",
@@ -2035,7 +2086,8 @@
       "title": "バックグラウンド"
     },
     "todo": {
-      "title": "ToDo"
+      "title": "ToDo",
+      "waitForOutput": "Wait for output to finish"
     },
     "subagent": {
       "title": "サブエージェント"
@@ -2175,6 +2227,8 @@
     "back": "戻る",
     "forward": "進む",
     "reload": "再読み込み",
+    "newTab": "新しいタブ",
+    "closeTab": "タブを閉じる",
     "emergencyStop": "AI制御の緊急停止",
     "backgroundHint": "バックグラウンドブラウザ実行中、クリックして表示",
     "background": "バックグラウンドブラウザ"
@@ -2187,7 +2241,10 @@
     "notConfigured": "{platform} は設定されていません",
     "goToSettings": "設定へ",
     "resetContext": "コンテキストをリセット",
-    "resetContextTip": "次のメッセージから新しい会話が始まります"
+    "resetContextTip": "次のメッセージから新しい会話が始まります",
+    "replyInterrupted": "（応答が中断されました。上記の内容は不完全な可能性があります）",
+    "replyFailed": "（応答の生成に失敗しました。しばらくしてからもう一度お試しください）",
+    "sessionBusy": "デスクトップセッションはまだ応答中です。しばらくしてから再送してください"
   },
   "notification": {
     "turnCompletionBody": "このターンは完了しました"
@@ -2342,6 +2399,7 @@
     "settingsTimeout": "「{label}」の変更確認がタイムアウトしました。設定は変更されていません",
     "subagentMaxConcurrent": "現在 {max} 個のサブエージェントが実行中です。完了をお待ちください。",
     "subagentParentSessionRequired": "subagent にはアクティブな親会話とバックグラウンドタスクストアが必要です。このコンテキストでは継続可能なインスタンスを作成できません。",
+    "subagentWriteAccessDenied": "書き込み権限を付与できません：親セッションが読み取り専用モードのため、サブエージェントの権限は親を超えられません。セッションを操作可能モードに切り替えて再試行するか、access:\"read\" で再ディスパッチしてください。",
     "subagentFailed": "サブエージェントの実行に失敗しました: {msg}",
     "subagentTimeout": "サブエージェントがタイムアウトしました（{minutes}分）",
     "subagentAborted": "サブエージェントが中止されました",
@@ -2364,7 +2422,7 @@
     "installSkillSafetyFailed": "[セキュリティ] スキル安全レビューに合格しませんでした。インストールをブロックしました。\n理由：{reason}\n\nユーザーにこのスキルが安全レビューに合格しなかったことと具体的な理由を説明してください。ユーザーは設定で安全レビューを無効にできます（非推奨）。",
     "installSkillNameInvalid": "スキル名が無効です{name}。英字、数字、アンダースコア、ハイフンのみ使用できます。",
     "installSkillSuccess": "スキル「{name}」のインストールに成功しました！\nソース：{source}（⭐ {stars} stars）\n理由：{reason}",
-    "installSkillNeedInput": "github_url または skill_content（SKILL.md の内容）を提供してください。",
+    "installSkillNeedInput": "github_url、local_path、fileId、または source FileRef を提供してください。",
     "installSkillNeedName": "skill_content モードでは skill_name が必要です。",
     "installSkillSuccessLocal": "スキル「{name}」のインストールに成功しました！\n理由：{reason}",
     "installSkillSizeLimit": "スキルの内容がサイズ上限を超えています（{size}KB > {max}KB）",
@@ -2438,6 +2496,7 @@
     "memorySearchTagsDesc": "タグフィルター、2~5 個のキーワードタグで正確にマッチ。例: [\"チョコレート\", \"食の好み\"]",
     "memorySearchDateFromDesc": "開始日、形式 YYYY-MM-DD",
     "memorySearchDateToDesc": "終了日、形式 YYYY-MM-DD",
+    "memorySearchCrossChannelDesc": "他のチャンネルの記憶を横断検索するか。既定は false：チャンネルセッションでは現在のチャンネルと一般記憶のみ参照できます。必要な場合のみ明示的に true を渡してください",
     "memorySearchEmpty": "記憶バンクに関連する内容が見つかりませんでした。",
     "memorySearchError": "記憶検索エラー: {msg}",
     "fallbackUserName": "ユーザー",

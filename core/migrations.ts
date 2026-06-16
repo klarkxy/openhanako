@@ -28,7 +28,12 @@ import { SubagentThreadStore } from "../lib/subagent-thread-store.ts";
 import { persistBrowserScreenshotFileSync } from "../lib/session-files/browser-screenshot-file.ts";
 import { getInvalidProviderModelIds } from "../shared/provider-model-validation.ts";
 import { normalizeThinkingLevelForModel } from "./session-thinking-level.ts";
-import { normalizeBridgePermissionMode, SESSION_PERMISSION_MODES } from "./session-permission-mode.ts";
+import {
+  legacyAccessModeFromPermissionMode,
+  normalizeBridgePermissionMode,
+  normalizeSessionPermissionMode,
+  SESSION_PERMISSION_MODES,
+} from "./session-permission-mode.ts";
 import { lookupKnown } from "../shared/known-models.ts";
 import { SESSION_PREFIX_MAP } from "../lib/bridge/session-key.ts";
 import { migrateLegacyApiKeyAuthToProviders } from "./provider-auth-migration.ts";
@@ -37,6 +42,7 @@ import { patchAutomationJobForMigration } from "../lib/desk/automation-normalize
 import { parseSkillMetadata } from "../lib/skills/skill-metadata.ts";
 import { safeConversationStem } from "../lib/conversations/agent-phone-projection.ts";
 import { DEFAULT_DISABLED_TOOL_NAMES } from "../shared/tool-categories.ts";
+import { ProviderCatalogStore } from "./provider-catalog.ts";
 
 const moduleLog = createModuleLogger("migrations");
 
@@ -124,6 +130,12 @@ const migrations = {
   38: migrateDirectNotifyAutomationsToAgentRuns,
   // automation 归属修复：所有可运行任务必须能确定执行 Agent；旧 plugin/direct 执行器收敛为 Agent Run
   39: repairAutomationOwnershipAfterAgentRunConsolidation,
+  // session permission mode 收敛：旧 sidecar 的 planMode/accessMode 补齐 canonical permissionMode
+  40: migrateSessionPermissionModeSidecars,
+  // identity 首启种子曾把 {{userName}} 写成空串，修回动态用户名占位符
+  41: migrateIdentityUserNamePlaceholders,
+  // Provider Catalog v2：provider/model/capability canonical store 一次性 cutover
+  42: migrateProviderCatalogV2Cutover,
 };
 
 // ── Runner ──────────────────────────────────────────────────────────────────
@@ -274,7 +286,7 @@ function cleanDanglingProviderRefs(ctx) {
  * preferences.json 中的 bridge.telegram / feishu / qq / wechat / whatsapp
  * 各自可能带 agentId 字段指定归属 agent。迁移后每个 platform config
  * 写入对应 agent 的 config.yaml，owner 信息一并合入。
- * bridge.permissionMode / readOnly / receiptEnabled 保留为全局偏好。
+ * bridge.permissionMode / readOnly / receiptEnabled / richStreamingEnabled 保留为全局偏好。
  */
 function migrateBridgeToPerAgent(ctx) {
   const { agentsDir, prefs, log } = ctx;
@@ -291,6 +303,7 @@ function migrateBridgeToPerAgent(ctx) {
     ? explicitPermissionMode === SESSION_PERMISSION_MODES.READ_ONLY
     : bridge.readOnly === true;
   const receiptEnabled = bridge.receiptEnabled === false ? false : undefined;
+  const richStreamingEnabled = bridge.richStreamingEnabled === false ? false : undefined;
 
   const PLATFORMS = ["telegram", "feishu", "qq", "wechat", "whatsapp"];
   const agentConfigs = new Map(); // agentId → { platform: config }
@@ -369,6 +382,7 @@ function migrateBridgeToPerAgent(ctx) {
   }
   if (readOnly) nextBridgePrefs.readOnly = true;
   if (receiptEnabled === false) nextBridgePrefs.receiptEnabled = false;
+  if (richStreamingEnabled === false) nextBridgePrefs.richStreamingEnabled = false;
   if (Object.keys(nextBridgePrefs).length > 0) preferences.bridge = nextBridgePrefs;
   else delete preferences.bridge;
   prefs.savePreferences(preferences);
@@ -1315,6 +1329,18 @@ function patchCronJobsFileForAutomation(jobsPath, log) {
 
   atomicWriteSync(jobsPath, JSON.stringify({ ...data, jobs }, null, 2) + "\n");
   return { changed: true, patchedJobs };
+}
+
+function migrateProviderCatalogV2Cutover(ctx) {
+  const { hanakoHome, providerRegistry, log } = ctx;
+  const store = providerRegistry?._catalog || new ProviderCatalogStore(hanakoHome);
+  const catalog = store.cutoverFromLegacy();
+  if (providerRegistry) {
+    providerRegistry._addedModelsCache = null;
+    providerRegistry._addedModelsMtime = 0;
+    providerRegistry._entries?.clear?.();
+  }
+  log?.(`[migrations] #42: provider catalog v2 ready (${Object.keys(catalog.providers || {}).length} providers)`);
 }
 
 function migrateDirectNotifyAutomationsToAgentRuns(ctx) {
@@ -2428,6 +2454,149 @@ function collectAgentSessionMetaPaths(agentsDir) {
     }
   }
   return out;
+}
+
+function migrateSessionPermissionModeSidecars(ctx) {
+  const { agentsDir, log } = ctx;
+  const metaPaths = collectAgentSessionMetaPaths(agentsDir);
+  let patched = 0;
+  for (const metaPath of metaPaths) {
+    patched += repairSessionMetaPermissionModes(metaPath, log);
+  }
+  log?.(`[migrations] #40: session permission sidecars canonicalized (${patched})`);
+}
+
+function repairSessionMetaPermissionModes(metaPath, log) {
+  let raw;
+  try {
+    raw = fs.readFileSync(metaPath, "utf-8");
+  } catch {
+    return 0;
+  }
+
+  let meta;
+  try {
+    meta = JSON.parse(raw);
+  } catch (err) {
+    log?.(`[migrations] #40: skipped unreadable session-meta ${metaPath}: ${err.message}`);
+    return 0;
+  }
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return 0;
+
+  let patched = 0;
+  for (const [sessionFile, entry] of Object.entries(meta) as [string, any][]) {
+    if (!shouldCanonicalizeSessionPermissionMode(entry)) continue;
+    const permissionMode = normalizeSessionPermissionMode(entry);
+    const accessMode = legacyAccessModeFromPermissionMode(permissionMode);
+    const planMode = permissionMode === SESSION_PERMISSION_MODES.READ_ONLY;
+    if (
+      entry.permissionMode === permissionMode
+      && entry.accessMode === accessMode
+      && entry.planMode === planMode
+    ) {
+      continue;
+    }
+    meta[sessionFile] = {
+      ...entry,
+      permissionMode,
+      accessMode,
+      planMode,
+    };
+    patched++;
+  }
+
+  if (patched === 0) return 0;
+  backupSessionMetaBeforeV40(metaPath, raw, log);
+  const tmp = metaPath + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(meta, null, 2) + "\n", "utf-8");
+  fs.renameSync(tmp, metaPath);
+  return patched;
+}
+
+function shouldCanonicalizeSessionPermissionMode(entry) {
+  return entry
+    && typeof entry === "object"
+    && !Array.isArray(entry)
+    && (
+      typeof entry.permissionMode === "string"
+      || typeof entry.accessMode === "string"
+      || typeof entry.planMode === "boolean"
+    );
+}
+
+function backupSessionMetaBeforeV40(metaPath, raw, log) {
+  const backupPath = `${metaPath}.pre-v40.bak`;
+  try {
+    fs.writeFileSync(backupPath, raw, { encoding: "utf-8", flag: "wx" });
+  } catch (err) {
+    if (err.code === "EEXIST") return;
+    log?.(`[migrations] #40: failed to write session-meta backup ${backupPath}: ${err.message}`);
+    throw err;
+  }
+}
+
+function migrateIdentityUserNamePlaceholders(ctx) {
+  const { agentsDir, log } = ctx;
+  const identityPaths = collectAgentIdentityPaths(agentsDir);
+  let patched = 0;
+  for (const identityPath of identityPaths) {
+    patched += repairIdentityUserNamePlaceholder(identityPath, log);
+  }
+  log?.(`[migrations] #41: identity userName placeholders repaired (${patched})`);
+}
+
+function collectAgentIdentityPaths(agentsDir) {
+  let agentDirs;
+  try {
+    agentDirs = fs.readdirSync(agentsDir, { withFileTypes: true }).filter(d => d.isDirectory());
+  } catch {
+    return [];
+  }
+
+  const out = [];
+  for (const dir of agentDirs) {
+    const identityPath = path.join(agentsDir, dir.name, "identity.md");
+    try {
+      if (fs.statSync(identityPath).isFile()) out.push(identityPath);
+    } catch {
+      // Imported or partially-created agents may not have identity.md yet.
+    }
+  }
+  return out;
+}
+
+function repairIdentityUserNamePlaceholder(identityPath, log) {
+  let raw;
+  try {
+    raw = fs.readFileSync(identityPath, "utf-8");
+  } catch {
+    return 0;
+  }
+
+  const repaired = restoreBlankUserNameIdentityTemplate(raw);
+  if (repaired === raw) return 0;
+
+  backupIdentityBeforeV41(identityPath, raw, log);
+  atomicWriteSync(identityPath, repaired);
+  return 1;
+}
+
+function restoreBlankUserNameIdentityTemplate(raw) {
+  if (typeof raw !== "string" || raw.includes("{{userName}}")) return raw;
+  return raw
+    .replace(/(^|\r?\n)([ \t]*)的个人助手/g, "$1$2{{userName}}的个人助手")
+    .replace(/(^|\r?\n)([ \t]*)'s personal assistant/g, "$1$2{{userName}}'s personal assistant");
+}
+
+function backupIdentityBeforeV41(identityPath, raw, log) {
+  const backupPath = `${identityPath}.pre-v41.bak`;
+  try {
+    fs.writeFileSync(backupPath, raw, { encoding: "utf-8", flag: "wx" });
+  } catch (err) {
+    if (err.code === "EEXIST") return;
+    log?.(`[migrations] #41: failed to write identity backup ${backupPath}: ${err.message}`);
+    throw err;
+  }
 }
 
 function repairSessionMetaThinkingLevels(metaPath, log) {

@@ -18,6 +18,7 @@
  */
 import fs from "fs";
 import { callText } from "../llm-client.ts";
+import { callTextWithLengthContract, type OutputLengthContract } from "../output-length-contract.ts";
 import { getLocale } from "../../lib/i18n.ts";
 import { isToolCallBlock } from "../llm-utils.ts";
 import { createModuleLogger } from "../../lib/debug-log.ts";
@@ -25,7 +26,6 @@ import { createModuleLogger } from "../../lib/debug-log.ts";
 const log = createModuleLogger("rc-summary");
 
 const SUMMARY_TIMEOUT_MS = 15_000;
-const SUMMARY_MAX_TOKENS = 150;
 const CONTENT_CHAR_LIMIT = 1500;
 const MAX_TURNS_FROM_TAIL = 8;
 
@@ -43,6 +43,7 @@ export async function summarizeSessionForRc(engine, agent, sessionPath) {
 
   const isZh = getLocale().startsWith("zh");
   const messages = _buildMessages(content, isZh);
+  const lengthContract = _summaryLengthContract(isZh);
 
   // Tier 1: utility
   let utilConfig = null;
@@ -57,6 +58,7 @@ export async function summarizeSessionForRc(engine, agent, sessionPath) {
       usageLedger: utilConfig.usageLedger ?? engine.usageLedger,
       usageContext: usageContextForRc(agent, sessionPath, "rc_summary_utility"),
       messages,
+      lengthContract,
     }, "utility");
     if (text) return text;
   }
@@ -69,6 +71,7 @@ export async function summarizeSessionForRc(engine, agent, sessionPath) {
       usageLedger: utilConfig.usageLedger ?? engine.usageLedger,
       usageContext: usageContextForRc(agent, sessionPath, "rc_summary_utility_large"),
       messages,
+      lengthContract,
     }, "utility_large");
     if (text) return text;
   }
@@ -85,6 +88,7 @@ export async function summarizeSessionForRc(engine, agent, sessionPath) {
           usageLedger: engine.usageLedger,
           usageContext: usageContextForRc(agent, sessionPath, "rc_summary_chat"),
           messages,
+          lengthContract,
         }, "chat");
         if (text) return text;
       }
@@ -110,19 +114,28 @@ function usageContextForRc(agent, sessionPath, operation) {
   };
 }
 
-async function _safeCall({ api, model, apiKey, baseUrl, messages, usageLedger, usageContext }, tierLabel) {
+function _summaryLengthContract(isZh): OutputLengthContract {
+  return isZh
+    ? { label: "/rc 摘要", target: 100, unit: "chars", min: 1, locale: "zh" }
+    : { label: "/rc summary", target: 60, unit: "words", min: 1, locale: "en" };
+}
+
+async function _safeCall({ api, model, apiKey, baseUrl, messages, usageLedger, usageContext, lengthContract }, tierLabel) {
   try {
-    const text = await callText({
-      api, model, apiKey, baseUrl,
-      headers: undefined,
-      signal: undefined,
-      messages,
-      temperature: 0.3,
-      maxTokens: SUMMARY_MAX_TOKENS,
-      timeoutMs: SUMMARY_TIMEOUT_MS,
-      usageLedger,
-      usageContext,
-    }) as string;
+    const { text } = await callTextWithLengthContract({
+      callText,
+      request: {
+        api, model, apiKey, baseUrl,
+        headers: undefined,
+        signal: undefined,
+        messages,
+        temperature: 0.3,
+        timeoutMs: SUMMARY_TIMEOUT_MS,
+        usageLedger,
+        usageContext,
+      },
+      contract: lengthContract,
+    });
     return text?.trim() || null;
   } catch (err) {
     log.warn(`${tierLabel} tier failed: ${err.message}`);
@@ -169,9 +182,9 @@ function _extractRecentTurns(sessionPath) {
 function _buildMessages({ userText, assistantText, tools }, isZh) {
   const system = isZh
     ? `你是对话摘要生成器。根据下面几轮对话，概括这个桌面会话正在处理什么、当前进展，以及能看出的下一步线索。
-规则：中文，直接输出 1-3 句，100 字以内；不加引号、不加前缀、不列编号；不要逐条复述工具日志，也不要只写工具名或泛泛一句。`
+规则：中文，直接输出 1-3 句，目标约 100 字，可在 60-200 字之间自然浮动；不加引号、不加前缀、不列编号；不要逐条复述工具日志，也不要只写工具名或泛泛一句。`
     : `You summarize conversations. Given the turns below, describe what this desktop session is handling, its current progress, and any visible next-step clue.
-Rules: output 1-3 direct English sentences under 60 words; no quotes, preamble, or numbering; do not list tool logs, and do not reduce the summary to tool names or a generic phrase.`;
+Rules: output 1-3 direct English sentences, aiming for about 60 words; 36-120 words is acceptable. No quotes, preamble, or numbering; do not list tool logs, and do not reduce the summary to tool names or a generic phrase.`;
 
   const toolStr = tools.length > 0
     ? (isZh ? `\n用到的工具：${tools.join("、")}` : `\nTools used: ${tools.join(", ")}`)

@@ -19,7 +19,7 @@ import { CronStore } from "../lib/desk/cron-store.ts";
 import { createAutomationTool } from "../lib/tools/automation-tool.ts";
 import { createWebFetchTool } from "../lib/tools/web-fetch.ts";
 import { createStageFilesTool } from "../lib/tools/output-file-tool.ts";
-import { createArtifactTool } from "../lib/tools/artifact-tool.ts";
+import { createFileTool } from "../lib/tools/file-tool.ts";
 import { createChannelTool } from "../lib/tools/channel-tool.ts";
 import { createDmTool } from "../lib/tools/dm-tool.ts";
 import { createBrowserTool } from "../lib/tools/browser-tool.ts";
@@ -53,17 +53,47 @@ import {
   collectWorkspaceInstructionFiles,
   formatWorkspaceInstructionFiles,
 } from "./workspace-instruction-files.ts";
+import { callText } from "./llm-client.ts";
 import { createModuleLogger } from "../lib/debug-log.ts";
 import {
   CACHE_SNAPSHOT_EXPERIMENT_ID,
   PROACTIVE_SUBAGENT_EXPERIMENT_ID,
   getResolvedExperimentValue,
 } from "../lib/experiments/registry.ts";
+import { userProfilePath } from "../lib/user-profile-store.ts";
+import {
+  type AgentAppearanceModel,
+  formatAgentAppearancePrompt,
+  hasAgentAppearanceSummaryCapability,
+  readAgentAppearanceProfileResource,
+  type ResolvedAgentAppearanceModelConfig,
+  refreshAgentAppearanceProfileResource,
+} from "../lib/agent-appearance-summary.ts";
 
 const moduleLog = createModuleLogger("agent");
 
+type AgentAppearanceEngine = {
+  resolveVisionConfig?: () => ResolvedAgentAppearanceModelConfig | null;
+  currentModel?: AgentAppearanceModel | null;
+  resolveModelWithCredentials?: (modelRef: unknown) => ResolvedAgentAppearanceModelConfig | null;
+  usageLedger?: unknown;
+};
+
+type RefreshAppearanceSummaryOptions = {
+  targetModel?: AgentAppearanceModel | null;
+  signal?: AbortSignal;
+  rebuildSystemPrompt?: boolean;
+};
+
+type BuildSystemPromptOptions = {
+  forSubagent?: boolean;
+  forceMemoryEnabled?: boolean;
+  forceExperienceEnabled?: boolean;
+  cwdOverride?: string;
+  targetModel?: AgentAppearanceModel | null;
+};
+
 export class Agent {
-  declare _artifactTool: any;
   declare _automationTool: any;
   declare _browserTool: any;
   declare _cb: any;
@@ -101,6 +131,7 @@ export class Agent {
   declare _searchConfigResolver: any;
   declare _sessionFoldersTool: any;
   declare _stageFilesTool: any;
+  declare _fileTool: any;
   declare _stopTaskTool: any;
   declare _subagentCloseTool: any;
   declare _subagentReplyTool: any;
@@ -200,9 +231,7 @@ export class Agent {
     this._cronStore = null;
     this._automationTool = null;
     this._stageFilesTool = null;
-    // Legacy compatibility only. Fresh sessions should write files and stage
-    // them via stage_files; restored old sessions may still need this schema.
-    this._artifactTool = null;
+    this._fileTool = null;
     this._channelTool = null;
     this._browserTool = null;
     this._computerUseTool = null;
@@ -225,6 +254,14 @@ export class Agent {
      * Agent 不持有 Engine 引用，所有对 Engine 的需求通过此对象间接访问。
      */
     this._cb = null;
+
+    // 团队花名册唯一事实源：AgentManager 注入的 active-agent provider，
+    // tombstone / 坏目录已在 manager 层过滤。Agent 自身禁止私扫 agentsDir，
+    // 否则删除标记对 prompt / subagent / DM / workflow 不可见（#1657 / #1633）。
+    // 与旧行为保持一致：仅在频道能力可用（channelsDir 存在）时暴露花名册。
+    if (this.channelsDir && this.agentsDir) {
+      this._listAgents = () => this._cb?.listActiveAgents?.() ?? [];
+    }
   }
 
   // ════════════════════════════
@@ -429,6 +466,7 @@ export class Agent {
       getAutoApprove: () => false,
       confirmStore: this._cb?.getConfirmStore?.(),
       getConfirmStore: () => this._cb?.getConfirmStore?.(),
+      getAutomationSuggestionStore: () => this._cb?.getAutomationSuggestionStore?.(),
       emitEvent: (event, sp) => { if (sp) this._cb?.emitEvent?.(event, sp); },
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
       getAgentId: () => this.id,
@@ -438,12 +476,14 @@ export class Agent {
     });
     this._stageFilesTool = createStageFilesTool({
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
+      resolveSessionFile: (fileId, options = {}) => this._cb?.getEngine?.()?.getSessionFile?.(fileId, options) || null,
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
     });
-    this._artifactTool = createArtifactTool({
-      getHanakoHome: () => this._cb?.getEngine?.()?.hanakoHome,
-      registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
+    this._fileTool = createFileTool({
+      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+      resolveSessionFile: (fileId, options = {}) => this._cb?.getEngine?.()?.getSessionFile?.(fileId, options) || null,
+      registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
     });
     this._browserTool = createBrowserTool(() => this._cb?.getCurrentSessionPath?.(), {
       getSessionModel: (sessionPath) => {
@@ -533,46 +573,9 @@ export class Agent {
     // 9. 频道工具 + 私信工具（需要 channelsDir 和 agentsDir）
     if (this.channelsDir && this.agentsDir) {
       const agentId = this.id;
-      const listAgents = () => {
-        try {
-          return fs.readdirSync(this.agentsDir, { withFileTypes: true })
-            .filter(e => e.isDirectory() && fs.existsSync(path.join(this.agentsDir, e.name, "config.yaml")))
-            .map(e => {
-              try {
-                const raw = fs.readFileSync(path.join(this.agentsDir, e.name, "config.yaml"), "utf-8");
-                const nameMatch = raw.match(/^\s*name:\s*(.+)$/m);
-
-                // models.chat 可能是 string 或 { id, provider } 对象格式
-                let chatModel = "";
-                const chatObjMatch = raw.match(/^\s+chat:\s*\n\s+id:\s*(.+)$/m);
-                if (chatObjMatch) {
-                  chatModel = chatObjMatch[1].trim();
-                } else {
-                  const chatStrMatch = raw.match(/^\s+chat:\s+(\S.+)$/m);
-                  if (chatStrMatch) chatModel = chatStrMatch[1].trim();
-                }
-
-                // 读取 description.md（跳过 hash 注释行）
-                let summary = "";
-                try {
-                  const descRaw = fs.readFileSync(path.join(this.agentsDir, e.name, "description.md"), "utf-8");
-                  summary = descRaw.split("\n")
-                    .filter(l => !l.trim().startsWith("<!--"))
-                    .join("\n").trim();
-                } catch {}
-
-                return {
-                  id: e.name,
-                  name: nameMatch?.[1]?.trim() || e.name,
-                  summary,
-                  model: chatModel,
-                };
-              } catch { return { id: e.name, name: e.name, summary: "", model: "" }; }
-            });
-        } catch { return []; }
-      };
-
-      this._listAgents = listAgents;
+      // 花名册来自构造期装配的 active-agent provider（见 constructor），
+      // 这里只取引用传给各工具，不在 Agent 内部扫盘。
+      const listAgents = this._listAgents;
 
       this._channelTool = createChannelTool({
         channelsDir: this.channelsDir,
@@ -612,6 +615,7 @@ export class Agent {
         await this._onInstallCallback?.(skillName);
       },
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
+      resolveSessionFile: (fileId, options = {}) => this._cb?.getEngine?.()?.getSessionFile?.(fileId, options) || null,
     });
 
     // 11. subagent 工具
@@ -680,6 +684,7 @@ export class Agent {
     log(`  [agent] 9. buildSystemPrompt...`);
     this._systemPrompt = this.buildSystemPrompt({ forceMemoryEnabled: this._memoryMasterEnabled });
     this._runtimeInitialized = true;
+    this._refreshAppearanceSummaryInBackground();
     if (this._memoryTicker) {
       this._cb?.scheduleMemoryMaintenance?.(this.id, "runtime-init");
     }
@@ -733,6 +738,16 @@ export class Agent {
   setUtilityModel(val) { this._utilityModel = val; }
   setMemoryModel(val) { this._memoryModel = val; }
 
+  /**
+   * 为某个会话面创建带作用域的 search_memory 实例（同一 FactStore，不复制数据归属）。
+   * 频道 phone 会话用它替换默认实例：默认排除其它频道的事实，跨频道需显式参数（#1670）。
+   * FactStore 未初始化（记忆未启用 / runtime 未就绪）时返回 null，调用方不得注入兜底实例。
+   */
+  createConversationScopedMemorySearchTool(conversationScope) {
+    if (!this._factStore) return null;
+    return createMemorySearchTool(this._factStore, { conversationScope });
+  }
+
   // ════════════════════════════
   //  状态访问
   // ════════════════════════════
@@ -763,6 +778,51 @@ export class Agent {
   get runtimeInitialized() { return this._runtimeInitialized; }
   get needsRepair() { return !!this._repairState; }
   get repairState() { return this._repairState ? { ...this._repairState } : null; }
+  _getAppearanceEngine(): AgentAppearanceEngine | null {
+    return this._cb?.getEngine?.() || null;
+  }
+
+  _resolveAppearanceVisionConfig(engine: AgentAppearanceEngine | null = this._getAppearanceEngine()) {
+    try {
+      return engine?.resolveVisionConfig?.() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  _canInjectAppearancePrompt(targetModel: AgentAppearanceModel | null = null) {
+    const engine = this._getAppearanceEngine();
+    return hasAgentAppearanceSummaryCapability({
+      visionConfig: this._resolveAppearanceVisionConfig(engine),
+      targetModel: targetModel || engine?.currentModel || null,
+    });
+  }
+
+  async refreshAppearanceSummary(options: RefreshAppearanceSummaryOptions = {}) {
+    const engine = this._getAppearanceEngine();
+    const summary = await refreshAgentAppearanceProfileResource({
+      agentDir: this.agentDir,
+      agentName: this.agentName,
+      visionConfig: this._resolveAppearanceVisionConfig(engine),
+      targetModel: options.targetModel || null,
+      resolveModelWithCredentials: (modelRef) => engine?.resolveModelWithCredentials?.(modelRef) || null,
+      callText: (callOptions) => callText(callOptions as unknown as Parameters<typeof callText>[0]),
+      usageLedger: engine?.usageLedger,
+      signal: options.signal,
+    });
+    if (summary && options.rebuildSystemPrompt !== false) {
+      this._systemPrompt = this.buildSystemPrompt({ forceMemoryEnabled: this._memoryMasterEnabled });
+    }
+    return summary;
+  }
+
+  _refreshAppearanceSummaryInBackground() {
+    if (!this._cb?.getEngine?.()) return;
+    void this.refreshAppearanceSummary({ rebuildSystemPrompt: true }).catch((err) => {
+      moduleLog.warn(`Agent appearance summary refresh failed: ${err?.message || err}`);
+    });
+  }
+
   /**
    * 当前记忆模型凭证（现场 resolve，不缓存）
    * 用户改完 provider key/url/api 后这里立即反映最新值
@@ -809,9 +869,6 @@ export class Agent {
     const computerUseTools = this._isComputerUseCandidateForThisAgent()
       ? [this._getComputerUseTool()]
       : [];
-    const legacyArtifactTools = options.includeLegacyArtifactTool === true
-      ? [this._artifactTool]
-      : [];
     return [
       ...memTools,
       ...experienceTools,
@@ -820,7 +877,7 @@ export class Agent {
       this._todoTool,
       this._automationTool,
       this._stageFilesTool,
-      ...legacyArtifactTools,
+      this._fileTool,
       this._channelTool,
       this._dmTool,
       this._browserTool,
@@ -1100,7 +1157,7 @@ export class Agent {
       agentName: this.agentName,
       userName: this.userName,
       identityAndPersonality: this.personality.trim(),
-      userProfile: readFile(path.join(this.userDir, "user.md")).trim(),
+      userProfile: readFile(userProfilePath(this.userDir)).trim(),
       existingMemory,
       roster: this._formatTeamRoster(isZh, { includeSelf: false }),
     };
@@ -1114,14 +1171,18 @@ export class Agent {
    *   Subagent 是隔离子会话，不注入长期记忆和多 agent 协作上下文。
    * @param {string} [options.cwdOverride] - 覆盖 prompt 中“工作台”章节展示的 cwd。
    *   用于新建隔离 session 时，让 prompt 快照和实际执行目录保持一致。
+   * @param {object} [options.targetModel] - 新会话即将使用的模型，用于判断是否能读取头像。
    */
-  buildSystemPrompt( options: any = {}) {
+  buildSystemPrompt( options: BuildSystemPromptOptions = {}) {
     const forSubagent = !!options.forSubagent;
     const forceMemoryEnabled = Object.prototype.hasOwnProperty.call(options, "forceMemoryEnabled")
       ? options.forceMemoryEnabled
       : null;
     const cwdOverride = Object.prototype.hasOwnProperty.call(options, "cwdOverride")
       ? (typeof options.cwdOverride === "string" ? options.cwdOverride : "")
+      : null;
+    const targetModel = Object.prototype.hasOwnProperty.call(options, "targetModel")
+      ? options.targetModel
       : null;
     const memoryEnabled = typeof forceMemoryEnabled === "boolean"
       ? forceMemoryEnabled
@@ -1136,7 +1197,7 @@ export class Agent {
     const ishiki = this.personality;
 
     // 可选文件
-    const userMd = readFile(path.join(this.userDir, "user.md"));
+    const userMd = readFile(userProfilePath(this.userDir));
     const pinnedMd = readFile(path.join(this.agentDir, "pinned.md"));
     const memory = readFile(this.memoryMdPath);
 
@@ -1163,6 +1224,11 @@ export class Agent {
         platformPrompt
       ));
     }
+    parts.push(isZh
+      ? "\n你的所有文本输出都会直接展示给用户。每次回复都必须包含面向用户的正文内容，不允许只产生内部思考就结束回复。"
+      : "\nAll your text output is displayed directly to the user. Every response must contain user-facing content; do not end a response with only internal thinking."
+    );
+
     // 记忆整体开关：master && session 都开启才注入记忆相关 prompt
     // Subagent 场景下整块跳过（无记忆工具 = 规则和 pinned 也是孤儿噪音）
     // 注意：记忆块本身已下移到 prompt 末尾（见下方），这里只是预先准备好规则文本
@@ -1232,22 +1298,35 @@ export class Agent {
         "SessionFile 表示和当前 session 相关的本地文件：用户上传、你用 write/edit 产生的、插件产物、浏览器截图、安装产物，都会进入同一套 session 文件记录。\n\n" +
         "当用户本轮附加文件时，消息里可能出现 [SessionFile] JSON 上下文。这里的 fileId 是机器契约，label 只是展示名；读取时优先用 read 的 fileId 参数，不要从 label 或可见文本重建真实路径。\n\n" +
         "当你需要使用本轮会话已经产生或登记过的文件时，先调用 current_status 获取 session_files。它会返回当前 session 的文件清单、fileId、来源、状态和本机路径。不要猜测 session-files 缓存路径。\n\n" +
-        "write/edit 成功后会由工具层自动记录为 session 相关文件；这只表示文件和本次会话有关，不等于已经交付给用户。\n\n" +
-        "当用户要求你把文件发给他、呈现给他、交付给他，或者你创建/修改了一个明确需要用户查看或拿走的文件时，使用 stage_files 标记为已交付。stage 表示把这个 session 相关文件提升为消费端可展示/可发送的文件。\n\n" +
-        "- 只传真实存在的本机绝对路径\n" +
-        "- 已经 stage 过的同一个文件不需要反复 stage；如文件内容后来又被修改，并且用户需要查看最新版本，再 stage 一次\n" +
+        "当你需要查看文件元信息或把已有 SessionFile 复制到当前项目目录时，使用 file 工具。查看用 action=stat；复制用 action=copy，并优先传 fileId；它会把原文件复制到当前 cwd 内的目标路径并重新登记为 external SessionFile。不要移动、编辑或删除原 SessionFile。\n\n" +
+        "当用户要求安装 skill package 时，使用 install_skill。GitHub 仓库用 github_url；当前 Hana server 可见的本机路径用 local_path 或 source={ type: 'path', path }；已经上传或登记为 SessionFile 的 .zip/.skill 包用 fileId 或 source={ type: 'session_file', fileId }。不要把手机/PWA 客户端路径当成 server 路径。\n\n" +
+        "write/edit 成功后会由工具层自动记录为 session 相关文件，让它出现在 Session File 列表里；这条登记不等同于交付给用户。\n\n" +
+        "write/edit 生成或修改文件后，主动调用 stage_files 交付这次变更。优先使用 write/edit 结果里的 SessionFile fileId；只有结果里没有 fileId 且文件还没有 SessionFile 记录时，才传真实存在的本机绝对路径。stage 表示把这个 session 相关文件提升为消费端可展示/可发送的文件。\n\n" +
+        "- 已有 SessionFile 时优先传 fileId；只有还没有 SessionFile 记录的本机文件才传真实存在的本机绝对路径\n" +
+        "- 同一个未变化的文件不要反复 stage；文件内容后来再次变化时，再 stage 最新版本\n" +
         "- 不要只在文本里写文件路径\n" +
         "- 不要在 Agent 层判断具体平台怎么展示或发送，消费端会处理"
       : "\n## Session Files and Delivery\n\n" +
         "SessionFile means a local file related to the current session: files uploaded by the user, files you produce with write/edit, plugin outputs, browser screenshots, and install outputs all enter the same session file record.\n\n" +
         "When the user attaches files in the current turn, the message may include [SessionFile] JSON context. fileId is the machine contract and label is display-only; prefer the read tool's fileId argument instead of reconstructing a real path from label or visible text.\n\n" +
         "When you need to use a file that has already been produced or registered in this conversation, call current_status with the session_files key first. It returns the current session file list, fileId, origin, status, and local path. Do not guess session-files cache paths.\n\n" +
-        "After write/edit succeeds, the tool layer records the file as session-related automatically; this only means the file belongs to this session, not that it has been delivered to the user.\n\n" +
-        "When the user asks you to send, present, or hand over a file, or when you create/modify a file the user clearly needs to see or take away, use stage_files to mark it as delivered. Staging promotes this session-related file to something consumers can display/send.\n\n" +
-        "- Pass only real local absolute paths\n" +
-        "- Do not repeatedly stage the same file once it has already been staged; if the file is modified later and the user needs the latest version, stage it again\n" +
+        "When you need to inspect file metadata or copy an existing SessionFile into the current project folder, use the file tool. Use action=stat for metadata; use action=copy and prefer passing fileId for copies. This copies the original into the current cwd target and registers the copy as an external SessionFile. Do not move, edit, or delete the original SessionFile.\n\n" +
+        "When the user asks you to install a skill package, use install_skill. Use github_url for GitHub repos; use local_path or source={ type: 'path', path } for paths visible to the current Hana server; use fileId or source={ type: 'session_file', fileId } for uploaded or registered .zip/.skill packages. Do not treat a phone/PWA client path as a server path.\n\n" +
+        "After write/edit succeeds, the tool layer records the file as session-related automatically so it appears in Session File; that registration does not mean the file has been delivered to the user.\n\n" +
+        "After write/edit creates or modifies a file, call stage_files for that changed file. Prefer the SessionFile fileId returned by the write/edit result; pass a real local absolute path only when the result has no fileId and the file has no SessionFile record yet. Staging promotes this session-related file to something consumers can display/send.\n\n" +
+        "- Prefer fileId for existing SessionFiles; pass real local absolute paths only for local files that do not have a SessionFile record yet\n" +
+        "- Do not repeatedly stage the same unchanged file; if the file is modified again, stage the latest version again\n" +
         "- Do not merely write file paths in text\n" +
         "- Do not decide platform-specific display or sending behavior in the Agent layer; consumers handle it"
+    );
+
+    parts.push(isZh
+      ? "\n## 可见 UI 上下文\n\n" +
+        "当用户用「这个、当前、打开的、可见的、选中的、置顶的」等说法指代 Hana 界面里正在看的文件、预览或文件夹时，先调用 current_status 获取 ui_context，再决定要读哪个文件或目录。\n\n" +
+        "ui_context 是用户当前可见界面的被动元信息，可能包含当前查看的文件夹、激活文件或预览标题、以及置顶 viewer 文件。它只描述 Hana 已收集到的 UI 视野；如果返回为空或不足以确定对象，向用户确认，不要猜路径。"
+      : "\n## Visible UI Context\n\n" +
+        "When the user refers to something in the Hana UI with words like current, open, visible, selected, pinned, this file, this folder, or what I am looking at, call current_status with the ui_context key before deciding which file or folder to inspect.\n\n" +
+        "ui_context is passive metadata about the user's visible UI state. It may include the currently viewed folder, active file or preview title, and pinned viewer files. It only describes UI state Hana has collected; if it is empty or not enough to identify the target, ask the user instead of guessing a path."
     );
 
     if (!forSubagent) {
@@ -1368,17 +1447,41 @@ export class Agent {
     // 以下内容会在不同 session 之间变化（用户档案编辑、cwd 切换、记忆更新、时间戳推进），
     // 统一放在 prompt 末尾以保护前面静态前缀的 cache 命中率。
 
-    // 用户档案（user.md，用户偶尔手动编辑）
+    // 用户档案（user.md）
+    const configuredUserName = typeof this._config?.user?.name === "string"
+      ? this._config.user.name.trim()
+      : "";
+    const userProfileLines = [
+      isZh
+        ? "以下是用户的自我描述。"
+        : "The following is the user's self-description.",
+    ];
+    if (configuredUserName) {
+      userProfileLines.push(
+        isZh
+          ? `用户的名字叫：${configuredUserName}`
+          : `The user's name is: ${configuredUserName}`
+      );
+    }
+    if (userMd) {
+      userProfileLines.push("", userMd);
+    }
     parts.push(...section(
       isZh ? "# 用户档案" : "# User Profile",
-      isZh
-        ? "以下是用户的自我描述，由用户手动维护。\n\n" + userMd
-        : "The following is the user's self-description, manually maintained by the user.\n\n" + userMd
+      userProfileLines.join("\n")
     ));
 
     // ishiki（identity + yuan + ishiki 模板，含 {{userName}} 等替换）
     // 放在用户档案之后：先建立"用户是谁"的语境，再讲"你是谁、你和用户什么关系"。
     parts.push(ishiki);
+
+    if (!forSubagent && this._canInjectAppearancePrompt(targetModel)) {
+      const appearance = readAgentAppearanceProfileResource(this.agentDir);
+      const appearancePrompt = appearance
+        ? formatAgentAppearancePrompt(appearance.summary, this._config.locale || "")
+        : "";
+      if (appearancePrompt) parts.push(appearancePrompt);
+    }
 
     // 工作台 = 当前工作目录（注入实际路径）
     const cwdPath = cwdOverride !== null ? cwdOverride : (this._cb?.getCwd?.() || "");

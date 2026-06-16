@@ -218,6 +218,28 @@ export interface HanaProviderChatCapability {
   [key: string]: unknown;
 }
 
+export interface HanaMediaReferenceImageLimits {
+  min?: number;
+  max?: number;
+  [key: string]: unknown;
+}
+
+export interface HanaMediaInputLimits {
+  referenceImages?: HanaMediaReferenceImageLimits;
+  [key: string]: unknown;
+}
+
+export interface HanaProviderMediaMode {
+  id: string;
+  label?: string;
+  parameterSchema?: JsonSchema;
+  defaults?: Record<string, unknown>;
+  inputLimits?: HanaMediaInputLimits;
+  pricing?: Record<string, unknown>;
+  agentHints?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 export interface HanaProviderMediaModel {
   id: string;
   displayName?: string;
@@ -227,6 +249,10 @@ export interface HanaProviderMediaModel {
   supportsEdit?: boolean;
   aliases?: string[];
   credentialLaneId?: string;
+  modes?: HanaProviderMediaMode[];
+  parameterSchema?: JsonSchema;
+  defaults?: Record<string, unknown>;
+  inputLimits?: HanaMediaInputLimits;
   [key: string]: unknown;
 }
 
@@ -385,19 +411,95 @@ export interface HanaMediaModelRef {
   credentialLaneId?: string;
 }
 
+export type HanaSessionFileReference =
+  | { kind: 'session_file'; fileId: string }
+  | { type: 'session_file'; fileId: string };
+
+export type HanaGenerateImageReference = HanaSessionFileReference;
+
+export interface HanaMediaDelivery {
+  mode?: 'session' | 'response' | string;
+  ttlMs?: number;
+  [key: string]: unknown;
+}
+
 export interface HanaGenerateImageInput {
-  sessionPath: string;
+  sessionPath?: string;
   prompt: string;
   count?: number;
-  image?: string;
+  image?: HanaGenerateImageReference | HanaGenerateImageReference[];
+  referenceImages?: HanaGenerateImageReference[];
   ratio?: string;
   resolution?: string;
   quality?: string;
+  mode?: string;
+  options?: Record<string, unknown>;
   model?: string;
   provider?: string;
   input?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+  delivery?: HanaMediaDelivery;
+  deliveryMode?: string;
   deliveryTarget?: unknown;
+}
+
+export interface HanaGenerateVideoInput {
+  sessionPath?: string;
+  prompt: string;
+  image?: HanaGenerateImageReference | HanaGenerateImageReference[] | string;
+  referenceImages?: HanaGenerateImageReference[];
+  duration?: number;
+  ratio?: string;
+  resolution?: string;
+  mode?: string;
+  options?: Record<string, unknown>;
+  model?: string;
+  provider?: string;
+  input?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  delivery?: HanaMediaDelivery;
+  deliveryMode?: string;
+  deliveryTarget?: unknown;
+}
+
+export interface HanaGenerateMediaInput {
+  kind?: 'image' | 'video' | 'audio' | 'image_generation' | 'video_generation' | 'speech_recognition' | 'asr' | 'transcription' | string;
+  type?: string;
+  mediaKind?: string;
+  sessionPath?: string;
+  fileId?: string;
+  prompt?: string;
+  image?: HanaGenerateImageReference | HanaGenerateImageReference[] | string;
+  referenceImages?: HanaGenerateImageReference[];
+  duration?: number;
+  ratio?: string;
+  resolution?: string;
+  quality?: string;
+  mode?: string;
+  options?: Record<string, unknown>;
+  model?: string;
+  provider?: string;
+  delivery?: HanaMediaDelivery;
+  deliveryMode?: string;
+  input?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface HanaTranscribeAudioInput {
+  sessionPath: string;
+  fileId: string;
+  language?: string;
+  providerId?: string;
+  provider?: string;
+  modelId?: string;
+  model?: string;
+}
+
+export interface HanaTranscribeAudioResult {
+  ok: true;
+  transcription: unknown;
+  taskId?: string;
+  stream?: unknown;
 }
 
 export interface HanaEventBus {
@@ -893,6 +995,47 @@ export function generateImage(
     ...input,
     ...(pluginIdFromContext(ctx) ? { pluginId: pluginIdFromContext(ctx) } : {}),
   }, options);
+}
+
+export function generateVideo(
+  ctx: { pluginId?: string | null; bus?: Pick<HanaEventBus, 'request'> | null },
+  input: HanaGenerateVideoInput,
+  options?: Record<string, unknown>,
+): Promise<unknown> {
+  return requestBus(ctx, 'media:generate-video', {
+    ...input,
+    ...(pluginIdFromContext(ctx) ? { pluginId: pluginIdFromContext(ctx) } : {}),
+  }, options);
+}
+
+export function generateMedia(
+  ctx: { pluginId?: string | null; bus?: Pick<HanaEventBus, 'request'> | null },
+  input: HanaGenerateMediaInput,
+  options?: Record<string, unknown>,
+): Promise<unknown> {
+  return requestBus(ctx, 'media:generate', {
+    ...input,
+    ...(pluginIdFromContext(ctx) ? { pluginId: pluginIdFromContext(ctx) } : {}),
+  }, options);
+}
+
+export function transcribeAudio(
+  ctx: { pluginId?: string | null; bus?: Pick<HanaEventBus, 'request'> | null },
+  input: HanaTranscribeAudioInput,
+  options?: Record<string, unknown>,
+): Promise<HanaTranscribeAudioResult> {
+  return requestBus(ctx, 'media:transcribe-audio', {
+    ...input,
+    ...(pluginIdFromContext(ctx) ? { pluginId: pluginIdFromContext(ctx) } : {}),
+  }, options).then(normalizeTranscribeAudioResult);
+}
+
+function normalizeTranscribeAudioResult(result: unknown): HanaTranscribeAudioResult {
+  if (result && typeof result === 'object' && (result as any).ok === true
+    && Object.prototype.hasOwnProperty.call(result, 'transcription')) {
+    return result as HanaTranscribeAudioResult;
+  }
+  return { ok: true, transcription: result };
 }
 
 export function listUsageEntries(

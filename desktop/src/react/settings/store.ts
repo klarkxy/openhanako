@@ -69,17 +69,20 @@ export interface SettingsSnapshot {
   globalModels: Record<string, any>;
   preferences: {
     quickChat: Record<string, any>;
+    browser: Record<string, any>;
     notifications: Record<string, any>;
     bridge: {
       permissionMode: 'auto' | 'operate' | 'read_only';
       readOnly: boolean;
       receiptEnabled: boolean;
+      richStreamingEnabled: boolean;
     };
     computerUse?: {
       selectedProviderId?: string | null;
       status?: Record<string, any> | null;
       settings?: Record<string, any>;
     };
+    imageGeneration?: Record<string, any>;
     speechRecognition: Record<string, any>;
     experiments: any[];
   };

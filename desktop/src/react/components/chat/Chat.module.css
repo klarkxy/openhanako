@@ -437,25 +437,12 @@
     color: var(--accent) !important;
 }
 
-.streamTailChar {
-    animation: stream-tail-fade var(--duration-fast) var(--ease-out) both;
-    animation-delay: calc(var(--stream-tail-index, 0) * 14ms);
-    will-change: opacity;
+.streamTailChunk {
+    animation: hana-stream-tail-in 100ms var(--ease-out) both;
 }
 
-@keyframes stream-tail-fade {
-    from {
-        opacity: 0.15;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .streamTailChar {
-        animation: none;
-    }
+.streamMarkdownBlockEnter {
+    animation: hana-stream-tail-in 110ms var(--ease-out) both;
 }
 
 .msgActionBadge {
@@ -484,6 +471,7 @@
     margin: var(--space-xs) 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     font-size: 0.8rem;
+    animation: hana-chat-soft-down-in 170ms var(--ease-out) both;
 }
 
 .moodWrapper[data-yuan="hanako"] { --mood-accent: var(--accent); }
@@ -538,6 +526,7 @@
     display: flex;
     justify-content: center;
     font-family: var(--font-sans);
+    animation: hana-chat-soft-down-in 130ms var(--ease-out) both;
 }
 
 .interludeTrigger {
@@ -618,6 +607,7 @@
 .cronConfirmCard {
     margin: var(--space-sm) 0;
     padding: var(--space-md);
+    animation: hana-chat-soft-up-in 130ms var(--ease-out) both;
     background: var(--bg-card, #fff);
     border-radius: var(--radius-chat-card);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
@@ -1199,6 +1189,7 @@
     font-size: 0.88rem;
     min-width: 320px;
     max-width: 420px;
+    animation: hana-chat-soft-up-in 130ms var(--ease-out) both;
 }
 
 .settingsConfirmCardDone {
@@ -1348,6 +1339,7 @@
     font-size: 0.86rem;
     min-width: 300px;
     max-width: 460px;
+    animation: hana-chat-soft-up-in 130ms var(--ease-out) both;
 }
 
 .settingsUpdateCardApplied {
@@ -1416,13 +1408,28 @@
 /* ── 工具调用折叠组 ── */
 
 .toolGroup {
+    position: relative;
     margin: var(--space-xs) 0;
-    border-left: 2px solid var(--accent);
+    padding-left: 2px;
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     background: var(--tool-bg);
     overflow: hidden;
-    width: fit-content;
+    width: 100%;
     max-width: 100%;
+    box-sizing: border-box;
+    animation: hana-chat-soft-down-in 110ms var(--ease-out) both;
+}
+
+.toolGroup::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--accent);
+    transform-origin: top;
+    animation: hana-tool-bar-in 100ms var(--ease-out) 55ms both;
 }
 
 .toolGroupSummary {
@@ -1472,6 +1479,11 @@
 
 .processFoldMessage {
     width: 100%;
+}
+
+.processFoldCollapse {
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .processFoldSummary {
@@ -1656,6 +1668,7 @@
     margin: var(--space-xs) 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     font-size: 0.8rem;
+    animation: hana-chat-soft-down-in 130ms var(--ease-out) both;
 }
 
 .thinkingBlockSummary {
@@ -1794,7 +1807,7 @@
     display: inline-flex;
     width: clamp(220px, 50%, 360px);
     max-width: 100%;
-    aspect-ratio: 1 / 1;
+    aspect-ratio: 3 / 2;
     margin: var(--space-sm) 0;
     padding: 0.3rem;
     background: var(--bg-card, var(--bg));
@@ -1802,6 +1815,7 @@
     border-radius: var(--radius-chat-card);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
     overflow: hidden;
+    animation: hana-chat-soft-up-in 130ms var(--ease-out) both;
 }
 
 .mediaGenerationCardFailed {
@@ -1825,8 +1839,9 @@
 .mediaGenerationText {
     position: relative;
     z-index: 1;
-    width: min(52%, 220px);
+    width: 100%;
     min-width: 0;
+    padding: 0 1rem;
     text-align: center;
 }
 
@@ -1939,6 +1954,38 @@
     border-radius: var(--radius-chat-card-inner);
 }
 
+.videoOutputCard {
+    width: min(420px, 100%);
+}
+
+.videoOutputPreview {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 450px;
+    object-fit: cover;
+    background: color-mix(in srgb, var(--bg-card, var(--bg)) 78%, var(--text) 10%);
+    border-radius: var(--radius-chat-card-inner);
+}
+
+.videoOutputPlayBadge {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--bg);
+    background: color-mix(in srgb, var(--text) 72%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bg) 60%, transparent);
+    border-radius: 50%;
+    pointer-events: none;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+}
+
 .imageOutputName {
     padding: 0.35rem 0.2rem 0;
     font-size: 0.78rem;
@@ -1963,6 +2010,7 @@
     max-width: 100%;
     cursor: default;
     transition: background var(--duration-fast), box-shadow var(--duration-fast);
+    animation: hana-chat-soft-up-in 130ms var(--ease-out) both;
 }
 
 .legacyArtifactCard:hover {
@@ -2015,6 +2063,7 @@
 .browserScreenshot {
     margin: 8px 0;
     max-width: 600px;
+    animation: hana-chat-soft-up-in 130ms var(--ease-out) both;
 }
 
 .browserScreenshot img {
@@ -2415,4 +2464,27 @@
 .selectionModeActive .messageGroup {
     user-select: none;
     cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .streamTailChunk,
+    .streamMarkdownBlockEnter,
+    .moodWrapper,
+    .interludeRow,
+    .toolGroup,
+    .thinkingBlock,
+    .cronConfirmCard,
+    .settingsConfirmCard,
+    .settingsUpdateCard,
+    .mediaGenerationCard,
+    .legacyArtifactCard,
+    .browserScreenshot {
+        animation: none;
+    }
+
+    .toolGroup::before {
+        animation: none;
+        opacity: 1;
+        transform: none;
+    }
 }

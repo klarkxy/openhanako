@@ -4,7 +4,7 @@ import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { useI18n } from '../../hooks/use-i18n';
 import type { Model } from '../../types';
 import type { SessionModel } from '../../stores/chat-types';
-import { SelectWidget, ProviderGroupHeader, selectWidgetStyles, type SelectOption } from '@/ui';
+import { SelectWidget, ProviderIcon, ProviderGroupHeader, selectWidgetStyles, type SelectOption } from '@/ui';
 import styles from './InputArea.module.css';
 
 export function ModelSelector({ models, sessionModel, isStreaming = false }: {
@@ -173,7 +173,10 @@ export function ModelSelector({ models, sessionModel, isStreaming = false }: {
       triggerClassName={`${styles['model-pill']}${loading ? ` ${styles['model-pill-disabled']}` : ''}`}
       renderTrigger={() => (
         <>
-          <span>{label}</span>
+          {current?.provider && (
+            <ProviderIcon provider={current.provider} className={styles['model-provider-icon']} />
+          )}
+          <span className={styles['model-pill-label']}>{label}</span>
           <span className={styles['model-arrow']}>▾</span>
         </>
       )}

@@ -13,6 +13,7 @@
   box-shadow: var(--panel-card-shadow);
   color: var(--text);
   font-size: 0.82rem;
+  animation: hana-chat-soft-up-in 130ms var(--ease-out) both;
   transition:
     background var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out);
@@ -107,6 +108,16 @@ button.main:focus-visible {
   white-space: nowrap;
 }
 
+.titleTail {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 14px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .status {
   flex: 0 0 auto;
   font-size: 0.75rem;
@@ -170,5 +181,11 @@ button.main:focus-visible {
 @media (max-width: 720px) {
   .card {
     width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
   }
 }

@@ -40,12 +40,51 @@ describe("desktop browser viewer window state", () => {
     expect(body).toContain("browserViewerWindow.hide()");
   });
 
-  it("routes close, suspend, destroy, and emergency stop through the detach helper", () => {
+  it("opens the browser viewer at the wider default size", () => {
+    const source = fs.readFileSync(MAIN_PATH, "utf-8");
+    const body = functionBody(source, "createBrowserViewerWindow");
+
+    expect(body).toContain("width: 1440");
+    expect(body).toContain("height: 1080");
+  });
+
+  it("models browser views as session tab workspaces", () => {
     const source = fs.readFileSync(MAIN_PATH, "utf-8");
 
-    expect(source).toContain('_detachActiveBrowserView({ view, sessionPath: sp || _currentBrowserSession, destroy: true, hideIfVisible: true })');
+    expect(source).toContain("sessionPath -> BrowserWorkspace");
+    expect(source).toContain("tabId -> WebContentsView");
+    expect(source).toContain("function _ensureBrowserTabForSession");
+    expect(source).toContain("function _switchActiveBrowserTab");
+  });
+
+  it("exposes tab and Cookie browser IPC commands", () => {
+    const source = fs.readFileSync(MAIN_PATH, "utf-8");
+
+    expect(source).toContain('wrapIpcBestEffortHandler("browser-new-tab"');
+    expect(source).toContain('wrapIpcBestEffortHandler("browser-switch-tab"');
+    expect(source).toContain('wrapIpcBestEffortHandler("browser-close-tab"');
+    expect(source).toContain('case "setAcceptCookies"');
+    expect(source).toContain('case "clearBrowserCookiesAndSiteData"');
+  });
+
+  it("routes new-window requests into a new in-app browser tab", () => {
+    const source = fs.readFileSync(MAIN_PATH, "utf-8");
+    const body = functionBody(source, "_createBrowserWebContentsView");
+
+    expect(body).toContain("_openUrlInNewBrowserTab");
+    expect(body).toContain("{ show: view === _browserWebView }");
+    expect(body).not.toContain("view.webContents.loadURL(url);");
+    expect(body).toContain('return { action: "deny" }');
+  });
+
+  it("cleans up tab workspaces and keeps emergency stop on the detach helper", () => {
+    const source = fs.readFileSync(MAIN_PATH, "utf-8");
+
+    expect(source).toContain('case "close"');
+    expect(source).toContain('for (const tab of workspace.tabs.values())');
+    expect(source).toContain('_detachActiveBrowserView({ view: active.view');
     expect(source).toContain('_detachActiveBrowserView({ view, sessionPath: sp || _currentBrowserSession, hideIfVisible: true })');
-    expect(source).toContain('_detachActiveBrowserView({ view, sessionPath: sp, destroy: true, hideIfVisible: true })');
+    expect(source).toContain('case "destroyView"');
     expect(source).toContain('_detachActiveBrowserView({ destroy: true, hideIfVisible: true, reason: "emergency-stop" })');
   });
 });

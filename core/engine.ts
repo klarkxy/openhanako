@@ -33,6 +33,7 @@ import { PluginDevService } from "./plugin-dev-service.ts";
 import { createPluginDevTools } from "./plugin-dev-tools.ts";
 import { DefaultResourceLoader, SettingsManager } from "../lib/pi-sdk/index.ts";
 import { compactSessionWithCachePreservation, isStaleExtensionContextError } from "./session-compactor.ts";
+import { getFreshCompactNoopReason } from "../lib/fresh-compact/policy.ts";
 import { DeferredResultCoordinator } from "../lib/deferred-result-coordinator.ts";
 import { getToolSessionPath, normalizeToolRuntimeContext } from "../lib/tools/tool-session.ts";
 import { loadLocale } from "../lib/i18n.ts";
@@ -69,8 +70,9 @@ function resolveRequestReasoningLevel(models, prefs, ctx) {
     ? models.getModelDefaultThinkingLevel(ctx?.model || null, prefs.getThinkingLevel())
     : prefs.getThinkingLevel();
   const preferenceThinkingLevel = models.resolveThinkingLevel(defaultThinkingLevel);
-  return preferenceThinkingLevel === "xhigh" && sessionThinkingLevel === "high"
-    ? "xhigh"
+  const preferenceRequestsMax = preferenceThinkingLevel === "xhigh" || preferenceThinkingLevel === "max";
+  return preferenceRequestsMax && sessionThinkingLevel === "high"
+    ? preferenceThinkingLevel
     : (sessionThinkingLevel || preferenceThinkingLevel);
 }
 
@@ -138,8 +140,10 @@ import {
 } from "./computer-use/platform-support.ts";
 import { SessionFileRegistry } from "../lib/session-files/session-file-registry.ts";
 import { serializeSessionFile } from "../lib/session-files/session-file-response.ts";
+import { AutomationSuggestionStore } from "../lib/tools/automation-suggestion-store.ts";
 import { NotificationService } from "../lib/notifications/notification-service.ts";
 import { SpeechRecognitionService } from "./speech-recognition-service.ts";
+import { UniversalMediaManager } from "./media/universal-media-manager.ts";
 import { createCurrentTurnNativeMediaStore } from "./current-turn-native-media.ts";
 import {
   getSkillNameTranslationCachePath,
@@ -170,6 +174,7 @@ export class HanaEngine {
   declare _activityHub: any;
   declare _agentMgr: any;
   declare _approvalGateway: any;
+  declare _automationSuggestionStore: any;
   declare _bridge: any;
   declare _channels: any;
   declare _checkpointStore: any;
@@ -190,6 +195,7 @@ export class HanaEngine {
   declare _hubCallbacks: any;
   declare _imageStripNotified: any;
   declare _listeners: any;
+  declare _media: any;
   declare _models: any;
   declare _notifications: any;
   declare _outboundProxyRuntime: any;
@@ -257,6 +263,7 @@ export class HanaEngine {
     });
     this._currentTurnNativeMedia = createCurrentTurnNativeMediaStore();
     this._pluginInstallRecords = new PluginInstallRecords({ hanakoHome });
+    this._automationSuggestionStore = new AutomationSuggestionStore();
     this._approvalGateway = createApprovalGateway({
       smallToolModelReviewer: createModelApprovalReviewer({
         role: "utility",
@@ -278,6 +285,15 @@ export class HanaEngine {
       preferences: this._prefs,
       sessionFiles: this._sessionFiles,
       emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
+    });
+    this._media = new UniversalMediaManager({
+      hanakoHome: this.hanakoHome,
+      providerRegistry: this._models.providerRegistry,
+      preferences: this._prefs,
+      speechRecognition: this._speechRecognition,
+      sessionFiles: this._sessionFiles,
+      registerSessionFile: (entry) => this.serializeSessionFile(this.registerSessionFile(entry)),
+      onProviderChanged: () => this.onProviderChanged(),
     });
     this._sessionProjects = new SessionProjectCatalogStore({ userDir: this.userDir });
 
@@ -511,6 +527,8 @@ export class HanaEngine {
   /** @ui-focus-only 返回 UI 焦点 agent 的 ID */
   get currentAgentId() { return this._agentMgr.activeAgentId; }
   get confirmStore() { return this._confirmStore; }
+  get automationSuggestionStore() { return this._automationSuggestionStore; }
+  getAutomationSuggestionStore() { return this._automationSuggestionStore; }
   get approvalGateway() { return this._approvalGateway; }
   getStudioCronStore() { return this._studioCronService; }
 
@@ -626,6 +644,7 @@ export class HanaEngine {
   }
   getSessionFile(fileId, options) { return this._sessionFiles.get(fileId, options); }
   getSessionFileByPath(filePath, options) { return this._sessionFiles.getByFilePath(filePath, options); }
+  getSessionFileBySourceKey(sourceKey, options) { return this._sessionFiles.getBySourceKey(sourceKey, options); }
   listSessionFiles(sessionPath) { return this._sessionFiles.list(sessionPath); }
   updateSessionFileTranscription(fileId, transcription, options) { return this._sessionFiles.updateTranscription(fileId, transcription, options); }
   beginCurrentTurnNativeMedia(sessionPath, opts) { return this._currentTurnNativeMedia.begin(sessionPath, opts); }
@@ -648,6 +667,7 @@ export class HanaEngine {
     return true;
   }
   get speechRecognition() { return this._speechRecognition; }
+  get media() { return this._media; }
   get resources() { return this._resources; }
   getResourceService() {
     if (!this._resources) throw new Error("resource service is not initialized");
@@ -759,14 +779,14 @@ export class HanaEngine {
   /** @deprecated Phase 2: 使用 promptSession(path, text, opts) */
   async prompt(text, opts) { return this._sessionCoord.prompt(text, opts); }
   /** @deprecated Phase 2: 使用 abortSession(path) */
-  async abort() { return this._sessionCoord.abort(); }
+  async abort(options) { return this._sessionCoord.abort(options); }
   /** @deprecated Phase 2: 使用 steerSession(path, text) */
   steer(text) { return this._sessionCoord.steer(text); }
 
   // ── Path 感知 API（Phase 2） ──
   async promptSession(p, text, opts) { return this._sessionCoord.promptSession(p, text, opts); }
   steerSession(p, text) { return this._sessionCoord.steerSession(p, text); }
-  async abortSession(p) { return this._sessionCoord.abortSession(p); }
+  async abortSession(p, options) { return this._sessionCoord.abortSession(p, options); }
   get focusSessionPath() { return this._sessionCoord.currentSessionPath; }
   getMessages(p) { return this._sessionCoord.getSessionByPath(p)?.messages ?? []; }
   getSessionWorkspaceFolders(p = this.currentSessionPath) {
@@ -815,15 +835,19 @@ export class HanaEngine {
   /** /rc 接管态 + pending-selection 内存 store（Phase 2-A） */
   get rcState() { return this._slashSystem?.rcState ?? null; }
   async closeSession(p) { return this._sessionCoord.closeSession(p); }
-  async discardSessionRuntime(p, reason) { return this._sessionCoord.discardSessionRuntime(p, reason); }
+  async discardSessionRuntime(p, reason, options) { return this._sessionCoord.discardSessionRuntime(p, reason, options); }
   getSessionByPath(p) { return this._sessionCoord.getSessionByPath(p); }
   getSessionContextUsage(p) { return this._sessionCoord.getSessionContextUsage(p); }
   /** 确保桌面 session 已加载进 cache 但不改 UI 焦点（Phase 2-C：/rc 接管态用） */
   async ensureSessionLoaded(p) { return this._sessionCoord.ensureSessionLoaded(p); }
-  async reloadSessionRuntime(p) { return this._sessionCoord.reloadSessionRuntime(p); }
+  async reloadSessionRuntime(p, opts = {}) { return this._sessionCoord.reloadSessionRuntime(p, opts); }
+  /** #1624：当前应展示的"工具能力有更新"提示（无漂移 / 已 dismiss → null） */
+  getSessionCapabilityDriftNotice(p) { return this._sessionCoord.getSessionCapabilityDriftNotice(p); }
+  /** #1624：记录当前 fingerprint 已被用户关闭，持久化到 session-meta */
+  async dismissSessionCapabilityDrift(p, fingerprint) { return this._sessionCoord.dismissSessionCapabilityDrift(p, fingerprint); }
   isSessionStreaming(p) { return this._sessionCoord.isSessionStreaming(p); }
   isSessionSwitching(p) { return this._sessionCoord.isSessionSwitching(p); }
-  async abortSessionByPath(p) { return this._sessionCoord.abortSessionByPath(p); }
+  async abortSessionByPath(p, options) { return this._sessionCoord.abortSessionByPath(p, options); }
   async listSessions(options = {}) { return this._sessionCoord.listSessions(options); }
   async continueDeletedAgentSession(p) { return this._sessionCoord.continueDeletedAgentSession(p); }
   getSessionProjectCatalog() { return this._sessionProjects.getCatalog(); }
@@ -957,6 +981,8 @@ export class HanaEngine {
   setBridgeReadOnly(v) { this._prefs.setBridgeReadOnly(v); }
   getBridgeReceiptEnabled() { return this._prefs.getBridgeReceiptEnabled(); }
   setBridgeReceiptEnabled(v) { this._prefs.setBridgeReceiptEnabled(v); }
+  getBridgeRichStreamingEnabled() { return this._prefs.getBridgeRichStreamingEnabled(); }
+  setBridgeRichStreamingEnabled(v) { this._prefs.setBridgeRichStreamingEnabled(v); }
   setOutboundProxyRuntime(runtime) { this._outboundProxyRuntime = runtime || null; }
   getNetworkProxy() { return this._prefs.getNetworkProxy(); }
   setNetworkProxy(v) {
@@ -1120,6 +1146,8 @@ export class HanaEngine {
   setNotificationPreferences(p) { return this._prefs.setNotificationPreferences(p); }
   getQuickChatPreferences() { return this._prefs.getQuickChatPreferences(); }
   setQuickChatPreferences(p) { return this._prefs.setQuickChatPreferences(p); }
+  getBrowserPreferences() { return this._prefs.getBrowserPreferences(); }
+  setBrowserPreferences(p) { return this._prefs.setBrowserPreferences(p); }
   getWorkspaceUiState(workspaceRoot, surface) { return this._prefs.getWorkspaceUiState(workspaceRoot, surface); }
   setWorkspaceUiState(workspaceRoot, surface, state) { return this._prefs.setWorkspaceUiState(workspaceRoot, surface, state); }
   gcWorkspacePersistence( options: any = {}) {
@@ -1137,6 +1165,7 @@ export class HanaEngine {
   setPluginDevToolsEnabled(value) { return this._prefs.setPluginDevToolsEnabled(value); }
   getPluginInstallRecord(pluginId) { return this._pluginInstallRecords.get(pluginId); }
   recordPluginInstall(record) { return this._pluginInstallRecords.recordInstall(record); }
+  removePluginInstallRecord(pluginId) { return this._pluginInstallRecords.remove(pluginId); }
   getTimezone() { return this._prefs.getTimezone(); }
   setTimezone(tz) { this._prefs.setTimezone(tz); }
   getUpdateChannel() { return this._prefs.getUpdateChannel(); }
@@ -1216,6 +1245,54 @@ export class HanaEngine {
     };
   }
 
+  /**
+   * #1624 显式刷新（fresh compact）：把旧对话压缩成 compact checkpoint，然后用
+   * 当前 agent 配置重建 system prompt snapshot + 工具快照重启 session runtime。
+   * 这是用户显式触发的升级动作——不点刷新的 session 永远保持冻结快照不变。
+   *
+   * "Already compacted / Nothing to compact" 视为 noop（快照仍然刷新），
+   * 与 bridge fresh compact 的 markFreshCompactSatisfied 语义一致。
+   */
+  async freshCompactDesktopSession(sessionPath) {
+    let session = this.getSessionByPath(sessionPath) || await this.ensureSessionLoaded(sessionPath);
+    if (!session) throw new Error("freshCompactDesktopSession: session not found");
+    if (session.isCompacting) throw new Error("freshCompactDesktopSession: already compacting");
+    if (this.isSessionStreaming(sessionPath)) {
+      throw new Error("freshCompactDesktopSession: session is streaming, try again after the reply completes");
+    }
+    let before = session.getContextUsage?.() ?? null;
+    let noopReason = null;
+    try {
+      await compactSessionWithCachePreservation(session, undefined);
+    } catch (error) {
+      if (isStaleExtensionContextError(error)) {
+        session = await this.reloadSessionRuntime(sessionPath);
+        if (!session) throw error;
+        if (session.isCompacting) throw new Error("freshCompactDesktopSession: already compacting");
+        before = session.getContextUsage?.() ?? before;
+        try {
+          await compactSessionWithCachePreservation(session, undefined);
+        } catch (retryError) {
+          noopReason = getFreshCompactNoopReason(retryError);
+          if (!noopReason) throw retryError;
+        }
+      } else {
+        noopReason = getFreshCompactNoopReason(error);
+        if (!noopReason) throw error;
+      }
+    }
+    const after = session.getContextUsage?.() ?? null;
+    // 压缩完成后整体重建 runtime：restore 路径按当前配置重算 prompt/tool 快照并写回 session-meta
+    await this._sessionCoord.reloadSessionRuntime(sessionPath, { refreshCapabilitySnapshots: true });
+    return {
+      tokensBefore: before?.tokens ?? null,
+      tokensAfter: noopReason ? (before?.tokens ?? null) : (after?.tokens ?? null),
+      contextWindow: after?.contextWindow ?? before?.contextWindow ?? null,
+      fresh: true,
+      noopReason,
+    };
+  }
+
   // ════════════════════════════
   //  Skills（→ SkillManager）
   // ════════════════════════════
@@ -1263,6 +1340,7 @@ export class HanaEngine {
       this.syncWorkspaceSkillPaths(this.currentSessionPath ? this.cwd : null, {
         reload: true,
         emitEvent: true,
+        agentId: this.currentAgentId || null,
       }).catch(() => {});
     }
     return {
@@ -1277,6 +1355,7 @@ export class HanaEngine {
     await this.syncWorkspaceSkillPaths(this.currentSessionPath ? this.cwd : null, {
       reload: true,
       emitEvent: true,
+      agentId: this.currentAgentId || null,
     });
   }
 
@@ -1326,7 +1405,13 @@ export class HanaEngine {
     });
   }
 
-  async syncWorkspaceSkillPaths(cwd = null, { reload = true, emitEvent = false, force = false } = {}) {
+  async syncWorkspaceSkillPaths(cwd = null, options: any = {}) {
+    const {
+      reload = true,
+      emitEvent = false,
+      force = false,
+      agentId = this._agentMgr?.activeAgentId || null,
+    } = options;
     if (!this._skills) return false;
     const resolved = this._getResolvedExternalSkillPaths(cwd);
     const changed = !this._sameExternalSkillPaths(this._skills._externalPaths || [], resolved);
@@ -1334,7 +1419,7 @@ export class HanaEngine {
 
     this._skills.setExternalPaths(resolved);
     if (reload) await this.reloadSkills();
-    if (emitEvent) this._emitAppEvent("skills-changed", { agentId: null });
+    if (emitEvent) this._emitAppEvent("skills-changed", { agentId: agentId || null });
     return true;
   }
 
@@ -1636,6 +1721,7 @@ export class HanaEngine {
       }
       this._pluginDevEventBusCleanup?.();
       this._pluginDevEventBusCleanup = null;
+      this._media?.dispose?.();
       this._skills?.unwatch();
       this._deferredResultCoordinator?.dispose?.();
       this._deferredResultCoordinator = null;
@@ -1655,6 +1741,7 @@ export class HanaEngine {
    * @param {import('../hub/event-bus.ts').EventBus} bus
    */
   async initPlugins(bus) {
+    this._media?.start?.(bus);
     const builtinPluginsDir = path.join(this.productDir, "..", "plugins");
     const userPluginsDir = path.join(this.hanakoHome, "plugins");
     const devPluginsDir = path.join(this.hanakoHome, "plugins-dev");
@@ -1804,6 +1891,28 @@ export class HanaEngine {
     const executionScope = executionBoundary
       ? { serverNodeId: executionBoundary.serverNodeId, executionBoundary }
       : {};
+    const withRuntimeContext = (tool) => {
+      if (!tool?.execute) return tool;
+      return {
+        ...tool,
+        execute: (toolCallId, params, signalOrRuntimeCtx, onUpdate, piCtx) => {
+          const { ctx: runtimeCtx } = normalizeToolRuntimeContext(signalOrRuntimeCtx, piCtx);
+          const sessionPath = runtimeCtx?.sessionPath
+            || getToolSessionPath(runtimeCtx)
+            || getSessionPath()
+            || null;
+          const mergedCtx = {
+            ...runtimeCtx,
+            ...(sessionPath ? { sessionPath } : {}),
+            ...(opts.bridgeContext ? { bridgeContext: opts.bridgeContext } : {}),
+            agentId,
+            ...executionScope,
+          };
+          return tool.execute(toolCallId, params, signalOrRuntimeCtx, onUpdate, mergedCtx);
+        },
+      };
+    };
+    const runtimeCustomTools = ct.map(withRuntimeContext);
     const wrappedPluginTools = pluginTools.map(t => ({
       ...t,
       execute: (toolCallId, params, signalOrRuntimeCtx, onUpdate, piCtx) => {
@@ -1829,7 +1938,7 @@ export class HanaEngine {
         })
       : [];
     const allTools = filterToolObjectsByAvailability(
-      [...ct, ...wrappedPluginTools, ...pluginDevTools],
+      [...runtimeCustomTools, ...wrappedPluginTools, ...pluginDevTools],
       toolAgent?.config || {},
       {
         agentId,
@@ -1942,7 +2051,7 @@ export class HanaEngine {
     // this function, so a single check here catches the whole surface.
     assertAllToolsCategorized([
       ...result.tools.map((t) => t.name).filter(Boolean),
-      ...ct
+      ...runtimeCustomTools
         .filter((t) => !t._pluginId)
         .map((t) => t.name)
         .filter(Boolean),
@@ -2035,7 +2144,7 @@ export class HanaEngine {
   //  日记 / 工具调用
   // ════════════════════════════
 
-  async writeDiary() {
+  async writeDiary(opts: any = {}) {
     const currentPath = this.currentSessionPath;
     if (currentPath && this.agent.memoryTicker) {
       await this.agent.memoryTicker.flushSession(currentPath);
@@ -2057,6 +2166,7 @@ export class HanaEngine {
       userName: agent.userName,
       agentName: agent.agentName,
       cwd: this.homeCwd || process.cwd(),
+      targetDate: opts.targetDate,
       activityStore: this.activityStore,
       sessionDir: agent.sessionDir,
       isSessionMemoryEnabledForPath: (sessionPath) => {

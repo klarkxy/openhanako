@@ -53,6 +53,7 @@ import {
 } from "../../shared/secret-custody.ts";
 import { denySecretMutationWithoutScope, denyWithoutScope } from "../http/capability-guard.ts";
 import { recordSecurityAuditEvent } from "../http/security-audit.ts";
+import { readUserProfile, writeUserProfile } from "../../lib/user-profile-store.ts";
 
 function hasOwn(value: any, key: string) {
   return !!value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, key);
@@ -479,12 +480,9 @@ export function createConfigRoute(engine: any) {
   // 读取 user.md 内容
   route.get("/user-profile", async (c) => {
     try {
-      const userPath = path.join(engine.userDir, "user.md");
-      const content = await fs.readFile(userPath, "utf-8");
+      const content = await readUserProfile(engine.userDir);
       return c.json({ content });
     } catch (err) {
-      // 文件不存在时返回空字符串（user.md 是可选的）
-      if (err.code === "ENOENT") return c.json({ content: "" });
       return c.json({ error: err.message }, 500);
     }
   });
@@ -497,8 +495,7 @@ export function createConfigRoute(engine: any) {
       if (typeof content !== "string") {
         return c.json({ error: "content must be a string" }, 400);
       }
-      const userPath = path.join(engine.userDir, "user.md");
-      await fs.writeFile(userPath, content, "utf-8");
+      await writeUserProfile(engine.userDir, content);
       debugLog()?.log("api", `PUT /api/user-profile (saved, ${content.length} chars)`);
       await engine.updateConfig({});
       return c.json({ ok: true });

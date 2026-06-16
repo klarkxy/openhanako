@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { retryImageTask } from "../plugins/image-gen/lib/image-task-runner.ts";
+import { buildImageParams, retryImageTask } from "../plugins/image-gen/lib/image-task-runner.ts";
 import registerTaskRoutes from "../plugins/image-gen/routes/tasks.ts";
 
 async function flushBackgroundSubmits() {
@@ -76,6 +76,29 @@ function makeCtx(task, adapterOverrides = {}) {
 }
 
 describe("image generation retry", () => {
+  it("passes suggestedFilename to adapters as the storage filename hint", () => {
+    expect(buildImageParams({
+      prompt: "a quiet moonlit harbor",
+      suggestedFilename: "moonlit-harbor",
+    })).toMatchObject({
+      type: "image",
+      prompt: "a quiet moonlit harbor",
+      filename: "moonlit-harbor",
+    });
+  });
+
+  it("passes multiple reference images to adapters through the existing image parameter", () => {
+    expect(buildImageParams({
+      prompt: "combine the references",
+      image: "/tmp/old.png",
+      referenceImages: ["/tmp/a.png", "", "/tmp/b.png"],
+    })).toMatchObject({
+      type: "image",
+      prompt: "combine the references",
+      image: ["/tmp/a.png", "/tmp/b.png"],
+    });
+  });
+
   it("reopens a failed image task with the same parameters and taskId", async () => {
     const task = makeFailedTask();
     const { ctx, adapter, store, poller, bus } = makeCtx(task);
@@ -131,6 +154,31 @@ describe("image generation retry", () => {
       submitState: "submitted",
       adapterTaskId: "retry-provider-task",
     }));
+  });
+
+  it("rejects retry when the adapter no longer allows the saved reference image count", async () => {
+    const task = makeFailedTask({
+      params: {
+        type: "image",
+        prompt: "same prompt",
+        image: ["/tmp/ref-a.png", "/tmp/ref-b.png"],
+      },
+    });
+    const { ctx, adapter, store, poller, bus } = makeCtx(task, {
+      maxReferenceImages: 1,
+    });
+
+    const result = await retryImageTask({ taskId: "task-img", ctx });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 400,
+      error: expect.stringContaining("最多支持 1 张参考图"),
+    });
+    expect(adapter.submit).not.toHaveBeenCalled();
+    expect(store.update).not.toHaveBeenCalled();
+    expect(poller.add).not.toHaveBeenCalled();
+    expect(bus.request).not.toHaveBeenCalled();
   });
 
   it("rejects tasks that are already pending", async () => {

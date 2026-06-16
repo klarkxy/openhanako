@@ -10,6 +10,9 @@
  * PUT  /api/preferences/notifications  — 更新跨前端通知偏好
  * GET  /api/preferences/quick-chat  — 读取快速聊天入口偏好
  * PUT  /api/preferences/quick-chat  — 更新快速聊天入口偏好
+ * GET  /api/preferences/browser  — 读取内置浏览器偏好
+ * PUT  /api/preferences/browser  — 更新内置浏览器偏好
+ * POST /api/preferences/browser/clear-cookies — 清除内置浏览器 Cookies
  * POST /api/preferences/setup-complete — 提交首次配置完成意图
  * GET  /api/preferences/computer-use  — 读取 Computer Use provider/approval 状态
  * PUT  /api/preferences/computer-use  — 更新 Computer Use 全局设置
@@ -30,6 +33,7 @@ import {
 import { normalizeSidebarUiPrefs } from "../../shared/sidebar-ui-state.ts";
 import { normalizeNotificationPreferences } from "../../shared/notification-preferences.ts";
 import { normalizeQuickChatPreferences } from "../../shared/quick-chat-preferences.ts";
+import { normalizeBrowserPreferences } from "../../shared/browser-preferences.ts";
 import {
   SEARCH_API_PROVIDER_IDS,
   normalizeSearchApiKeys,
@@ -47,6 +51,7 @@ import {
 import { collectSecretPatchPaths, isMaskedSecretValue, maskSecretValue, resolveSecretPatch } from "../../shared/secret-custody.ts";
 import { denySecretMutationWithoutScope, denyWithoutScope } from "../http/capability-guard.ts";
 import { recordSecurityAuditEvent } from "../http/security-audit.ts";
+import { BrowserManager } from "../../lib/browser/browser-manager.ts";
 
 export function selectedComputerProviderIdFromSettings(settings: any, platform = process.platform) {
   return selectedComputerProviderId(settings, { platform });
@@ -120,7 +125,12 @@ function resolveSearchPreferencePatch(patch: any, existing: any) {
   return resolved;
 }
 
-export function createPreferencesRoute(engine: any, { platform = process.platform } = {}) {
+function browserManagerFromOptions(options: Record<string, any>) {
+  return options.browserManager || BrowserManager.instance();
+}
+
+export function createPreferencesRoute(engine: any, options: Record<string, any> = {}) {
+  const { platform = process.platform } = options;
   const route = new Hono();
 
   // 读取全局模型 + 搜索配置
@@ -296,6 +306,47 @@ export function createPreferencesRoute(engine: any, { platform = process.platfor
       return c.json({ ok: true, quickChat });
     } catch (err) {
       return c.json({ error: err.message }, 400);
+    }
+  });
+
+  route.get("/preferences/browser", async (c) => {
+    try {
+      return c.json({
+        browser: engine.getBrowserPreferences?.() || normalizeBrowserPreferences({}),
+      });
+    } catch (err) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  route.put("/preferences/browser", async (c) => {
+    try {
+      const body = await safeJson(c);
+      if (!body || typeof body !== "object") {
+        return c.json({ error: "invalid JSON body" }, 400);
+      }
+      if (typeof engine.setBrowserPreferences !== "function") {
+        return c.json({ error: "browser preferences unavailable" }, 500);
+      }
+      const patch = body.browser && typeof body.browser === "object" ? body.browser : body;
+      const browser = engine.setBrowserPreferences(patch);
+      const applyBrowserPreferences = options.applyBrowserPreferences
+        || ((settings: any) => browserManagerFromOptions(options).setBrowserPreferences(settings));
+      await applyBrowserPreferences(browser);
+      return c.json({ ok: true, browser });
+    } catch (err) {
+      return c.json({ error: err.message }, 400);
+    }
+  });
+
+  route.post("/preferences/browser/clear-cookies", async (c) => {
+    try {
+      const clearBrowserCookiesAndSiteData = options.clearBrowserCookiesAndSiteData
+        || (() => browserManagerFromOptions(options).clearBrowserCookiesAndSiteData());
+      await clearBrowserCookiesAndSiteData();
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json({ error: err.message }, 500);
     }
   });
 

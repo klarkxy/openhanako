@@ -30,6 +30,10 @@ import { atomicWriteSync } from "../../shared/safe-fs.ts";
 import { t } from "../i18n.ts";
 import { IpcTransport, WsTransport } from "./browser-transport.ts";
 import { createModuleLogger } from "../debug-log.ts";
+import {
+  mergeBrowserPreferences,
+  normalizeBrowserPreferences,
+} from "../../shared/browser-preferences.ts";
 
 const log = createModuleLogger("browser");
 
@@ -67,10 +71,78 @@ function assertBrowserImageBase64(base64, action) {
   throw new Error(`[browser] ${action} returned no image data. The browser capture produced an empty image.`);
 }
 
+function createBrowserTab(seed: any = {}) {
+  const now = Date.now();
+  return {
+    tabId: String(seed.tabId || crypto.randomUUID()),
+    title: typeof seed.title === "string" && seed.title.trim() ? seed.title : "New Tab",
+    url: typeof seed.url === "string" && seed.url.length > 0 ? seed.url : null,
+    canGoBack: seed.canGoBack === true,
+    canGoForward: seed.canGoForward === true,
+    createdAt: Number.isFinite(Number(seed.createdAt)) ? Number(seed.createdAt) : now,
+    updatedAt: Number.isFinite(Number(seed.updatedAt)) ? Number(seed.updatedAt) : now,
+  };
+}
+
+function cloneBrowserTab(tab: any) {
+  return createBrowserTab(tab);
+}
+
+function normalizeBrowserTabs(value: any, fallbackUrl: any = null) {
+  const tabs = Array.isArray(value)
+    ? value.map(tab => createBrowserTab(tab)).filter(tab => tab.tabId)
+    : [];
+  if (tabs.length > 0) return tabs;
+  return [createBrowserTab({ url: fallbackUrl })];
+}
+
+function activeBrowserTab(entry: any) {
+  if (!entry || !Array.isArray(entry.tabs) || entry.tabs.length === 0) return null;
+  return entry.tabs.find((tab) => tab.tabId === entry.activeTabId) || entry.tabs[0] || null;
+}
+
+function activeBrowserUrl(entry: any) {
+  return activeBrowserTab(entry)?.url || entry?.url || null;
+}
+
+function normalizeColdWorkspace(raw: any) {
+  if (typeof raw === "string") {
+    const tabs = raw ? [createBrowserTab({ url: raw })] : [];
+    return { activeTabId: tabs[0]?.tabId || null, tabs, url: raw || null };
+  }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const tabs = normalizeBrowserTabs(raw.tabs, raw.url || null);
+    const activeTabId = typeof raw.activeTabId === "string" && tabs.some(tab => tab.tabId === raw.activeTabId)
+      ? raw.activeTabId
+      : tabs[0]?.tabId || null;
+    const active = tabs.find(tab => tab.tabId === activeTabId) || tabs[0] || null;
+    return {
+      activeTabId,
+      tabs,
+      url: active?.url || tabs.find(tab => tab.url)?.url || raw.url || null,
+    };
+  }
+  return { activeTabId: null, tabs: [], url: null };
+}
+
+function serializeColdWorkspace(entry: any) {
+  const tabs = Array.isArray(entry?.tabs) ? entry.tabs.map(cloneBrowserTab) : [];
+  const activeTabId = entry?.activeTabId && tabs.some(tab => tab.tabId === entry.activeTabId)
+    ? entry.activeTabId
+    : tabs[0]?.tabId || null;
+  const active = tabs.find(tab => tab.tabId === activeTabId) || tabs[0] || null;
+  return {
+    activeTabId,
+    tabs,
+    url: active?.url || null,
+  };
+}
+
 export class BrowserManager {
   declare _headless: any;
   declare _lruOrder: any;
   declare _pending: any;
+  declare _browserPreferences: any;
   declare _sessions: any;
   declare _transport: any;
   constructor() {
@@ -78,6 +150,7 @@ export class BrowserManager {
     this._lruOrder = [];        // sessionPath[], 最近使用的在末尾
     this._headless = false;     // 全局后台模式标记
     this._pending = new Map();  // id → { resolve, reject, timer }
+    this._browserPreferences = normalizeBrowserPreferences({});
 
     // 根据环境选择 transport：fork 模式用 IPC，spawn 模式用 WS
     this._transport = process.send ? new IpcTransport() : new WsTransport();
@@ -129,7 +202,7 @@ export class BrowserManager {
    */
   currentUrl(sessionPath) {
     const entry = this._sessions.get(sessionPath);
-    return entry?.url || null;
+    return activeBrowserUrl(entry);
   }
 
   /** 任意 session 是否在运行 */
@@ -175,6 +248,8 @@ export class BrowserManager {
     const existing = this._sessions.get(sessionPath) || {
       running: false,
       url: null,
+      activeTabId: null,
+      tabs: [],
       headless: this._headless,
     };
     this._sessions.set(sessionPath, {
@@ -272,7 +347,30 @@ export class BrowserManager {
   _saveColdUrl(sessionPath, url) {
     if (!sessionPath || !url) return;
     const state = this._loadColdState();
-    state[sessionPath] = url;
+    const liveEntry = this._sessions.get(sessionPath);
+    if (liveEntry && Array.isArray(liveEntry.tabs) && liveEntry.tabs.length > 0) {
+      state[sessionPath] = serializeColdWorkspace(liveEntry);
+      this._saveColdState(state);
+      return;
+    }
+    const existing = normalizeColdWorkspace(state[sessionPath]);
+    const tabs = existing.tabs.length > 0 ? existing.tabs : [createBrowserTab({ url })];
+    const activeTabId = existing.activeTabId || tabs[0]?.tabId || null;
+    const active = tabs.find(tab => tab.tabId === activeTabId) || tabs[0];
+    if (active) {
+      active.url = url;
+      active.updatedAt = Date.now();
+    }
+    state[sessionPath] = serializeColdWorkspace({ activeTabId, tabs });
+    this._saveColdState(state);
+  }
+
+  _saveColdWorkspace(sessionPath, entry) {
+    if (!sessionPath) return;
+    const state = this._loadColdState();
+    const workspace = serializeColdWorkspace(entry);
+    if (!workspace.url && workspace.tabs.length === 0) delete state[sessionPath];
+    else state[sessionPath] = workspace;
     this._saveColdState(state);
   }
 
@@ -304,9 +402,10 @@ export class BrowserManager {
     const coldState = this._loadColdState();
     const result: any = {};
 
-    for (const [sessionPath, url] of Object.entries(coldState)) {
+    for (const [sessionPath, raw] of Object.entries(coldState)) {
+      const cold = normalizeColdWorkspace(raw);
       result[sessionPath] = {
-        url,
+        url: cold.url,
         running: false,
         resumable: true,
         unavailableReason: null,
@@ -314,7 +413,8 @@ export class BrowserManager {
     }
 
     for (const [sessionPath, entry] of this._sessions) {
-      const url = entry.url || coldState[sessionPath] || null;
+      const cold = normalizeColdWorkspace(coldState[sessionPath]);
+      const url = activeBrowserUrl(entry) || cold.url || null;
       if (entry.health === "unhealthy") {
         result[sessionPath] = {
           url,
@@ -349,10 +449,37 @@ export class BrowserManager {
     if (transport instanceof WsTransport) {
       if (ws) {
         transport.attach(ws);
+        this.syncBrowserPreferences().catch((err) => {
+          log.warn(`failed to sync browser preferences: ${_errorMessage(err)}`);
+        });
       } else {
         transport.detach();
       }
     }
+  }
+
+  getBrowserPreferences() {
+    return normalizeBrowserPreferences(this._browserPreferences);
+  }
+
+  setBrowserPreferences(partial) {
+    this._browserPreferences = mergeBrowserPreferences(this._browserPreferences, partial || {});
+    if (this._transport.connected) {
+      this._sendCmd("setAcceptCookies", { enabled: this._browserPreferences.acceptCookies }, 10000)
+        .catch((err) => log.warn(`failed to apply browser Cookie setting: ${_errorMessage(err)}`));
+    }
+    return this.getBrowserPreferences();
+  }
+
+  async syncBrowserPreferences() {
+    if (!this._transport.connected) return this.getBrowserPreferences();
+    await this._sendCmd("setAcceptCookies", { enabled: this._browserPreferences.acceptCookies }, 10000);
+    return this.getBrowserPreferences();
+  }
+
+  async clearBrowserCookiesAndSiteData() {
+    await this._sendCmd("clearBrowserCookiesAndSiteData", {}, 30000);
+    return { ok: true };
   }
 
   /**
@@ -403,14 +530,14 @@ export class BrowserManager {
       }
     }
 
-    await this._sendCmd("launch", { sessionPath, headless: this._headless });
-
-    // 更新 Map
-    this._sessions.set(sessionPath, {
-      running: true,
-      url: existing?.url || null,
+    const result = await this._sendCmd("launch", {
+      sessionPath,
       headless: this._headless,
+      acceptCookies: this._browserPreferences.acceptCookies,
     });
+
+    const entry = this._applyWorkspaceResult(sessionPath, result, { running: true });
+    entry.headless = this._headless;
     this._clearSessionUnavailable(sessionPath);
     this._touchLru(sessionPath);
 
@@ -450,8 +577,7 @@ export class BrowserManager {
     const entry = this._sessions.get(sessionPath);
     if (!entry || !this.isRunning(sessionPath)) return;
 
-    // 冷保存 URL
-    this._saveColdUrl(sessionPath, entry.url);
+    this._saveColdWorkspace(sessionPath, entry);
     log.log(`挂起浏览器 ${sessionPath}`);
     try { await this._sendCmd("suspend", { sessionPath }); } catch {}
 
@@ -488,31 +614,27 @@ export class BrowserManager {
     // 1. 热恢复：view 还在内存中
     const result = await this._sendCmd("resume", { sessionPath });
     if (result.found) {
-      this._sessions.set(sessionPath, {
-        running: true,
-        url: result.url || null,
-        headless: this._headless,
-      });
+      const entry = this._applyWorkspaceResult(sessionPath, result, { running: true });
+      entry.headless = this._headless;
       this._touchLru(sessionPath);
       log.log(`热恢复成功 ${sessionPath}`);
       return;
     }
 
-    // 2. 冷恢复：从磁盘读 URL，重新 launch + navigate
-    const savedUrl = coldState[sessionPath];
-    if (!savedUrl) return;
+    // 2. 冷恢复：从磁盘读 workspace，重新 launch
+    const savedWorkspace = normalizeColdWorkspace(coldState[sessionPath]);
+    if (savedWorkspace.tabs.length === 0) return;
 
     log.log(`冷恢复 ${sessionPath}`);
-    await this._sendCmd("launch", { sessionPath });
-    const entry = { running: true, url: savedUrl, headless: this._headless };
-    this._sessions.set(sessionPath, entry);
+    const launchResult = await this._sendCmd("launch", {
+      sessionPath,
+      tabs: savedWorkspace.tabs,
+      activeTabId: savedWorkspace.activeTabId,
+      acceptCookies: this._browserPreferences.acceptCookies,
+    });
+    const entry = this._applyWorkspaceResult(sessionPath, Array.isArray(launchResult?.tabs) ? launchResult : savedWorkspace, { running: true });
+    entry.headless = this._headless;
     this._touchLru(sessionPath);
-    try {
-      const nav = await this._sendCmd("navigate", { url: savedUrl, sessionPath });
-      entry.url = nav.url;
-    } catch {
-      // 保留 savedUrl
-    }
   }
 
   /**
@@ -538,6 +660,117 @@ export class BrowserManager {
     log.log(`已关闭 session 浏览器 ${sessionPath}`);
   }
 
+  _applyWorkspaceResult(sessionPath, result: any = {}, options: any = {}) {
+    const existing = this._sessions.get(sessionPath) || {
+      running: options.running !== false,
+      url: null,
+      activeTabId: null,
+      tabs: [],
+      headless: this._headless,
+    };
+    const sourceTabs = Array.isArray(result.tabs) ? result.tabs : existing.tabs;
+    const tabs = normalizeBrowserTabs(sourceTabs, result.url || existing.url || null);
+    const activeTabId = typeof result.activeTabId === "string" && tabs.some(tab => tab.tabId === result.activeTabId)
+      ? result.activeTabId
+      : typeof result.tabId === "string" && tabs.some(tab => tab.tabId === result.tabId)
+        ? result.tabId
+        : existing.activeTabId && tabs.some(tab => tab.tabId === existing.activeTabId)
+          ? existing.activeTabId
+          : tabs[0]?.tabId || null;
+    const active = tabs.find(tab => tab.tabId === activeTabId) || tabs[0] || null;
+    const entry = {
+      ...existing,
+      running: options.running ?? existing.running ?? true,
+      headless: existing.headless ?? this._headless,
+      activeTabId,
+      tabs,
+      url: active?.url || result.url || null,
+    };
+    this._sessions.set(sessionPath, entry);
+    return entry;
+  }
+
+  _updateActiveTabFromResult(sessionPath, result: any = {}, tabId: string | null = null) {
+    const existing = this._sessions.get(sessionPath);
+    if (!existing) return null;
+    if (Array.isArray(result.tabs)) {
+      return this._applyWorkspaceResult(sessionPath, result);
+    }
+    const targetTabId = result.tabId || tabId || existing.activeTabId;
+    const tabs = normalizeBrowserTabs(existing.tabs, existing.url);
+    const target = tabs.find(tab => tab.tabId === targetTabId) || tabs[0] || null;
+    if (target) {
+      if (typeof result.url === "string") target.url = result.url;
+      if (typeof result.currentUrl === "string") target.url = result.currentUrl;
+      if (typeof result.title === "string" && result.title.trim()) target.title = result.title;
+      if (typeof result.canGoBack === "boolean") target.canGoBack = result.canGoBack;
+      if (typeof result.canGoForward === "boolean") target.canGoForward = result.canGoForward;
+      target.updatedAt = Date.now();
+    }
+    const activeTabId = target?.tabId || existing.activeTabId || null;
+    const entry = {
+      ...existing,
+      activeTabId,
+      tabs,
+      url: target?.url || existing.url || null,
+    };
+    this._sessions.set(sessionPath, entry);
+    return entry;
+  }
+
+  getTabs(sessionPath) {
+    const entry = this._sessions.get(sessionPath);
+    if (!entry) return [];
+    return (entry.tabs || []).map(cloneBrowserTab);
+  }
+
+  activeTab(sessionPath) {
+    const tab = activeBrowserTab(this._sessions.get(sessionPath));
+    return tab ? cloneBrowserTab(tab) : null;
+  }
+
+  async newTab(sessionPath, url = undefined) {
+    if (!this.isRunning(sessionPath)) await this.launch(sessionPath);
+    const params: any = { sessionPath, url };
+    const result = await this._sendSessionCmd("newTab", params);
+    const entry = this._applyWorkspaceResult(sessionPath, result);
+    this._saveColdWorkspace(sessionPath, entry);
+    this._touchLru(sessionPath);
+    return this.activeTab(sessionPath);
+  }
+
+  async switchTab(sessionPath, tabId) {
+    if (!tabId) throw new Error("browser switchTab requires tabId");
+    const result = await this._sendSessionCmd("switchTab", { sessionPath, tabId });
+    const entry = this._applyWorkspaceResult(sessionPath, result);
+    this._saveColdWorkspace(sessionPath, entry);
+    this._touchLru(sessionPath);
+    return this.activeTab(sessionPath);
+  }
+
+  async closeTab(sessionPath, tabId) {
+    if (!tabId) throw new Error("browser closeTab requires tabId");
+    const result = await this._sendSessionCmd("closeTab", { sessionPath, tabId });
+    if (Array.isArray(result?.tabs) && result.tabs.length === 0) {
+      const entry = this._sessions.get(sessionPath);
+      this._sessions.set(sessionPath, {
+        ...(entry || {}),
+        running: false,
+        url: null,
+        activeTabId: null,
+        tabs: [],
+        headless: entry?.headless ?? this._headless,
+      });
+      this._removeColdUrl(sessionPath);
+      this._removeLru(sessionPath);
+      return null;
+    }
+    const entry = this._applyWorkspaceResult(sessionPath, result);
+    this._saveColdWorkspace(sessionPath, entry);
+    this._touchLru(sessionPath);
+    return this.activeTab(sessionPath);
+  }
+
   // ════════════════════════════
   //  导航
   // ════════════════════════════
@@ -547,15 +780,22 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<{ url: string, title: string, snapshot: string }>}
    */
-  async navigate(url, sessionPath) {
-    const result = await this._sendSessionCmd("navigate", { url, sessionPath });
-    // 更新对应 session 的 URL
-    const entry = this._sessions.get(sessionPath);
-    if (entry) entry.url = result.url;
-    // 更新冷保存
+  async navigate(url, sessionPath, options: any = {}) {
+    let tabId = typeof options.tabId === "string" && options.tabId ? options.tabId : null;
+    if (!tabId && this._browserPreferences.agentOpenBehavior === "new_tab" && this.isRunning(sessionPath)) {
+      const tab = await this.newTab(sessionPath);
+      tabId = tab?.tabId || null;
+    }
+    const params: any = { url, sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("navigate", params);
+    const entry = this._updateActiveTabFromResult(sessionPath, result, tabId);
     this._saveColdUrl(sessionPath, result.url);
     this._touchLru(sessionPath);
-    return result; // { url, title, snapshot }
+    return {
+      ...result,
+      tabId: result.tabId || activeBrowserTab(entry)?.tabId || tabId || null,
+    }; // { url, title, snapshot, tabId }
   }
 
   /**
@@ -582,11 +822,12 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<string>} 文本格式的页面树
    */
-  async snapshot(sessionPath) {
-    const result = await this._sendSessionCmd("snapshot", { sessionPath });
+  async snapshot(sessionPath, tabId = null) {
+    const params: any = { sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("snapshot", params);
     this._touchLru(sessionPath);
-    const entry = this._sessions.get(sessionPath);
-    if (entry) entry.url = result.currentUrl;
+    this._updateActiveTabFromResult(sessionPath, result, tabId);
     return result.text;
   }
 
@@ -594,8 +835,10 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<{ base64: string, mimeType: string }>}
    */
-  async screenshot(sessionPath) {
-    const result = await this._sendSessionCmd("screenshot", { sessionPath });
+  async screenshot(sessionPath, tabId = null) {
+    const params: any = { sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("screenshot", params);
     return {
       base64: assertBrowserImageBase64(result?.base64, "screenshot"),
       mimeType: "image/jpeg",
@@ -625,10 +868,11 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<string>} 新的 snapshot
    */
-  async click(ref, sessionPath) {
-    const result = await this._sendSessionCmd("click", { ref, sessionPath });
-    const entry = this._sessions.get(sessionPath);
-    if (entry) entry.url = result.currentUrl;
+  async click(ref, sessionPath, tabId = null) {
+    const params: any = { ref, sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("click", params);
+    this._updateActiveTabFromResult(sessionPath, result, tabId);
     return result.text;
   }
 
@@ -639,10 +883,11 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<string>} 新的 snapshot
    */
-  async type(text, ref, { pressEnter = false } = {}, sessionPath) {
-    const result = await this._sendSessionCmd("type", { text, ref, pressEnter, sessionPath });
-    const entry = this._sessions.get(sessionPath);
-    if (entry) entry.url = result.currentUrl;
+  async type(text, ref, { pressEnter = false } = {}, sessionPath, tabId = null) {
+    const params: any = { text, ref, pressEnter, sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("type", params);
+    this._updateActiveTabFromResult(sessionPath, result, tabId);
     return result.text;
   }
 
@@ -652,10 +897,11 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<string>} 新的 snapshot
    */
-  async scroll(direction, amount = 3, sessionPath) {
-    const result = await this._sendSessionCmd("scroll", { direction, amount, sessionPath });
-    const entry = this._sessions.get(sessionPath);
-    if (entry) entry.url = result.currentUrl || entry.url;
+  async scroll(direction, amount = 3, sessionPath, tabId = null) {
+    const params: any = { direction, amount, sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("scroll", params);
+    this._updateActiveTabFromResult(sessionPath, result, tabId);
     return result.text;
   }
 
@@ -665,10 +911,11 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<string>} 新的 snapshot
    */
-  async select(ref, value, sessionPath) {
-    const result = await this._sendSessionCmd("select", { ref, value, sessionPath });
-    const entry = this._sessions.get(sessionPath);
-    if (entry) entry.url = result.currentUrl || entry.url;
+  async select(ref, value, sessionPath, tabId = null) {
+    const params: any = { ref, value, sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("select", params);
+    this._updateActiveTabFromResult(sessionPath, result, tabId);
     return result.text;
   }
 
@@ -677,10 +924,11 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<string>} 新的 snapshot
    */
-  async pressKey(key, sessionPath) {
-    const result = await this._sendSessionCmd("pressKey", { key, sessionPath });
-    const entry = this._sessions.get(sessionPath);
-    if (entry) entry.url = result.currentUrl || entry.url;
+  async pressKey(key, sessionPath, tabId = null) {
+    const params: any = { key, sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("pressKey", params);
+    this._updateActiveTabFromResult(sessionPath, result, tabId);
     return result.text;
   }
 
@@ -693,10 +941,11 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<string>} 新的 snapshot
    */
-  async wait( opts: any = {}, sessionPath) {
-    const result = await this._sendSessionCmd("wait", { ...opts, sessionPath });
-    const entry = this._sessions.get(sessionPath);
-    if (entry) entry.url = result.currentUrl || entry.url;
+  async wait( opts: any = {}, sessionPath, tabId = null) {
+    const params: any = { ...opts, sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("wait", params);
+    this._updateActiveTabFromResult(sessionPath, result, tabId);
     return result.text;
   }
 
@@ -705,8 +954,10 @@ export class BrowserManager {
    * @param {string} sessionPath
    * @returns {Promise<string>} 序列化的执行结果
    */
-  async evaluate(expression, sessionPath) {
-    const result = await this._sendSessionCmd("evaluate", { expression, sessionPath });
+  async evaluate(expression, sessionPath, tabId = null) {
+    const params: any = { expression, sessionPath };
+    if (tabId) params.tabId = tabId;
+    const result = await this._sendSessionCmd("evaluate", params);
     return result.value;
   }
 
@@ -714,7 +965,9 @@ export class BrowserManager {
    * 将浏览器 viewer 窗口置前
    * @param {string} sessionPath
    */
-  async show(sessionPath) {
-    await this._sendSessionCmd("show", { sessionPath });
+  async show(sessionPath, tabId = null) {
+    const params: any = { sessionPath };
+    if (tabId) params.tabId = tabId;
+    await this._sendSessionCmd("show", params);
   }
 }

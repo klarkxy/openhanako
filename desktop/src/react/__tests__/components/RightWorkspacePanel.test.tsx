@@ -783,7 +783,7 @@ describe('RightWorkspacePanel', () => {
     expect(screen.getByRole('button', { name: '收起笺' })).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('preserves raw Jian execution status when editing the instruction body', async () => {
+  it('hides raw Jian execution status while preserving it when editing the instruction body', async () => {
     vi.useFakeTimers();
     useStore.setState({
       deskJianContent: [
@@ -805,6 +805,11 @@ describe('RightWorkspacePanel', () => {
 
     try {
       render(<RightWorkspacePanel />);
+
+      expect(screen.getByPlaceholderText('写点什么...')).toHaveValue('帮我巡检这个目录，执行五次。');
+      expect(screen.queryByText(/上次任务快照/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/执行状态/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/进度：4\/5/)).not.toBeInTheDocument();
 
       fireEvent.change(screen.getByPlaceholderText('写点什么...'), {
         target: { value: '帮我巡检这个目录，执行五次。 ' },

@@ -61,8 +61,10 @@ describe("VisionBridge", () => {
     });
 
     expect(callText).toHaveBeenCalledTimes(1);
-    expect((callText.mock.calls as any)[0][0].messages[0].content[0].text).toContain("User request");
-    expect((callText.mock.calls as any)[0][0].messages[0].content[0].text).toContain("what is this?");
+    const request = (callText.mock.calls as any)[0][0];
+    expect(request.systemPrompt).toContain("auxiliary vision model");
+    expect(request.messages[0].content[0].text).toContain("User request");
+    expect(request.messages[0].content[0].text).toContain("what is this?");
     expect(result.images).toBeUndefined();
     expect(result.text).toContain(`[attached_image: ${pathA}]`);
 
@@ -528,7 +530,7 @@ describe("VisionBridge", () => {
     expect((callText.mock.calls as any)[0][0].timeoutMs).toBe(120_000);
   });
 
-  it("caps auxiliary vision output by the model maxTokens contract", async () => {
+  it("does not cap auxiliary vision output from model maxTokens metadata", async () => {
     const callText = vi.fn(async () => "image_overview: capped");
     const bridge = new VisionBridge({
       resolveVisionConfig: () => ({
@@ -538,7 +540,6 @@ describe("VisionBridge", () => {
         base_url: "https://example.test/v1",
       }),
       callText,
-      visionMaxTokens: 4096,
     });
 
     await bridge.prepare({
@@ -549,7 +550,7 @@ describe("VisionBridge", () => {
       imageAttachmentPaths: [pathA],
     });
 
-    expect((callText.mock.calls as any)[0][0].maxTokens).toBe(2048);
+    expect((callText.mock.calls as any)[0][0]).not.toHaveProperty("maxTokens");
   });
 
   it("does nothing for image-capable target models", async () => {

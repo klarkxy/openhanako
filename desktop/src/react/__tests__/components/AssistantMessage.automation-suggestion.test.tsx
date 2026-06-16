@@ -28,7 +28,8 @@ function renderSuggestion(status = 'approved') {
         blocks: [{
           type: 'suggestion_card',
           kind: 'automation_draft',
-          confirmId: 'confirm_1',
+          suggestionId: 'automation_suggestion_1',
+          suggestionShortCode: '3827',
           status,
           title: '奶茶提醒',
           description: '提醒我喝奶茶',
@@ -72,10 +73,12 @@ describe('AssistantMessage automation suggestion card', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps an approved suggestion card clickable without showing a completed status', () => {
+  it('keeps a suggestion card clickable with a first-line view tail and no status badge', () => {
     renderSuggestion('approved');
 
     expect(screen.queryByText('common.approved')).not.toBeInTheDocument();
+    expect(screen.queryByText('automation.suggested')).not.toBeInTheDocument();
+    expect(screen.getByText('automation.viewSuggestion')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'automation.openDraft' }));
 
@@ -83,17 +86,8 @@ describe('AssistantMessage automation suggestion card', () => {
     expect(screen.getByDisplayValue('奶茶提醒')).toBeInTheDocument();
   });
 
-  it('uses the pending confirmation once, then creates directly on later clicks', async () => {
+  it('creates directly from a suggestion card without calling ConfirmStore', async () => {
     renderSuggestion('pending');
-
-    fireEvent.click(screen.getByRole('button', { name: 'automation.openDraft' }));
-    fireEvent.click(screen.getByRole('button', { name: 'automation.confirmCreate' }));
-
-    await waitFor(() => {
-      expect(hanaFetch).toHaveBeenCalledWith('/api/confirm/confirm_1', expect.objectContaining({
-        method: 'POST',
-      }));
-    });
 
     fireEvent.click(screen.getByRole('button', { name: 'automation.openDraft' }));
     fireEvent.click(screen.getByRole('button', { name: 'automation.confirmCreate' }));
@@ -103,6 +97,7 @@ describe('AssistantMessage automation suggestion card', () => {
         method: 'POST',
       }));
     });
+    expect(hanaFetch).not.toHaveBeenCalledWith(expect.stringContaining('/api/confirm/'), expect.anything());
   });
 
   it('submits the selected Agent identity from the draft card', async () => {
@@ -122,12 +117,12 @@ describe('AssistantMessage automation suggestion card', () => {
     fireEvent.click(screen.getByRole('button', { name: 'automation.confirmCreate' }));
 
     await waitFor(() => {
-      const confirmCall = vi.mocked(hanaFetch).mock.calls.find(([url]) => url === '/api/confirm/confirm_1');
-      expect(confirmCall).toBeTruthy();
-      const body = JSON.parse((confirmCall?.[1] as RequestInit).body as string);
-      expect(body.value.jobData.actorAgentId).toBe('maomao');
-      expect(body.value.jobData.executor.agentId).toBe('maomao');
-      expect(body.value.jobData.executionContext.cwd).toBe('/home/maomao');
+      const deskCronCall = vi.mocked(hanaFetch).mock.calls.find(([url]) => url === '/api/desk/cron');
+      expect(deskCronCall).toBeTruthy();
+      const body = JSON.parse((deskCronCall?.[1] as RequestInit).body as string);
+      expect(body.actorAgentId).toBe('maomao');
+      expect(body.executor.agentId).toBe('maomao');
+      expect(body.executionContext.cwd).toBe('/home/maomao');
     });
   });
 });

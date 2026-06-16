@@ -3,6 +3,7 @@
    ======================================== */
 
 :global(.settings-panel) {
+    --settings-nav-width: 180px;
     --paper-texture-attachment: scroll;
     display: flex;
     flex-direction: column;
@@ -11,7 +12,7 @@
 }
 
 .settings-panel-modal {
-    --settings-nav-width: 160px;
+    --settings-nav-width: 180px;
     --settings-main-x-padding: var(--space-xl);
     width: 100%;
     height: 100%;
@@ -130,6 +131,148 @@
     border-right: 1px solid var(--overlay-light);
     overflow-x: hidden;
     overflow-y: auto;
+}
+
+.settings-search-shell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 34px;
+    margin: 0 0 var(--space-sm);
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.settings-search-icon {
+    position: absolute;
+    left: 10px;
+    pointer-events: none;
+    opacity: 0.64;
+}
+
+.settings-search-input {
+    width: 100%;
+    height: 34px;
+    min-width: 0;
+    font-family: inherit;
+    font-size: 0.82rem;
+    color: var(--text);
+    background: color-mix(in srgb, var(--overlay-light) 56%, transparent);
+    border: 1px solid transparent;
+    border-radius: var(--radius-input, 6px);
+    outline: none;
+    padding: 0 30px 0 32px;
+    letter-spacing: 0;
+    transition:
+        background var(--duration-fast) var(--ease-out),
+        border-color var(--duration-fast) var(--ease-out),
+        box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.settings-search-input::placeholder {
+    color: color-mix(in srgb, var(--text-muted) 76%, transparent);
+}
+
+.settings-search-input::-webkit-search-cancel-button {
+    display: none;
+}
+
+.settings-search-input:focus {
+    background: var(--bg-card);
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--overlay-light));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.settings-search-clear {
+    position: absolute;
+    right: 7px;
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+    border: none;
+    border-radius: 50%;
+    padding: 0;
+    cursor: default;
+    transition:
+        background var(--duration-fast) var(--ease-out),
+        color var(--duration-fast) var(--ease-out);
+}
+
+.settings-search-clear:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+}
+
+.settings-search-results {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+}
+
+.settings-search-results-title {
+    padding: 3px 10px 5px;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.settings-search-result {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    width: 100%;
+    min-height: 48px;
+    padding: 7px 10px;
+    font-family: inherit;
+    text-align: left;
+    color: var(--text);
+    background: none;
+    border: none;
+    border-radius: var(--radius-input, 6px);
+    cursor: default;
+    transition:
+        background var(--duration-fast) var(--ease-out),
+        color var(--duration-fast) var(--ease-out);
+}
+
+.settings-search-result:hover {
+    background: var(--bg-hover);
+}
+
+.settings-search-result-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: inherit;
+    letter-spacing: 0;
+}
+
+.settings-search-result-path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    letter-spacing: 0;
+}
+
+.settings-search-empty {
+    padding: var(--space-md) 10px;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    letter-spacing: 0;
 }
 
 .settings-nav-item {
@@ -1628,6 +1771,39 @@
     border-color: var(--accent);
 }
 
+.agent-name-save-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 4rem;
+    margin: var(--space-sm) auto 0;
+    padding: 0.4rem 0;
+    font-family: inherit;
+    font-size: 0.82rem;
+    line-height: 1;
+    color: white;
+    background: color-mix(in srgb, var(--accent) 70%, transparent);
+    border: 1px solid rgba(var(--accent-rgb), 0.25);
+    border-radius: var(--radius-card, 8px);
+    cursor: default;
+    transition:
+        background var(--duration-fast) var(--ease-out),
+        color var(--duration-fast) var(--ease-out),
+        border-color var(--duration-fast) var(--ease-out),
+        opacity var(--duration-fast) var(--ease-out);
+}
+
+.agent-name-save-btn:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.agent-name-save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* 胶囊控件：标签 + 输入/选框合为一体 */
 .model-capsule {
     display: inline-flex;
@@ -1660,6 +1836,36 @@
     border: none;
     border-radius: 0;
     background: transparent;
+}
+
+.model-capsule-provider-icon {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    color: var(--accent);
+    opacity: 0.78;
+    margin-right: 8px;
+}
+
+.model-capsule-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-capsule-arrow {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    color: var(--text-muted);
+    margin-left: var(--space-sm);
+    transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.model-capsule-trigger[data-open="true"] .model-capsule-arrow {
+    transform: rotate(180deg);
 }
 
 .model-capsule-input {
@@ -6862,6 +7068,15 @@ a.about-link:hover {
     min-width: 0;
 }
 
+.mdw-provider-icon {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    color: var(--accent);
+    opacity: 0.78;
+    margin-right: 8px;
+}
+
 .mdw-arrow {
     flex-shrink: 0;
     font-size: 0.7rem;
@@ -6871,7 +7086,8 @@ a.about-link:hover {
 }
 
 .mdw-popup.open ~ .mdw-trigger .mdw-arrow,
-.mdw .mdw-popup.open + .mdw-trigger .mdw-arrow {
+.mdw .mdw-popup.open + .mdw-trigger .mdw-arrow,
+.mdw-trigger[data-open="true"] .mdw-arrow {
     transform: rotate(180deg);
 }
 

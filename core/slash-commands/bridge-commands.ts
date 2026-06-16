@@ -136,6 +136,15 @@ export const bridgeCommands = [
     },
   },
   {
+    name: "apply",
+    description: "创建最新的自动任务建议",
+    usage: "/apply [建议ID]",
+    scope: "session",
+    permission: "owner",
+    source: "core",
+    handler: async (ctx) => _applyAutomationSuggestion(ctx),
+  },
+  {
     name: "confirm",
     aliases: ["approve"],
     description: "确认待处理请求",
@@ -271,6 +280,47 @@ function _resolvePendingConfirmation(ctx, action) {
       ? "已确认，正在继续处理。"
       : "已拒绝，已取消这次请求。",
   };
+}
+
+async function _applyAutomationSuggestion(ctx) {
+  const ref = String(ctx.args || "").trim().split(/\s+/).filter(Boolean)[0] || null;
+  const store = ctx.engine?.automationSuggestionStore || ctx.engine?.getAutomationSuggestionStore?.() || null;
+  if (!store?.apply) return { error: "自动任务建议系统未初始化" };
+
+  const bridgeSessionKey = ctx.sessionRef?.kind === "bridge"
+    ? ctx.sessionRef.sessionKey
+    : null;
+  const sessionPath = ctx.sessionRef?.kind === "desktop"
+    ? ctx.sessionRef.sessionPath
+    : null;
+  if (!bridgeSessionKey && !sessionPath) {
+    return { reply: "/apply 只能在当前会话中创建自动任务建议" };
+  }
+
+  try {
+    const result = await store.apply({
+      bridgeSessionKey,
+      sessionPath,
+      ref,
+    });
+    if (!result?.ok) {
+      return { reply: ref ? `没有找到建议 ${ref}，可能已经创建过了。` : "没有待创建的自动任务建议。" };
+    }
+    const label = _automationSuggestionLabel(result.suggestion) || "自动任务";
+    return { reply: `已创建自动任务：${label}` };
+  } catch (err) {
+    return { error: err?.message || String(err) };
+  }
+}
+
+function _automationSuggestionLabel(suggestion) {
+  const jobData = suggestion?.jobData;
+  const value = typeof jobData?.label === "string" && jobData.label.trim()
+    ? jobData.label.trim()
+    : typeof suggestion?.title === "string" && suggestion.title.trim()
+      ? suggestion.title.trim()
+      : "";
+  return value;
 }
 
 /** 列表显示用的短日期：今天则 HH:mm；否则 M/D HH:mm */

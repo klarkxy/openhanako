@@ -23,6 +23,7 @@ describe('streaming-slice', () => {
 
   it('初始状态', () => {
     expect(slice.streamingSessions).toEqual([]);
+    expect(slice.activeSessionStreams).toEqual({});
     expect(slice.unreadOutputSessionPaths).toEqual([]);
     expect(slice.inlineErrors).toEqual({});
   });
@@ -55,6 +56,45 @@ describe('streaming-slice', () => {
     slice.addStreamingSession('/s1');
     slice.removeStreamingSession('/x');
     expect(slice.streamingSessions).toEqual(['/s1']);
+  });
+
+  it('removeStreamingSession 忽略不匹配的旧 streamId', () => {
+    slice.addStreamingSession('/s1', { streamId: 'stream-new' });
+    const applied = slice.removeStreamingSession('/s1', { streamId: 'stream-old' });
+    expect(applied).toBe(false);
+    expect(slice.streamingSessions).toEqual(['/s1']);
+    expect(slice.activeSessionStreams['/s1']).toEqual({ streamId: 'stream-new', turnId: null });
+  });
+
+  it('addStreamingSession 不用空身份覆盖已有 streamId', () => {
+    slice.addStreamingSession('/s1', { streamId: 'stream-new' });
+    slice.addStreamingSession('/s1', { streamId: null });
+    expect(slice.streamingSessions).toEqual(['/s1']);
+    expect(slice.activeSessionStreams['/s1']).toEqual({ streamId: 'stream-new', turnId: null });
+  });
+
+  it('removeStreamingSession 不允许空身份结束已有 streamId 的运行态', () => {
+    slice.addStreamingSession('/s1', { streamId: 'stream-new' });
+    const applied = slice.removeStreamingSession('/s1', { streamId: null });
+    expect(applied).toBe(false);
+    expect(slice.streamingSessions).toEqual(['/s1']);
+    expect(slice.activeSessionStreams['/s1']).toEqual({ streamId: 'stream-new', turnId: null });
+  });
+
+  it('forceRemoveStreamingSession 清理服务端权威恢复确认的运行态', () => {
+    slice.addStreamingSession('/s1', { streamId: 'stream-new' });
+    const applied = slice.forceRemoveStreamingSession('/s1');
+    expect(applied).toBe(true);
+    expect(slice.streamingSessions).toEqual([]);
+    expect(slice.activeSessionStreams['/s1']).toBeUndefined();
+  });
+
+  it('removeStreamingSession 接受匹配的 streamId 并清理 active state', () => {
+    slice.addStreamingSession('/s1', { streamId: 'stream-new' });
+    const applied = slice.removeStreamingSession('/s1', { streamId: 'stream-new' });
+    expect(applied).toBe(true);
+    expect(slice.streamingSessions).toEqual([]);
+    expect(slice.activeSessionStreams['/s1']).toBeUndefined();
   });
 
   it('markSessionOutputUnread 标记后台完成输出并去重', () => {

@@ -7,6 +7,7 @@
  */
 
 import type { FileVersion } from '../types';
+import type { ThinkingLevel } from './model-slice';
 
 // ── 工具调用 ──
 
@@ -174,6 +175,8 @@ export interface SuggestionCardBlock {
   type: 'suggestion_card';
   kind: 'automation_draft' | string;
   confirmId?: string;
+  suggestionId?: string;
+  suggestionShortCode?: string;
   operation?: 'create' | 'update' | string;
   status: 'pending' | 'approved' | 'rejected' | string;
   title: string;
@@ -275,7 +278,7 @@ export type ContentBlock = TextDecorator | RichBlock;
 // ── 消息 ──
 
 export interface ChatMessage {
-  id: string;              // 服务端返回的稳定 ID（JSONL 行号）
+  id: string;              // UI message id；本地发送的 user message 可先使用 clientMessageId
   sourceEntryId?: string;  // Pi SDK session entry id，用于 branch-aware 的重新生成/编辑
   role: 'user' | 'assistant';
   // User
@@ -285,6 +288,8 @@ export interface ChatMessage {
   attachments?: UserAttachment[];
   deskContext?: DeskContext | null;
   skills?: string[];
+  sendStatus?: 'pending' | 'failed';
+  sendError?: string;
   // Assistant
   blocks?: ContentBlock[];
   // 通用
@@ -317,6 +322,8 @@ export interface SessionModel {
   audioTransportSupported?: boolean;
   reasoning?: boolean;
   xhigh?: boolean;
+  thinkingLevels?: ThinkingLevel[];
+  defaultThinkingLevel?: ThinkingLevel;
   contextWindow?: number;
 }
 
@@ -329,6 +336,13 @@ export interface SessionMessages {
   hasMore: boolean;
   loadingMore: boolean;
   oldestId?: string;
+  /**
+   * hydrate 时服务端返回的磁盘修订点（stat 签名）。
+   * null = 未知（如 WS 端为新会话 initSession 的空状态，或服务端 stat 失败）。
+   * reconcileCurrentSessionMessages 用它与 /api/sessions 列表投影的 revision
+   * 对比，决定是否补拉离线窗口（/rc 接管等）漏掉的消息（issue #1610）。
+   */
+  revision?: string | null;
 }
 
 // ── 流式缓冲（不入 Zustand） ──

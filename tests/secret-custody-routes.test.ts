@@ -2,6 +2,22 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MASKED_SECRET } from "../shared/secret-custody.ts";
 
+function withPrincipal(app, principal) {
+  app.use("*", async (c, next) => {
+    c.set("authPrincipal", Object.freeze(principal));
+    await next();
+  });
+}
+
+function remotePrincipal(scopes) {
+  return {
+    kind: "device",
+    credentialKind: "device_credential",
+    connectionKind: "lan",
+    scopes,
+  };
+}
+
 describe("secret custody across HTTP routes", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -44,6 +60,78 @@ describe("secret custody across HTTP routes", () => {
     expect(body.providers.deepseek.headers.Authorization).toBe(MASKED_SECRET);
     expect(JSON.stringify(body)).not.toContain("sk-provider-secret");
     expect(JSON.stringify(body)).not.toContain("gateway-secret");
+  });
+
+  it("reveals a provider api key only through the explicit secret endpoint", async () => {
+    const { createProvidersRoute } = await import("../server/routes/providers.ts");
+    const app = new Hono();
+    const engine = {
+      providerRegistry: {
+        getAllProvidersRaw: () => ({
+          deepseek: {
+            base_url: "https://api.deepseek.com",
+            api: "openai-completions",
+            api_key: "sk-provider-secret",
+            models: ["deepseek-chat"],
+          },
+        }),
+        get: () => ({ authType: "api-key", baseUrl: "", api: "openai-completions" }),
+        isOAuth: () => false,
+        getAuthType: () => "api-key",
+        allowsMissingApiKey: () => false,
+        getAuthJsonKey: (id) => id,
+        getOAuthProviderIds: () => [],
+        getAll: () => new Map(),
+      },
+      preferences: { getOAuthCustomModels: () => ({}) },
+      resolveProviderCredentials: (name) => name === "deepseek"
+        ? { api_key: "sk-provider-secret", base_url: "https://api.deepseek.com", api: "openai-completions" }
+        : { api_key: "", base_url: "", api: "" },
+      hanakoHome: "/tmp",
+    };
+
+    app.route("/api", createProvidersRoute(engine));
+
+    const summaryRes = await app.request("/api/providers/summary");
+    const summaryBody = await summaryRes.json();
+    expect(summaryBody.providers.deepseek.api_key).toBe(MASKED_SECRET);
+
+    const revealRes = await app.request("/api/providers/deepseek/api-key");
+    const revealBody = await revealRes.json();
+    expect(revealRes.status).toBe(200);
+    expect(revealBody).toEqual({ api_key: "sk-provider-secret" });
+  });
+
+  it("requires secret scope before a remote provider api key can be revealed", async () => {
+    const { createProvidersRoute } = await import("../server/routes/providers.ts");
+    const app = new Hono();
+    withPrincipal(app, remotePrincipal(["providers.manage"]));
+    const engine = {
+      providerRegistry: {
+        getAllProvidersRaw: () => ({}),
+        get: () => null,
+        isOAuth: () => false,
+        getAuthType: () => "api-key",
+        allowsMissingApiKey: () => false,
+        getAuthJsonKey: (id) => id,
+        getOAuthProviderIds: () => [],
+        getAll: () => new Map(),
+      },
+      preferences: { getOAuthCustomModels: () => ({}) },
+      resolveProviderCredentials: () => ({ api_key: "sk-provider-secret", base_url: "", api: "" }),
+      hanakoHome: "/tmp",
+    };
+
+    app.route("/api", createProvidersRoute(engine));
+
+    const res = await app.request("/api/providers/deepseek/api-key");
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body).toEqual({
+      error: "secret_read_scope_required",
+      scope: "secrets.write",
+    });
   });
 
   it("preserves saved provider secrets when a masked config patch is submitted", async () => {

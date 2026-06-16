@@ -175,13 +175,14 @@ export class Hub {
       audios,
       audioAttachmentPaths,
       inboundFiles,
+      clientMessageId,
       sessionPath,
       agentId,
       uiContext,
       displayMessage,
       sessionFileRefs,
     } = opts;
-    const o = { sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, from, to, onDelta, images, imageAttachmentPaths, videos, videoAttachmentPaths, audios, audioAttachmentPaths, inboundFiles, sessionPath, agentId, uiContext, displayMessage, sessionFileRefs };
+    const o = { sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, from, to, onDelta, images, imageAttachmentPaths, videos, videoAttachmentPaths, audios, audioAttachmentPaths, inboundFiles, clientMessageId, sessionPath, agentId, uiContext, displayMessage, sessionFileRefs };
 
     // ── 图片预处理：持久化到磁盘 + 插入 [attached_image] 标记 ──
     // 在路由之前统一处理，所有消息路径（WS / Bridge DM / Bridge Group）共享
@@ -250,6 +251,7 @@ export class Hub {
             audios: o.audios,
             audioAttachmentPaths: o.audioAttachmentPaths,
             inboundFiles: o.inboundFiles,
+            clientMessageId: o.clientMessageId,
             onDelta: o.onDelta,
             uiContext: o.uiContext,
             displayMessage: o.displayMessage,
@@ -280,10 +282,11 @@ export class Hub {
   /**
    * 中断生成（支持指定 session）
    */
-  async abort(sessionPath) {
+  async abort(sessionPath, options: any = {}) {
+    const hasOptions = options && Object.keys(options).length > 0;
     return sessionPath
-      ? this._engine.abortSession(sessionPath)
-      : this._engine.abort();
+      ? (hasOptions ? this._engine.abortSession(sessionPath, options) : this._engine.abortSession(sessionPath))
+      : (hasOptions ? this._engine.abort(options) : this._engine.abort());
   }
 
   // ──────────── 调度器管理 ────────────
@@ -501,10 +504,11 @@ export class Hub {
     }));
 
     // ── session:abort ──
-    this._sessionHandlerCleanups.push(bus.handle("session:abort", async ({ sessionPath }: any = {}) => {
+    this._sessionHandlerCleanups.push(bus.handle("session:abort", async ({ sessionPath, reason }: any = {}) => {
       const sp = sessionPath;
       if (!sp) return { aborted: false };
-      const result = await engine.abortSession(sp);
+      const options = typeof reason === "string" && reason.trim() ? { reason: reason.trim() } : null;
+      const result = options ? await engine.abortSession(sp, options) : await engine.abortSession(sp);
       return { aborted: !!result };
     }));
 
@@ -707,13 +711,17 @@ export class Hub {
           credentialLanes: credentialStatus.lanes,
           activeCredentialLaneId: credentialStatus.activeLaneId || null,
           activeCredentialProviderId: credentialStatus.activeProviderId || null,
-          models: provider.models.map((model) => ({
-            id: model.id,
-            name: model.displayName || model.name || model.id,
-            displayName: model.displayName || model.name || model.id,
-            protocolId: model.protocolId,
-            credentialLaneId: model.credentialLaneId,
-          })),
+          models: provider.models.map((model) => {
+            const name = model.displayName || model.name || model.id;
+            return {
+              ...model,
+              id: model.id,
+              name,
+              displayName: name,
+              protocolId: model.protocolId,
+              credentialLaneId: model.credentialLaneId,
+            };
+          }),
           availableModels: [],
         };
       }
@@ -744,6 +752,7 @@ export class Hub {
         return {
           providerId: resolved.providerId,
           modelId: resolved.model.id,
+          model: resolved.model,
           protocolId: resolved.model.protocolId,
           capability: resolved.capability,
           credentialLaneId: lane?.id || status.activeLaneId || null,
@@ -768,6 +777,7 @@ export class Hub {
           quality: payload.quality,
           model: payload.model,
           provider: payload.provider,
+          options: payload.options,
         };
       if (!textOrNull(input.prompt)) throw new Error("prompt is required");
       return bus.request("media-gen:submit-image", {

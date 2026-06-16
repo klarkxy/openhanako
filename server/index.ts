@@ -71,9 +71,11 @@ import {
   isPluginAssetRequest,
   verifyPluginAssetSessionForHostRequest,
 } from "./http/plugin-assets.ts";
+import { resolveHttpRequestPrincipal } from "./http/request-principal.ts";
 import { createCheckpointsRoute } from "./routes/checkpoints.ts";
 import { createCommandsRoute } from "./routes/commands.ts";
 import { createServerIdentityRoute } from "./routes/server-identity.ts";
+import { ensureLocalIdentityRegistries } from "../core/server-identity.ts";
 import { createResourcesRoute } from "./routes/resources.ts";
 import { createUsageRoute } from "./routes/usage.ts";
 import { createWebAuthRoute } from "./routes/web-auth.ts";
@@ -82,6 +84,7 @@ import { createStudioWorkspacesRoute } from "./routes/studio-workspaces.ts";
 import { createMobileStaticRoute } from "./routes/mobile-static.ts";
 import { createHtmlPreviewRoute } from "./routes/html-preview.ts";
 import { createAccessRoute } from "./routes/access.ts";
+import { createMediaRoute } from "./routes/media.ts";
 import { createSpeechRecognitionRoute } from "./routes/speech-recognition.ts";
 import { registerTaskRegistryBusHandlers } from "./task-bus-handlers.ts";
 import { configureProcessPiSdkEnv, ensureHanaPiSdkDirs, resolveHanakoHome } from "../shared/hana-runtime-paths.ts";
@@ -211,13 +214,29 @@ const serverRuntimeState = {
   mode: serverNetwork.mode,
   listenHost: serverNetwork.host,
   bindHost: serverNetwork.host,
+  configuredMode: serverNetwork.mode,
+  configuredListenHost: serverNetwork.host,
+  configuredPort: port,
   actualPort: null,
   applyNetworkConfig(network) {
     this.configuredMode = network.mode;
     this.configuredListenHost = network.listenHost;
+    this.configuredPort = network.listenPort;
   },
 };
 const host = serverRuntimeState.bindHost;
+
+function createServerRuntimeNetworkSummary() {
+  return {
+    mode: serverRuntimeState.mode,
+    listenHost: serverRuntimeState.listenHost,
+    bindHost: serverRuntimeState.bindHost,
+    actualPort: Number.isInteger(serverRuntimeState.actualPort) ? serverRuntimeState.actualPort : null,
+    configuredMode: serverRuntimeState.configuredMode || serverRuntimeState.mode,
+    configuredListenHost: serverRuntimeState.configuredListenHost || serverRuntimeState.listenHost,
+    configuredPort: Number.isInteger(serverRuntimeState.configuredPort) ? serverRuntimeState.configuredPort : port,
+  };
+}
 
 let activeFetch: any = (request: any) => {
   const url = new URL(request.url);
@@ -227,6 +246,7 @@ let activeFetch: any = (request: any) => {
       version: appVersion,
       networkMode: serverRuntimeState.mode,
       configuredHost: serverRuntimeState.listenHost,
+      network: createServerRuntimeNetworkSummary(),
     }, { status: 503 });
   }
   return Response.json({ error: "server_starting" }, { status: 503 });
@@ -246,8 +266,18 @@ await bindServerTransportOwnership(server, {
 
 // ── 首次运行播种 ──
 log.log("① ensureFirstRun...");
-ensureFirstRun(hanakoHome, productDir);
+const firstRunReport = ensureFirstRun(hanakoHome, productDir);
+for (const invalid of firstRunReport.invalidAgentDirs) {
+  log.warn(`① 发现无效 agent 目录（已跳过启动校验）: "${invalid.id}" (${invalid.reason})`);
+}
+if (firstRunReport.defaultConfigBackupPath) {
+  log.warn(`① 默认助手 config.yaml 已损坏，原文件备份于: ${firstRunReport.defaultConfigBackupPath}`);
+}
 log.log("① ensureFirstRun 完成");
+
+log.log("① ensureLocalIdentityRegistries...");
+ensureLocalIdentityRegistries(hanakoHome);
+log.log("① ensureLocalIdentityRegistries 完成");
 
 // ── 初始化 Debug 日志 ──
 const dlog = initDebugLog(path.join(hanakoHome, "logs"));
@@ -394,36 +424,16 @@ app.use("*", async (c: any, next: any) => {
     return;
   }
 
-  const authResult = serverAuthService.authenticateRequestDetailed({
-    authorization: c.req.header("authorization"),
-    queryToken: c.req.query("token"),
-    cookieHeader: c.req.header("cookie"),
-    allowQueryToken: true,
+  // 主鉴权 → plugin surface session 后备（仅 missing_credential 时）→ 路由授权。
+  // 链路实现与契约见 server/http/request-principal.ts（与测试共用）。
+  const resolved = resolveHttpRequestPrincipal(c, engine, {
+    serverAuthService,
     connectionKind: transport.connectionKind,
   });
-  const authPrincipal = authResult.principal;
-  if (!authPrincipal) {
-    const denied = authResult.denied || {};
-    return c.json({
-      error: denied.error || "forbidden",
-      reason: denied.reason || "auth_failed",
-      ...(denied.credentialSource ? { credentialSource: denied.credentialSource } : {}),
-      connectionKind: denied.connectionKind || transport.connectionKind,
-    }, 403);
+  if (!resolved.ok) {
+    return c.json(resolved.body, resolved.status);
   }
-  const authz: any = authorizeHttpRoute({
-    method: c.req.method,
-    path: routePath,
-    principal: authPrincipal,
-  });
-  if (!authz.allowed) {
-    return c.json({
-      error: authz.error,
-      ...(authz.reason ? { reason: authz.reason } : {}),
-      ...(authz.requiredScope ? { requiredScope: authz.requiredScope } : {}),
-    }, authz.status);
-  }
-  c.set("authPrincipal", authPrincipal);
+  c.set("authPrincipal", resolved.principal);
 
   await next();
 });
@@ -785,6 +795,7 @@ app.route("/api", createBridgeRoute(engine, bridgeManagerRef));
 app.route("/api", createAuthRoute(engine));
 app.route("/api", createDiaryRoute(engine));
 app.route("/api", createConfirmRoute(confirmStore, engine));
+app.route("/api", createMediaRoute(engine));
 app.route("/api", createPluginsRoute(engine));
 app.route("/api", createCheckpointsRoute(engine));
 app.route("/api", createCommandsRoute(engine));
@@ -819,6 +830,7 @@ app.get("/api/health", async (c) => {
     user: engine.userName,
     model: engine.currentModel?.name,
     avatars,
+    network: createServerRuntimeNetworkSummary(),
   });
 });
 
@@ -894,14 +906,14 @@ app.post("/api/session-thinking-level", async (c) => {
 });
 
 app.post("/api/session-permission-mode", async (c) => {
-  const { mode, pendingNewSession, currentSessionOnly, sessionPath, persistDefault } = await safeJson(c);
+  const { mode, pendingNewSession, currentSessionOnly, sessionPath } = await safeJson(c);
   const targetSessionPath = typeof sessionPath === "string" && sessionPath ? sessionPath : null;
   const result = currentSessionOnly === true
     ? engine.setCurrentSessionPermissionMode(mode)
     : pendingNewSession === true
     ? engine.setPendingSessionPermissionMode(mode)
     : targetSessionPath
-    ? engine.setSessionPermissionModeForSession(targetSessionPath, mode, { persistDefault: persistDefault === true })
+    ? engine.setSessionPermissionModeForSession(targetSessionPath, mode)
     : engine.setSessionPermissionMode(mode);
   const explicitSession = currentSessionOnly === true || !!targetSessionPath;
   if (explicitSession && result?.ok === false) {
@@ -1056,6 +1068,10 @@ try {
       host,
       configuredHost: serverRuntimeState.listenHost,
       networkMode: serverRuntimeState.mode,
+      configuredMode: serverRuntimeState.configuredMode,
+      configuredListenHost: serverRuntimeState.configuredListenHost,
+      configuredPort: serverRuntimeState.configuredPort,
+      network: createServerRuntimeNetworkSummary(),
       token: SERVER_TOKEN,
       version: appVersion,
       ownerKind: process.env.HANA_SERVER_OWNER === "desktop" ? "desktop" : "standalone",

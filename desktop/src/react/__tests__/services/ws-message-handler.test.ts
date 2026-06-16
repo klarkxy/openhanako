@@ -63,6 +63,7 @@ describe('ws-message-handler applyStreamingStatus', () => {
       pendingNewSession: false,
       sessions: [],
       streamingSessions: [],
+      activeSessionStreams: {},
       unreadOutputSessionPaths: [],
       inlineErrors: {},
     } as never);
@@ -83,6 +84,22 @@ describe('ws-message-handler applyStreamingStatus', () => {
     useStore.setState({ streamingSessions: ['/focused.jsonl'] } as never);
     applyStreamingStatus(false, '/focused.jsonl');
     expect(useStore.getState().streamingSessions).toEqual([]);
+  });
+
+  it('ignores stale status=false when its streamId no longer matches the active stream', () => {
+    useStore.setState({
+      streamingSessions: ['/focused.jsonl'],
+      activeSessionStreams: {
+        '/focused.jsonl': { streamId: 'stream_new', turnId: null },
+      },
+      inputFocusTrigger: 0,
+    } as never);
+
+    const applied = applyStreamingStatus(false, '/focused.jsonl', { streamId: 'stream_old' });
+
+    expect(applied).toBe(false);
+    expect(useStore.getState().streamingSessions).toEqual(['/focused.jsonl']);
+    expect(useStore.getState().inputFocusTrigger).toBe(0);
   });
 
   it('isStreaming=true 时重复调用不会产生重复 path', () => {
@@ -179,6 +196,44 @@ describe('ws-message-handler session-scoped desktop events', () => {
     expect(first.data.text).toBe('');
     expect(first.data.textHtml).toBeUndefined();
     expect(first.data.attachments).toEqual([{ path: '/tmp/voice.wav', name: 'voice.wav', isDir: false, mimeType: 'audio/wav' }]);
+  });
+
+  it('session_user_message confirms an optimistic user message by clientMessageId without duplicating it', () => {
+    useStore.getState().appendItem('/session/a.jsonl', {
+      type: 'message',
+      data: {
+        id: 'client-user-1',
+        role: 'user',
+        text: 'pending text',
+        textHtml: 'pending text',
+        sendStatus: 'pending',
+      },
+    });
+
+    handleServerMessage({
+      type: 'session_user_message',
+      sessionPath: '/session/a.jsonl',
+      clientMessageId: 'client-user-1',
+      message: {
+        id: 'entry-u1',
+        text: 'confirmed text',
+        timestamp: '2026-06-12T10:00:00.000Z',
+      },
+    });
+
+    const items = useStore.getState().chatSessions['/session/a.jsonl']?.items || [];
+    expect(items).toHaveLength(1);
+    const first = items[0];
+    expect(first?.type).toBe('message');
+    if (!first || first.type !== 'message') throw new Error('expected message item');
+    expect(first.data).toMatchObject({
+      id: 'client-user-1',
+      sourceEntryId: 'entry-u1',
+      role: 'user',
+      text: 'confirmed text',
+      timestamp: Date.parse('2026-06-12T10:00:00.000Z'),
+    });
+    expect(first.data.sendStatus).toBeUndefined();
   });
 
   it('voice_transcription_update 按 fileId 回填现有用户语音附件', () => {
@@ -854,6 +909,49 @@ describe('ws-message-handler turn_end side effects', () => {
 
     expect(useStore.getState().streamingSessions).toEqual([]);
     expect(useStore.getState().inputFocusTrigger).toBe(1);
+  });
+
+  it('stale status=false does not finish the newer local stream turn', () => {
+    vi.mocked(streamBufferManager.finishTurn).mockClear();
+    useStore.setState({
+      streamingSessions: ['/session/a.jsonl'],
+      activeSessionStreams: {
+        '/session/a.jsonl': { streamId: 'stream_new', turnId: null },
+      },
+      inputFocusTrigger: 0,
+    } as never);
+
+    handleServerMessage({
+      type: 'status',
+      sessionPath: '/session/a.jsonl',
+      streamId: 'stream_old',
+      isStreaming: false,
+    });
+
+    expect(useStore.getState().streamingSessions).toEqual(['/session/a.jsonl']);
+    expect(streamBufferManager.finishTurn).not.toHaveBeenCalledWith('/session/a.jsonl');
+    expect(useStore.getState().inputFocusTrigger).toBe(0);
+  });
+
+  it('identity-less status=false does not finish a stream with a known streamId', () => {
+    vi.mocked(streamBufferManager.finishTurn).mockClear();
+    useStore.setState({
+      streamingSessions: ['/session/a.jsonl'],
+      activeSessionStreams: {
+        '/session/a.jsonl': { streamId: 'stream_new', turnId: null },
+      },
+      inputFocusTrigger: 0,
+    } as never);
+
+    handleServerMessage({
+      type: 'status',
+      sessionPath: '/session/a.jsonl',
+      isStreaming: false,
+    });
+
+    expect(useStore.getState().streamingSessions).toEqual(['/session/a.jsonl']);
+    expect(streamBufferManager.finishTurn).not.toHaveBeenCalledWith('/session/a.jsonl');
+    expect(useStore.getState().inputFocusTrigger).toBe(0);
   });
 
   it('background status=false does not request input focus', () => {

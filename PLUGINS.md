@@ -375,6 +375,23 @@ export function register(app, ctx) {
 
 三种写法向后兼容：不使用 ctx 的老插件无需改动。`ctx.bus` 可直接调用内置 session 操作：`session:create`、`session:get`、`session:update`、`session:send`、`session:abort`、`session:history`、`session:list`、`agent:list`、`agent:profile`、`agent:create`、`agent:update`。所有针对已有 session 的操作必须携带 `sessionPath` 参数。详见下方 Route Context 和 Session Bus Handlers 章节。
 
+#### 请求级上下文（pluginRequestContext）
+
+每个进入插件 route 的 HTTP 请求都会得到一份独立的请求级上下文，handler 通过 `c.get("pluginRequestContext")` 读取（三种写法都可用）：
+
+```js
+app.post("/create-session", async (c) => {
+  const reqCtx = c.get("pluginRequestContext");
+  // reqCtx.principal        本次请求的来源身份（owner 设备 / 本插件 iframe surface…），测试直连时为 null
+  // reqCtx.agentId          代理层注入的当前 agent id
+  // reqCtx.capabilityGrant  { accessLevel, declaredPermissions, legacyDeclaration }
+  const result = await reqCtx.bus.request("session:create", { agentId: reqCtx.agentId });
+  return c.json(result);
+});
+```
+
+`reqCtx.bus` 与 `ctx.bus` 的区别：通过它调用系统敏感能力（capability 目录里 `owner: "system"` 且带 `permission` 的条目，如 `session:create` → `session.write`）时按「manifest 声明 + 用户授权」校验。manifest `capabilities` / `sensitiveCapabilities` 未声明对应 permission（支持命名空间，`session` 即覆盖 `session.write`）返回 403 `PLUGIN_CAPABILITY_NOT_DECLARED`；插件未获 full-access 返回 403 `PLUGIN_CAPABILITY_NOT_GRANTED`。错误响应携带 `capability` / `permission` / `pluginId` / `declared` / `granted` 字段，可直接定位缺什么。完全没写能力声明的老 manifest（两个字段都缺失）视为 legacy（等同声明全部），行为不回退；一旦显式写出任一列表即按声明严格校验——显式空数组（`"capabilities": []`）不是 legacy，会拒绝所有系统敏感能力。处理来自 iframe 页面的请求时优先使用 `reqCtx.bus`。
+
 ### Extensions（Pi SDK 事件拦截）⚡ full-access
 
 `extensions/` 目录下的每个 `.js` 文件导出一个工厂函数，接收 Pi SDK 的 `ExtensionAPI`，可以订阅 LLM 调用链上的事件：
@@ -461,6 +478,29 @@ export const capabilities = {
 ```
 
 CLI provider 必须使用结构化参数绑定。不要拼 shell 字符串；Hana 会通过 `execFile` / `spawn` 的非 shell 模式运行命令，并把输出收束进媒体任务目录。
+
+#### Provider 与 Adapter 的边界
+
+`providers/*.js` 是长期支持的 Provider Contribution 入口。它声明供应商、模型、能力、`protocolId`，进入 ProviderRegistry 后由聊天、图片、视频、语音等选择器统一发现。旧插件如果已经通过 `providers/*.js` 声明图片 provider，只需要补齐 `capabilities.media.imageGeneration` 和每个模型的 `protocolId`，不需要换入口。
+
+媒体 Adapter 负责执行某个 `protocolId` 的 `submit` / `query` / 下载流程。只注册 Adapter 不等于注册供应商；没有 Provider capability 的模型不会自然出现在供应商管理、默认媒体模型选择、媒体 helper 发现结果里。
+
+旧 `media-gen:*` 事件接口仍然保留给历史图片生成插件兼容，例如 `media-gen:register-adapter`、`media-gen:submit-image`、`media-gen:list-adapters`。新插件不要继续依赖这些旧命名空间。迁移方向是：
+
+```text
+ProviderPlugin capabilities.media.*
+        │
+        ▼
+ProviderRegistry 发现供应商和模型
+        │
+        ▼
+MediaAdapterRegistry 按 protocolId 选择 Adapter
+        │
+        ▼
+UniversalMediaManager 统一任务、占位、轮询、SessionFile 回填
+```
+
+如果插件需要全新媒体协议，先声明 Provider capability，并为该 `protocolId` 提供 Adapter。正式 Adapter Plugin API 尚未稳定前，内置或受信插件可以继续使用旧 `media-gen:register-adapter` 作为过渡，但要把它视为兼容层。
 
 ### Configuration（配置 schema）
 
@@ -578,6 +618,18 @@ window.parent.postMessage({ type: 'ready' }, '*');
 ```
 
 静态前端资源放在插件目录的 `assets/` 下，由 Hana 宿主通过 `/api/plugins/{pluginId}/assets/...` 统一服务。这个模型参考 VS Code Webview 的资源边界：入口 route 通过本地 token 或 `pluginIframeTicket` 打开，成功返回页面后，宿主下发一个只作用于 `/api/plugins/{pluginId}/assets/` 的 HttpOnly 短会话 cookie。Vite split chunks、`React.lazy()`、CSS、字体、图片、JSON、wasm 等资源请求不需要也不应该携带 `?token` 或 `pluginIframeTicket`。
+
+页面脚本调用本插件的动态 route API（`/api/plugins/{pluginId}/...`）时，使用宿主随 iframe URL 下发的 surface session 凭证（query 参数 `pluginSurfaceSession`），以 `X-Hana-Plugin-Surface-Session` 请求头（或同名 query 参数）回传：
+
+```js
+const surfaceSession = new URLSearchParams(location.search).get('pluginSurfaceSession');
+const res = await fetch('/api/plugins/my-plugin/create-session', {
+  method: 'POST',
+  headers: { 'X-Hana-Plugin-Surface-Session': surfaceSession },
+});
+```
+
+该凭证只授权本插件自己的 route 代理路径，不携带任何宿主 scope，宿主在转发给插件 handler 前会把它从请求中剥离。`pluginIframeTicket` 是一次性的文档加载凭证，不要把它复用到 XHR 上。
 
 浏览器代码优先使用 SDK 生成资源 URL：
 
@@ -865,7 +917,10 @@ this.register(
 | `agent:create` / `agent:update` | 创建或更新插件拥有的 agent，可设置 `visibility: "plugin_private"` |
 | `model:sample-text` | 使用系统配置的 utility 模型做非流式文本采样，适合 RAG 查询改写、摘要、路由 |
 | `provider:media-providers` / `provider:resolve-media-model` | 读取已配置的媒体供应商和模型 |
-| `media:generate-image` | 通过内置媒体任务管线提交生图任务，完成后以 `SessionFile` 交付 |
+| `media:generate-image` | 通过内置媒体任务管线提交生图任务，默认完成后以 `SessionFile` 交付；`delivery.mode="response"` 时只返回任务/文件结果 |
+| `media:generate` / `media:generate-video` / `media:transcribe-audio` | 通过原生 Media Manager 提交通用媒体任务、视频生成任务或音频转录任务 |
+
+插件后端优先使用 `@hana/plugin-runtime` helpers。插件页面或插件 route handler 如果已经有宿主 HTTP 凭证，也可以使用原生 façade：`POST /api/media/generate`、`POST /api/media/image/generate`、`POST /api/media/video/generate`、`POST /api/media/asr/transcribe`。这些入口需要 chat scope，图片/视频必须传 `prompt`；默认 `delivery.mode="session"` 时还必须传 `sessionPath`，完成后登记 `SessionFile`。如果插件只想拿生成产物，传 `delivery: { mode: "response" }` 可省略 `sessionPath`，完成后轮询 `GET /api/media/tasks/:taskId`，再用 `task.files[]` 调 `GET /api/media/generated/:filename` 读取文件。ASR 仍必须传 `sessionPath` 和 `fileId`。图片参考图只接受 `{ kind: "session_file", fileId }` 这类 SessionFile 引用，底层仍进入同一个 Media Manager 任务管线。图片 adapter 默认允许多张参考图；只支持单张参考图的 adapter 应声明 `maxReferenceImages: 1`，任务管线会在入队前拒绝超量请求。
 
 `session:send.context` 只注入到当轮 provider 请求，不会改写可见用户消息，也不会写入用户消息文本。插件可以在自己的 RAG、世界观、mood、角色状态系统里生成这些片段，然后在发送时附带：
 
@@ -873,7 +928,9 @@ this.register(
 import {
   createAgent,
   createSession,
+  generateMedia,
   generateImage,
+  transcribeAudio,
   sampleText,
   sendSessionMessage,
 } from "@hana/plugin-runtime";
@@ -910,8 +967,30 @@ await sendSessionMessage(ctx, session.sessionPath, {
 await generateImage(ctx, {
   sessionPath: session.sessionPath,
   prompt: "A handwritten character card on warm paper",
+  referenceImages: [
+    { kind: "session_file", fileId: "sf_reference_a" },
+    { kind: "session_file", fileId: "sf_reference_b" },
+  ],
   ratio: "3:2",
 });
+
+await generateMedia(ctx, {
+  kind: "video",
+  sessionPath: session.sessionPath,
+  prompt: "A slow page-turn animation on warm paper",
+});
+
+const artifactOnly = await generateImage(ctx, {
+  prompt: "A small icon on transparent background",
+  delivery: { mode: "response" },
+});
+// 后续轮询 /api/media/tasks/{artifactOnly.tasks[0].taskId}
+
+const transcription = await transcribeAudio(ctx, {
+  sessionPath: session.sessionPath,
+  fileId: "session-file-id",
+});
+// transcription = { ok: true, transcription: { status, text, ... } }
 ```
 
 ### LLM 用量账本

@@ -76,6 +76,97 @@ const OFFICIAL_MIMO_PROVIDERS = new Set([
   "xiaomi-token-plan-sgp-ams",
 ]);
 
+const MODEL_THINKING_FORMATS = new Set([
+  "anthropic",
+  "qwen",
+  "qwen-chat-template",
+  "zhipu",
+  "deepseek",
+  "openrouter",
+  "kimi",
+]);
+
+const MODEL_REASONING_PROFILES = new Set([
+  "anthropic-adaptive-only",
+  "deepseek-v4-anthropic",
+  "deepseek-v4-openai",
+  "mimo-openai",
+  "openrouter-anthropic-adaptive",
+  "zhipu-openai",
+  "kimi-openai",
+]);
+
+const TOOL_USE_DIALECTS = new Set([
+  "openai",
+  "anthropic",
+  "gemini",
+  "mistral",
+  "none",
+]);
+
+const TOOL_RESULT_FORMATS = new Set([
+  "message",
+  "content_block",
+  "part",
+]);
+
+const OUTPUT_CAP_FIELDS = new Set([
+  "max_tokens",
+  "max_completion_tokens",
+  "max_output_tokens",
+  "maxOutputTokens",
+]);
+
+export function normalizeModelProtocolCompat(value: any): Record<string, any> | null {
+  if (!isPlainObject(value)) return null;
+  const out: Record<string, any> = {};
+
+  const thinkingFormat = lower(value.thinkingFormat);
+  if (MODEL_THINKING_FORMATS.has(thinkingFormat)) {
+    out.thinkingFormat = thinkingFormat;
+  }
+
+  const reasoningProfile = lower(value.reasoningProfile || value.thinkingProfile);
+  if (MODEL_REASONING_PROFILES.has(reasoningProfile)) {
+    out.reasoningProfile = reasoningProfile;
+  }
+
+  if (value.hanaVideoInput === true) out.hanaVideoInput = true;
+  if (value.hanaAudioInput === true) out.hanaAudioInput = true;
+  if (value.outputCapRequired === true) out.outputCapRequired = true;
+  if (typeof value.outputCapField === "string" && OUTPUT_CAP_FIELDS.has(value.outputCapField)) {
+    out.outputCapField = value.outputCapField;
+  }
+
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+export function normalizeToolUseContract(value: any): Record<string, any> | null {
+  if (!isPlainObject(value)) return null;
+  if (typeof value.supportsTools !== "boolean") return null;
+
+  const dialect = lower(value.dialect);
+  if (!TOOL_USE_DIALECTS.has(dialect)) return null;
+  const toolResultFormat = lower(value.toolResultFormat);
+  if (!TOOL_RESULT_FORMATS.has(toolResultFormat)) return null;
+
+  const out: Record<string, any> = {
+    supportsTools: value.supportsTools,
+    dialect,
+    toolResultFormat,
+  };
+  if (typeof value.supportsParallelToolCalls === "boolean") {
+    out.supportsParallelToolCalls = value.supportsParallelToolCalls;
+  }
+  if (typeof value.supportsForcedToolChoice === "boolean") {
+    out.supportsForcedToolChoice = value.supportsForcedToolChoice;
+  }
+  if (typeof value.supportsServerTools === "boolean") {
+    out.supportsServerTools = value.supportsServerTools;
+  }
+  return out;
+}
+
 export function isOfficialMimoEndpoint(model: any, context: any = {}) {
   const provider = getProvider(model, context);
   if (OFFICIAL_MIMO_PROVIDERS.has(provider)) return true;
@@ -89,15 +180,63 @@ function isOfficialZhipuEndpoint(model: any, context: any = {}) {
   if (provider === "zhipu") return true;
 
   const host = getBaseHost(model, context);
-  return host === "open.bigmodel.cn" || host.endsWith(".open.bigmodel.cn");
+  const baseUrl = getBaseUrl(model, context);
+  return host === "open.bigmodel.cn"
+    || host.endsWith(".open.bigmodel.cn")
+    || (
+      host === "api.z.ai"
+      && (
+        baseUrl.includes("/api/paas/v4")
+        || baseUrl.includes("/api/coding/paas/v4")
+      )
+    );
 }
 
 function isDeepSeekV4ModelId(id: string): boolean {
   return id === "deepseek-v4" || id.startsWith("deepseek-v4-") || id.startsWith("deepseek-v4.");
 }
 
+function isAnthropicAdaptiveOnlyModelId(id: string): boolean {
+  return id === "claude-fable-5"
+    || id === "claude-mythos-5"
+    || id === "anthropic/claude-fable-5"
+    || id === "anthropic/claude-mythos-5";
+}
+
 function isDeepSeekThinkingModelId(id: string): boolean {
   return id === "deepseek-reasoner" || isDeepSeekV4ModelId(id);
+}
+
+function isOpenAIReasoningApi(model: any, context: any = {}) {
+  const api = getApi(model, context);
+  return api === "openai-completions" || api === "openai-responses" || api === "";
+}
+
+function isOfficialKimiOpenAIEndpoint(model: any, context: any = {}) {
+  if (!isOpenAIReasoningApi(model, context)) return false;
+
+  const provider = getProvider(model, context);
+  if (provider === "kimi-coding" || provider === "moonshot") return true;
+
+  const host = getBaseHost(model, context);
+  const baseUrl = getBaseUrl(model, context);
+  return (
+    host === "api.kimi.com"
+    && baseUrl.includes("/coding/v1")
+  ) || host === "api.moonshot.cn";
+}
+
+function isMimoFamilyModel(model: any, context: any = {}) {
+  const text = getModelText(model, context);
+  if (!/\bmimo[-_]?v\d/.test(text)) return false;
+  return !/\bmimo[-_]?v\d+(?:[._-]\d+)?[-_]tts\b/.test(text);
+}
+
+function isMimoOpenAIProtocolModel(model: any, context: any = {}) {
+  if (!isOpenAIReasoningApi(model, context)) return false;
+  if (isOpenRouterEndpoint(model, context)) return false;
+  if (isOfficialDeepSeekEndpoint(model, context) || isOfficialZhipuEndpoint(model, context)) return false;
+  return isMimoFamilyModel(model, context);
 }
 
 export function isDeepSeekFamilyModel(model: any, context: any = {}) {
@@ -164,6 +303,10 @@ export function getThinkingFormat(model: any, context: any = {}) {
     return "openrouter";
   }
 
+  if (isOfficialKimiOpenAIEndpoint(model, context) && model.reasoning === true) {
+    return "kimi";
+  }
+
   if (
     isOfficialDeepSeekEndpoint(model, context)
     && (model.reasoning === true || isDeepSeekThinkingModelId(modelId))
@@ -183,6 +326,10 @@ export function getThinkingFormat(model: any, context: any = {}) {
     return "zhipu";
   }
 
+  if (isMimoOpenAIProtocolModel(model, context)) {
+    return "qwen-chat-template";
+  }
+
   return null;
 }
 
@@ -199,6 +346,23 @@ export function getReasoningProfile(model: any, context: any = {}) {
   const explicit = lower(model.compat?.reasoningProfile || model.compat?.thinkingProfile);
   if (explicit) return explicit;
 
+  const modelId = getModelId(model, context);
+
+  if (isOpenRouterEndpoint(model, context)) {
+    if (model.reasoning === true && isAnthropicAdaptiveOnlyModelId(modelId)) {
+      return "openrouter-anthropic-adaptive";
+    }
+    return null;
+  }
+
+  if (
+    model.reasoning === true
+    && isAnthropicAdaptiveOnlyModelId(modelId)
+    && getThinkingFormat(model, context) === "anthropic"
+  ) {
+    return "anthropic-adaptive-only";
+  }
+
   if (isOfficialMimoEndpoint(model, context) && model.reasoning === true) {
     const api = getApi(model, context);
     if (api === "openai-completions" || api === "openai-responses" || api === "") {
@@ -213,18 +377,21 @@ export function getReasoningProfile(model: any, context: any = {}) {
     }
   }
 
-  if (!isOfficialDeepSeekEndpoint(model, context)) return null;
-
-  const modelId = getModelId(model, context);
-  if (!isDeepSeekV4ModelId(modelId)) return null;
-
-  const api = getApi(model, context);
-  if (api === "anthropic-messages") return "deepseek-v4-anthropic";
-  if (api === "openai-completions" || api === "openai-responses" || api === "") {
-    return "deepseek-v4-openai";
+  if (isOfficialKimiOpenAIEndpoint(model, context) && model.reasoning === true) {
+    return "kimi-openai";
   }
 
-  return null;
+  if (isOfficialDeepSeekEndpoint(model, context)) {
+    if (!isDeepSeekV4ModelId(modelId)) return null;
+
+    const api = getApi(model, context);
+    if (api === "anthropic-messages") return "deepseek-v4-anthropic";
+    if (api === "openai-completions" || api === "openai-responses" || api === "") {
+      return "deepseek-v4-openai";
+    }
+  }
+
+  return isMimoOpenAIProtocolModel(model, context) ? "mimo-openai" : null;
 }
 
 export function withThinkingFormatCompat(model: any, context: any = {}) {
@@ -384,7 +551,9 @@ export function modelSupportsDirectVideoInput(model: any, context: any = {}) {
 }
 
 function usesOpenAiVideoUrlTransport(model: any, context: any = {}) {
-  return isDashScopeEndpoint(model, context) || isMoonshotEndpoint(model, context);
+  return isDashScopeEndpoint(model, context)
+    || isMoonshotEndpoint(model, context)
+    || isOfficialMimoEndpoint(model, context);
 }
 
 function isDashScopeEndpoint(model: any, context: any = {}) {

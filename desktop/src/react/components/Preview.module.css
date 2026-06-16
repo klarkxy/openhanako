@@ -54,11 +54,14 @@
     box-shadow: var(--panel-card-shadow);
 }
 
-/* iframe 预览（HTML previewItem） */
-.previewPanelBody iframe {
+/* HTML 文件预览：外部网页访问交给内置浏览器，右侧面板只承载本地预览文档。 */
+.previewPanelBody :global(.preview-html-frame) {
+    display: block;
     width: 100%;
     height: 100%;
-    border: none;
+    min-height: 100%;
+    border: 0;
+    border-radius: inherit;
     background: #fff;
 }
 
@@ -443,6 +446,21 @@
 
 :global(.preview-editor .cm-selectionBackground) {
     background: var(--accent-light, rgba(100, 140, 200, 0.15)) !important;
+}
+
+:global(.preview-editor.mode-markdown .cm-editor) {
+    --editor-markdown-selection-bg: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+:global(.preview-editor.mode-markdown .cm-selectionBackground) {
+    background: var(--editor-markdown-selection-bg) !important;
+}
+
+:global(.preview-editor.mode-markdown .cm-content::selection),
+:global(.preview-editor.mode-markdown .cm-content *::selection) {
+    background: var(--editor-markdown-selection-bg);
+    color: var(--text);
+    text-shadow: none;
 }
 
 :global(.preview-editor .cm-cursor) {

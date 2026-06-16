@@ -37,6 +37,12 @@ declare function t(key: string, vars?: Record<string, string>): any;
 
 let requestContextUsage: (sessionPath: string) => void = () => {};
 
+function syncSessionPermissionMode(mode: unknown) {
+  if (mode === 'auto' || mode === 'operate' || mode === 'ask' || mode === 'read_only') {
+    useStore.getState().setSessionPermissionMode?.(mode);
+  }
+}
+
 export function configureWsMessageHandler(options: {
   requestContextUsage?: (sessionPath: string) => void;
 }): void {
@@ -200,23 +206,25 @@ function applyCompactionLifecycle(msg: any): void {
   );
 }
 
-export function applyStreamingStatus(isStreaming: boolean, sessionPath: string | null): void {
+export function applyStreamingStatus(
+  isStreaming: boolean,
+  sessionPath: string | null,
+  identity: { streamId?: string | null; turnId?: string | null } = {},
+  options: { force?: boolean } = {},
+): boolean {
   // 元数据层：把 isStreaming 视为 sessionPath 维度的权威信号，统一写回 streamingSessions。
   // 这一层不分焦点，任何来源（普通 status、stream_resume 恢复）都必须到达这里，
   // 否则重连后服务端说「已结束」前端却留着旧的 streaming 标记，UI 会卡在"思考中"。
   const wasStreaming = !!sessionPath && useStore.getState().streamingSessions.includes(sessionPath);
   if (sessionPath) {
     if (isStreaming) {
-      useStore.setState(s => ({
-        streamingSessions: s.streamingSessions.includes(sessionPath)
-          ? s.streamingSessions
-          : [...s.streamingSessions, sessionPath],
-      }));
+      useStore.getState().addStreamingSession(sessionPath, identity);
       useStore.getState().clearInlineError(sessionPath);
     } else {
-      useStore.setState(s => ({
-        streamingSessions: s.streamingSessions.filter((p: string) => p !== sessionPath),
-      }));
+      const applied = options.force
+        ? useStore.getState().forceRemoveStreamingSession(sessionPath)
+        : useStore.getState().removeStreamingSession(sessionPath, identity);
+      if (!applied) return false;
     }
   }
 
@@ -230,12 +238,13 @@ export function applyStreamingStatus(isStreaming: boolean, sessionPath: string |
 
   // 渲染层：只有焦点 session 才影响 UI 占位 / sessions 列表。
   const focused = useStore.getState().currentSessionPath;
-  if (sessionPath && sessionPath !== focused) return;
+  if (sessionPath && sessionPath !== focused) return false;
   if (isStreaming) {
     ensureCurrentSessionVisible();
   } else if (hasOptimisticCurrentSession()) {
     scheduleSessionsRefresh('optimistic_session_settled');
   }
+  return true;
 }
 
 function attachmentsEqual(a: any, b: any): boolean {
@@ -314,6 +323,21 @@ function applyVoiceTranscriptionUpdate(msg: any): void {
   if (changed) bumpMessageLiveVersion(sessionPath);
 }
 
+function applyInputSessionConfirmationBlock(msg: any): void {
+  if (msg.type !== 'content_block') return;
+  const block = msg.block;
+  if (block?.type !== 'session_confirmation' || block.surface !== 'input') return;
+  const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath.trim() : '';
+  if (!sessionPath) {
+    console.warn('[ws] input session_confirmation missing sessionPath, skipping pending cache');
+    return;
+  }
+  useStore.getState().setPendingSessionConfirmation?.(
+    sessionPath,
+    block.status === 'pending' ? block : null,
+  );
+}
+
 // ── 消息分发（大 switch） ──
 
 export function handleServerMessage(msg: any): void {
@@ -342,6 +366,8 @@ export function handleServerMessage(msg: any): void {
   if (msg.type === 'compaction_start' || msg.type === 'compaction_end') {
     applyCompactionLifecycle(msg);
   }
+
+  applyInputSessionConfirmationBlock(msg);
 
   // 活跃 block 事件路由：非当前 session 的聊天事件也要写入正常聊天缓存。
   // stream-key-dispatcher 只负责卡片/预览订阅，不能吞掉主 transcript 的后台流。
@@ -570,20 +596,36 @@ export function handleServerMessage(msg: any): void {
         break;
       }
       const text = typeof msg.message.text === 'string' ? msg.message.text : '';
-      useStore.getState().appendItem(sp, {
-        type: 'message',
-        data: {
-          id: msg.message.id || `user-${Date.now()}`,
-          role: 'user',
-          text,
-          textHtml: text ? renderMarkdown(text) : undefined,
-          timestamp: normalizeMessageTimestamp(msg.message.timestamp),
-          attachments: msg.message.attachments,
-          quotedText: msg.message.quotedText,
-          skills: msg.message.skills,
-          deskContext: msg.message.deskContext ?? undefined,
-        },
-      });
+      const clientMessageId = typeof msg.clientMessageId === 'string' && msg.clientMessageId
+        ? msg.clientMessageId
+        : typeof msg.message.clientMessageId === 'string' && msg.message.clientMessageId
+          ? msg.message.clientMessageId
+          : null;
+      const serverMessageId = typeof msg.message.id === 'string' && msg.message.id
+        ? msg.message.id
+        : typeof msg.message.sourceEntryId === 'string' && msg.message.sourceEntryId
+          ? msg.message.sourceEntryId
+          : undefined;
+      const data = {
+        id: clientMessageId || serverMessageId || `user-${Date.now()}`,
+        sourceEntryId: serverMessageId,
+        role: 'user' as const,
+        text,
+        textHtml: text ? renderMarkdown(text) : undefined,
+        timestamp: normalizeMessageTimestamp(msg.message.timestamp),
+        attachments: msg.message.attachments,
+        quotedText: msg.message.quotedText,
+        skills: msg.message.skills,
+        deskContext: msg.message.deskContext ?? undefined,
+      };
+      if (clientMessageId && useStore.getState().confirmOptimisticUserMessage(sp, clientMessageId, data)) {
+        bumpMessageLiveVersion(sp);
+        if (sp === useStore.getState().currentSessionPath) {
+          useStore.setState({ welcomeVisible: false });
+        }
+        break;
+      }
+      useStore.getState().appendItem(sp, { type: 'message', data });
       bumpMessageLiveVersion(sp);
       if (sp === useStore.getState().currentSessionPath) {
         useStore.setState({ welcomeVisible: false });
@@ -658,8 +700,10 @@ export function handleServerMessage(msg: any): void {
     case 'plan_mode': {
       const sp = msg.sessionPath;
       if (!sp || sp === useStore.getState().currentSessionPath) {
+        const mode = msg.mode || (msg.enabled ? 'read_only' : 'operate');
+        syncSessionPermissionMode(mode);
         window.dispatchEvent(new CustomEvent('hana-plan-mode', {
-          detail: { enabled: !!msg.enabled, mode: msg.mode || (msg.enabled ? 'read_only' : 'operate') },
+          detail: { enabled: !!msg.enabled, mode },
         }));
       }
       break;
@@ -668,6 +712,7 @@ export function handleServerMessage(msg: any): void {
     case 'permission_mode': {
       const sp = msg.sessionPath;
       if (!sp || sp === useStore.getState().currentSessionPath) {
+        syncSessionPermissionMode(msg.mode);
         window.dispatchEvent(new CustomEvent('hana-plan-mode', {
           detail: { enabled: msg.mode === 'read_only', mode: msg.mode },
         }));
@@ -678,10 +723,12 @@ export function handleServerMessage(msg: any): void {
     case 'access_mode': {
       const sp = msg.sessionPath;
       if (!sp || sp === useStore.getState().currentSessionPath) {
+        const mode = msg.permissionMode || msg.mode;
+        syncSessionPermissionMode(mode);
         window.dispatchEvent(new CustomEvent('hana-plan-mode', {
           detail: {
             enabled: msg.readOnly === true,
-            mode: msg.permissionMode || msg.mode,
+            mode,
           },
         }));
       }
@@ -802,6 +849,7 @@ export function handleServerMessage(msg: any): void {
 
         return changed ? { chatSessions: nextSessions } : {};
       });
+      useStore.getState().resolvePendingSessionConfirmation?.(msg.confirmId);
       changedPaths = Array.from(new Set(changedPaths));
       for (const sp of changedPaths) bumpMessageLiveVersion(sp);
       break;
@@ -818,12 +866,15 @@ export function handleServerMessage(msg: any): void {
 
     case 'status': {
       const sp = msg.sessionPath || null;
-      if (sp) {
+      // streamingSessions 维护 + 焦点 UI 占位一并由 applyStreamingStatus 处理
+      const applied = applyStreamingStatus(msg.isStreaming, sp, {
+        streamId: msg.streamId ?? null,
+        turnId: msg.turnId ?? null,
+      });
+      if (sp && applied) {
         if (msg.isStreaming) streamBufferManager.beginTurn(sp);
         else streamBufferManager.finishTurn(sp);
       }
-      // streamingSessions 维护 + 焦点 UI 占位一并由 applyStreamingStatus 处理
-      applyStreamingStatus(msg.isStreaming, sp);
       break;
     }
   }

@@ -102,7 +102,7 @@ describe('streamBufferManager.thinking 流式刷新', () => {
     useStore.getState().initSession(PATH, [userItem('u1', 'hi')], false);
   });
 
-  it('thinking_delta 按既有时间节流刷新，未 thinking_end 也能显示内容', () => {
+  it('thinking_delta 按 30Hz 节奏刷新，未 thinking_end 也能显示内容', () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date('2026-04-28T00:00:00.000Z'));
@@ -113,7 +113,7 @@ describe('streamBufferManager.thinking 流式刷新', () => {
       const beforeFlush = getThinkingBlock();
       expect(beforeFlush).toEqual({ type: 'thinking', content: '', sealed: false });
 
-      vi.advanceTimersByTime(199);
+      vi.advanceTimersByTime(32);
       expect(getThinkingBlock()).toEqual({ type: 'thinking', content: '', sealed: false });
 
       vi.advanceTimersByTime(1);

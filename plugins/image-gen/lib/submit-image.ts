@@ -4,10 +4,14 @@ import {
   createSubmitContext,
   createTaskId,
   imageDeferredMeta,
+  isResponseDelivery,
   normalizeSessionPath,
+  normalizeMediaDelivery,
+  assertAdapterReferenceImageLimit,
   resolveImageTarget,
   runSubmitInBackground,
 } from "./image-task-runner.ts";
+import { resolveMediaParameters } from "../../../core/media/media-parameters.ts";
 import { t } from "../../../lib/i18n.ts";
 
 function assertMediaRuntime(ctx) {
@@ -21,7 +25,9 @@ function assertMediaRuntime(ctx) {
 export async function submitImageGeneration({ input = {}, ctx, metadata = null, deliveryTarget = undefined }: any = {}) {
   const { registry, store, poller } = assertMediaRuntime(ctx);
   const sessionPath = normalizeSessionPath(ctx);
-  if (!sessionPath) {
+  const delivery = normalizeMediaDelivery(input);
+  const responseDelivery = isResponseDelivery(delivery);
+  if (!sessionPath && !responseDelivery) {
     throw new Error(t("plugin.imageGen.noSessionPath"));
   }
 
@@ -32,16 +38,30 @@ export async function submitImageGeneration({ input = {}, ctx, metadata = null, 
 
   const count = Math.min(Math.max(input.count || 1, 1), 9);
   const batchId = createTaskId();
+  const providerDefaults = submitCtx.config?.get?.("providerDefaults")?.[target.providerId] || {};
+  const parameterResolution = resolveMediaParameters({
+    kind: "image",
+    input,
+    providerId: target.providerId,
+    model: target.model,
+    providerDefaults,
+  });
   const params = {
+    ...parameterResolution.resolvedParameters,
     ...buildImageParams(input),
+    mode: parameterResolution.modeId,
+    resolvedParameters: parameterResolution.resolvedParameters,
     providerId: target.providerId,
     ...(target.modelId ? { modelId: target.modelId, model: target.modelId } : {}),
     ...(target.protocolId ? { protocolId: target.protocolId } : {}),
     ...(target.credentialLaneId ? { credentialLaneId: target.credentialLaneId } : {}),
     ...(target.credentialProviderId ? { credentialProviderId: target.credentialProviderId } : {}),
   };
+  assertAdapterReferenceImageLimit(adapter, params);
 
-  const resolvedDeliveryTarget = deliveryTarget === undefined ? bridgeDeliveryTarget(ctx) : deliveryTarget;
+  const resolvedDeliveryTarget = responseDelivery
+    ? null
+    : deliveryTarget === undefined ? bridgeDeliveryTarget(ctx) : deliveryTarget;
   const deferredMeta = {
     ...imageDeferredMeta({ prompt: input.prompt, deliveryTarget: resolvedDeliveryTarget }),
     ...(metadata ? { metadata } : {}),
@@ -62,31 +82,35 @@ export async function submitImageGeneration({ input = {}, ctx, metadata = null, 
       prompt: input.prompt,
       params,
       sessionPath,
+      deliveryMode: delivery.mode,
+      delivery,
       ...(resolvedDeliveryTarget ? { deliveryTarget: resolvedDeliveryTarget } : {}),
       ...(metadata ? { metadata } : {}),
       submitState: "submitting",
       adapterTaskId: null,
     });
 
-    try {
-      await ctx.bus.request("deferred:register", {
-        taskId,
-        sessionPath,
-        meta: deferredMeta,
-      });
-    } catch (err) {
-      ctx.log?.warn?.(`deferred:register failed for ${taskId}:`, err);
-    }
+    if (!responseDelivery) {
+      try {
+        await ctx.bus.request("deferred:register", {
+          taskId,
+          sessionPath,
+          meta: deferredMeta,
+        });
+      } catch (err) {
+        ctx.log?.warn?.(`deferred:register failed for ${taskId}:`, err);
+      }
 
-    try {
-      await ctx.bus.request("task:register", {
-        taskId,
-        type: "media-generation",
-        parentSessionPath: sessionPath,
-        meta: deferredMeta,
-      });
-    } catch {
-      // TaskRegistry is best-effort visibility; generation delivery still uses deferred results.
+      try {
+        await ctx.bus.request("task:register", {
+          taskId,
+          type: "media-generation",
+          parentSessionPath: sessionPath,
+          meta: deferredMeta,
+        });
+      } catch {
+        // TaskRegistry is best-effort visibility; generation delivery still uses deferred results.
+      }
     }
 
     poller.add(taskId);
@@ -108,6 +132,7 @@ export async function submitImageGeneration({ input = {}, ctx, metadata = null, 
     kind: "image",
     batchId,
     prompt: input.prompt,
+    delivery,
     tasks: submitted,
   };
 }

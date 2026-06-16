@@ -4,8 +4,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { useSettingsStore } from '../store';
 import { hanaFetch } from '../api';
 import { t, autoSaveConfig } from '../helpers';
-import { SelectWidget, ProviderGroupHeader, selectWidgetStyles } from '@/ui';
-import { browseAgent, switchToAgent, setPrimaryAgent, loadSettingsConfig, loadAgents } from '../actions';
+import { SelectWidget, ProviderIcon, ProviderGroupHeader, selectWidgetStyles } from '@/ui';
+import { browseAgent, setPrimaryAgent, loadSettingsConfig, loadAgents } from '../actions';
 import { AgentCardStack } from './agent/AgentCardStack';
 import { YuanSelector } from './agent/YuanSelector';
 import { MemorySection } from './agent/AgentMemory';
@@ -104,33 +104,49 @@ export function AgentTab() {
   const hasAvailableToolsField = !!settingsConfig && Object.prototype.hasOwnProperty.call(settingsConfig, 'availableTools');
   const availableTools = hasAvailableToolsField ? settingsConfig?.availableTools : undefined;
 
-  const saveAgent = async () => {
+  const saveAgentName = async () => {
     try {
       const agentId = getSettingsAgentId()!;
-      const agentBase = `/api/agents/${agentId}`;
-      const isActive = agentId === currentAgentId;
+      const currentName = settingsConfig?.agent?.name || '';
 
-      const configPartial: Record<string, unknown> = {};
-      if (agentName && agentName !== (settingsConfig?.agent?.name || '')) {
-        configPartial.agent = { name: agentName };
-      }
-
-      const identityChanged = identity !== (settingsConfig?._identity || '');
-      const ishikiChanged = ishiki !== (settingsConfig?._ishiki || '');
-
-      if (!Object.keys(configPartial).length && !identityChanged && !ishikiChanged) {
+      if (!agentName || agentName === currentName) {
         showToast(t('settings.noChanges'), 'success');
         return;
       }
 
-      const requests: Promise<Response>[] = [];
-      if (Object.keys(configPartial).length) {
-        requests.push(hanaFetch(`${agentBase}/config`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(configPartial),
-        }));
+      const res = await hanaFetch(`/api/agents/${agentId}/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent: { name: agentName } }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      showToast(t('settings.saved'), 'success');
+      if (agentId === currentAgentId) {
+        set({ agentName });
       }
+      await loadSettingsConfig();
+      await loadAgents();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(t('settings.saveFailed') + ': ' + msg, 'error');
+    }
+  };
+
+  const saveAgent = async () => {
+    try {
+      const agentId = getSettingsAgentId()!;
+      const identityChanged = identity !== (settingsConfig?._identity || '');
+      const ishikiChanged = ishiki !== (settingsConfig?._ishiki || '');
+
+      if (!identityChanged && !ishikiChanged) {
+        showToast(t('settings.noChanges'), 'success');
+        return;
+      }
+
+      const agentBase = `/api/agents/${agentId}`;
+      const requests: Promise<Response>[] = [];
       if (identityChanged) {
         requests.push(hanaFetch(`${agentBase}/identity`, {
           method: 'PUT',
@@ -153,9 +169,6 @@ export function AgentTab() {
       }
 
       showToast(t('settings.saved'), 'success');
-      if (isActive && (configPartial as { agent?: { name: string } })?.agent?.name) {
-        set({ agentName: (configPartial as { agent: { name: string } }).agent.name });
-      }
       await loadSettingsConfig();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -259,7 +272,7 @@ export function AgentTab() {
               // 否则用拼音输入时按回车确认候选词会误触发保存（#1306）。
               if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                 e.preventDefault();
-                void saveAgent();
+                void saveAgentName();
               }
             }}
           />
@@ -285,6 +298,32 @@ export function AgentTab() {
                 await autoSaveConfig({ models: { chat: { id, provider } } });
               }}
               placeholder={t('settings.api.selectModel')}
+              renderTrigger={(option) => {
+                const slashIdx = currentModel.indexOf('/');
+                const provider = option?.group || (slashIdx > 0 ? currentModel.slice(0, slashIdx) : '');
+                return (
+                  <>
+                    {provider && (
+                      <ProviderIcon provider={provider} className={styles['model-capsule-provider-icon']} />
+                    )}
+                    <span className={styles['model-capsule-value']}>
+                      {option?.label || t('settings.api.selectModel')}
+                    </span>
+                    <svg
+                      className={styles['model-capsule-arrow']}
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M4 6l4 4 4-4" />
+                    </svg>
+                  </>
+                );
+              }}
               renderGroupHeader={(g) => <ProviderGroupHeader provider={g} />}
               popupClassName={selectWidgetStyles.providerInset}
             />
@@ -293,6 +332,9 @@ export function AgentTab() {
           {currentModelUnavailable && (
             <span className={styles['settings-form-hint']}>{t('settings.agent.modelUnavailableHint')}</span>
           )}
+          <button className={styles['agent-name-save-btn']} onClick={saveAgentName}>
+            {t('settings.save')}
+          </button>
         </div>
         {/* 图片模型选择器暂时隐藏，后续重新设计 */}
       </section>

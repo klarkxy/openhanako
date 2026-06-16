@@ -41,6 +41,8 @@ import {
 import {
   buildFreshCompactMetaPatch,
   buildFreshCompactSnapshot,
+  getFreshCompactNoopReason,
+  normalizeFreshCompactNoopReason,
   shouldRunFreshCompact,
 } from "../lib/fresh-compact/policy.ts";
 import {
@@ -94,6 +96,102 @@ function buildPromptMediaOptions(opts) {
 function getProviderMessageEndError(event) {
   if (event?.type !== "message_end" || event.message?.stopReason !== "error") return null;
   return event.message.errorMessage || event.message.error?.message || "Unknown error";
+}
+
+function valueText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function valueRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function formatCronDaily(schedule) {
+  const raw = valueText(schedule);
+  const match = raw.match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
+  if (!match) return "";
+  const minute = Number(match[1]);
+  const hour = Number(match[2]);
+  if (!Number.isInteger(minute) || !Number.isInteger(hour) || minute > 59 || hour > 23) return "";
+  return `每天 ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function formatAutomationSchedule(jobData) {
+  const type = valueText(jobData.type || jobData.scheduleType);
+  const schedule = jobData.schedule;
+  if (type === "cron") return formatCronDaily(schedule) || valueText(schedule);
+  if (type === "every") {
+    const ms = typeof schedule === "number" ? schedule : Number(schedule);
+    if (Number.isFinite(ms) && ms > 0) {
+      const minutes = Math.round(ms / 60_000);
+      if (minutes > 0) return `每 ${minutes} 分钟`;
+    }
+  }
+  if (type === "at") {
+    const date = new Date(schedule);
+    if (!Number.isNaN(date.getTime())) return date.toLocaleString("zh-CN", { hour12: false });
+  }
+  return valueText(schedule);
+}
+
+function formatBridgePlatform(context) {
+  const platform = valueText(context?.platform);
+  if (platform === "wechat") return "微信";
+  if (platform === "feishu") return "飞书";
+  if (platform === "telegram") return "Telegram";
+  if (platform === "qq") return "QQ";
+  return platform;
+}
+
+function resolveAutomationAgentLabel(jobData, deps) {
+  const executor = valueRecord(jobData.executor);
+  const agentId = valueText(jobData.actorAgentId) || valueText(executor.agentId);
+  if (!agentId) return "";
+  const agent = deps?.getAgentById?.(agentId);
+  return valueText(agent?.agentName) || valueText(agent?.name) || agentId;
+}
+
+function formatAutomationSuggestionText(payload, deps: any = {}) {
+  const suggestions = (Array.isArray(payload) ? payload : [payload])
+    .filter((item) => item && typeof item === "object");
+  if (!suggestions.length) return "";
+
+  const blocks = suggestions.map((suggestion, index) => {
+    const jobData = valueRecord(suggestion.jobData);
+    const title = valueText(jobData.label) || valueText(suggestion.title) || "未命名自动任务";
+    const schedule = formatAutomationSchedule(jobData);
+    const agentLabel = resolveAutomationAgentLabel(jobData, deps);
+    const prompt = valueText(jobData.prompt) || valueText(suggestion.description);
+    const shortCode = valueText(suggestion.shortCode) || valueText(suggestion.suggestionShortCode);
+    const platform = formatBridgePlatform(deps.bridgeContext);
+    const lines = suggestions.length > 1 ? [`${index + 1}.`] : [];
+    lines.push(`标题：${title}`);
+    if (schedule) lines.push(`时间：${schedule}`);
+    if (agentLabel) lines.push(`执行助手：${agentLabel}`);
+    if (platform) lines.push(`平台：${platform}`);
+    if (prompt) lines.push(`任务内容：${prompt}`);
+    if (shortCode) lines.push(`建议ID：${shortCode}`);
+    return lines.join("\n");
+  });
+
+  if (suggestions.length === 1) {
+    const shortCode = valueText(suggestions[0].shortCode) || valueText(suggestions[0].suggestionShortCode);
+    return [
+      "我准备了一项自动任务建议：",
+      blocks[0],
+      "",
+      "回复 /apply 即可创建这个任务。",
+      ...(shortCode ? [`也可以回复 /apply ${shortCode} 精确创建这一项。`] : []),
+    ].join("\n");
+  }
+
+  return [
+    `我准备了 ${suggestions.length} 项自动任务建议：`,
+    blocks.join("\n\n"),
+    "",
+    "回复 /apply 创建最新这一项。",
+    "也可以回复 /apply <建议ID> 精确创建。",
+  ].join("\n");
 }
 
 function recordBridgeAssistantUsage({ ledger, event, sessionPath, agent, model, bridgeContext }) {
@@ -154,6 +252,22 @@ function recordBridgeAssistantUsage({ ledger, event, sessionPath, agent, model, 
   return null;
 }
 
+/**
+ * 构造 executeExternalMessage 的结构化结果（#1607）。
+ * 正文 / 错误 / 截断三者正交：provider/transport 出错不再吞掉已生成的 partial text。
+ */
+function buildExternalMessageResult({ capturedText, toolMedia, error }) {
+  const text = (capturedText || "").trim() || null;
+  const normalizedError = error == null || error === "" ? null : String(error);
+  return {
+    text,
+    toolMedia: Array.isArray(toolMedia) ? [...toolMedia] : [],
+    error: normalizedError,
+    // 有错误且已有可见正文 ⇒ 正文不可信为完整
+    truncated: !!(normalizedError && text),
+  };
+}
+
 function zeroUsage() {
   return {
     input: 0,
@@ -177,19 +291,6 @@ function warnVisionContextInjection(entry) {
     return;
   }
   log.warn(`vision context injection diagnostic: ${JSON.stringify(entry)}`);
-}
-
-function normalizeFreshCompactNoopReason(reason) {
-  const value = String(reason || "").trim();
-  if (value === "already_compacted" || value === "nothing_to_compact") return value;
-  return null;
-}
-
-function getFreshCompactNoopReason(error) {
-  const message = error?.message || String(error || "");
-  if (message.includes("Already compacted")) return "already_compacted";
-  if (message.includes("Nothing to compact")) return "nothing_to_compact";
-  return null;
 }
 
 function readLastJsonlEntry(filePath) {
@@ -600,6 +701,8 @@ export class BridgeSessionManager {
     const raw = { ...context };
     delete raw.platformLabel;
     delete raw.notificationHint;
+    // 派生字段：重建时由 buildBridgeContext 按平台声明表附加，不缓存代码版本化的能力对象
+    delete raw.interactionCapabilities;
     this._sessionPathBridgeContexts.set(path.resolve(sessionPath), raw);
   }
 
@@ -701,14 +804,28 @@ export class BridgeSessionManager {
   }
 
   /**
-   * 执行外部平台消息：找到或创建持久 session，prompt 并捕获回复文本
+   * 执行外部平台消息：找到或创建持久 session，prompt 并捕获回复文本。
+   *
+   * 结果为结构化对象，正文 / 错误 / 截断三者正交（#1607）：
+   *   - text: 可见正文（trim 后，空则 null）。provider/transport 出错时仍保留已生成的 partial text
+   *   - toolMedia: 工具 details.media 合约产出的媒体
+   *   - error: provider/transport 层错误信息（诊断用，发送侧不得将其作为聊天正文发出）
+   *   - truncated: 正文是否因错误而不完整
+   * 返回 null 仅出现在 prompt 开始前被中止（如 vision prepare 抛 AbortError）；
+ * 流中中止（stopReason "aborted"）会正常 resolve 并返回已生成的 partial，error 为 null。
+   *
    * @param {string} prompt - 格式化后的用户消息
    * @param {string} sessionKey - 会话标识（如 tg_dm_12345）
    * @param {object} [meta] - 元数据（name, avatarUrl, userId）
    * @param {object} [opts] - { guest: boolean, contextTag?: string, onDelta? }
-   * @returns {Promise<string|null>} agent 的回复文本
+   * @returns {Promise<{text: string|null, toolMedia: any[], error: string|null, truncated: boolean}|null>}
    */
   async executeExternalMessage(prompt, sessionKey, meta, opts: any = {}) {
+    // 捕获状态提升到 try 外：错误路径（含 transport throw）也必须拿得到已生成内容（#1607）
+    let capturedText = "";
+    let providerErrorMessage = null;
+    // 工具 details.media 收集器（被动提取 tool_execution_end 事件）
+    const toolMediaUrls = [];
     try {
       let promptText = prompt;
       const isGuest = opts.guest === true;
@@ -766,8 +883,6 @@ export class BridgeSessionManager {
       let sessionOpts;
       const sessionPathRef = { current: null };
       const targetModelRef = { current: null };
-      // 工具 details.media 收集器（被动提取 tool_execution_end 事件）
-      const toolMediaUrls = [];
 
       if (isGuest) {
         // guest 模式：yuan + public-ishiki + contextTag，主模型，无工具
@@ -882,9 +997,7 @@ export class BridgeSessionManager {
         message: displayMessage,
       }, activeSessionPath);
 
-      // 捕获文本输出
-      let capturedText = "";
-      let providerErrorMessage = null;
+      // 捕获文本输出（capturedText / providerErrorMessage 声明见方法顶部）
       const unsub = session.subscribe((event) => {
         recordBridgeAssistantUsage({
           ledger: this._deps.getUsageLedger?.(),
@@ -903,6 +1016,16 @@ export class BridgeSessionManager {
           }
         } else if (event.type === "tool_execution_end" && !event.isError) {
           toolMediaUrls.push(...collectMediaItems(event.result?.details?.media));
+          const automationSuggestionText = formatAutomationSuggestionText(
+            event.result?.details?.automationSuggestion || event.result?.details?.automationSuggestions,
+            {
+              getAgentById: this._deps.getAgentById,
+              bridgeContext,
+            },
+          );
+          if (automationSuggestionText) {
+            capturedText += (capturedText ? "\n\n" : "") + automationSuggestionText;
+          }
           const card = event.result?.details?.card;
           if (card?.description) {
             capturedText += (capturedText ? "\n\n" : "") + card.description;
@@ -997,20 +1120,23 @@ export class BridgeSessionManager {
           log.warn(`bridge memory notifyTurn failed (${sessionKey}): ${err?.message || err}`);
         }
       }
-      if (providerErrorMessage) {
-        return { __bridgeError: true, message: providerErrorMessage };
-      }
-
-      const text = capturedText.trim() || null;
       if (toolMediaUrls.length) {
         debugLog()?.log("bridge-session", `tool media → ${toolMediaUrls.length} url(s) via details.media`);
-        return { text, toolMedia: toolMediaUrls };
       }
-      return text;
+      return buildExternalMessageResult({
+        capturedText,
+        toolMedia: toolMediaUrls,
+        error: providerErrorMessage,
+      });
     } catch (err) {
       if (isAbortLikeError(err)) return null;
       log.error(`external message failed (${sessionKey}): ${err.message}`);
-      return { __bridgeError: true, message: err.message };
+      return buildExternalMessageResult({
+        capturedText,
+        toolMedia: toolMediaUrls,
+        // message_end 携带的 provider 错误（若有）比 transport throw 更贴近根因，优先保留
+        error: providerErrorMessage || err.message || String(err),
+      });
     }
   }
 

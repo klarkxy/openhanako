@@ -82,6 +82,19 @@ function agentMatchesListOptions(agent, options: any = {}) {
   return true;
 }
 
+function fallbackUserNameForLocale(locale) {
+  return String(locale || "zh").startsWith("zh") ? "用户" : "User";
+}
+
+function renderIdentityTemplateForList(identityMd, cfg, agentId) {
+  const agentName = cfg?.agent?.name || agentId;
+  const userName = cfg?.user?.name || fallbackUserNameForLocale(cfg?.locale);
+  return String(identityMd || "")
+    .replace(/\{\{userName\}\}/g, userName)
+    .replace(/\{\{agentName\}\}/g, agentName)
+    .replace(/\{\{agentId\}\}/g, agentId);
+}
+
 export class AgentManager {
   declare _activeAgentId: any;
   declare _activityStores: any;
@@ -134,6 +147,20 @@ export class AgentManager {
 
   /** 清除 listAgents 缓存（agent 增删改时调用） */
   invalidateAgentListCache() { this._agentListCache = null; }
+
+  /** 重建所有已初始化 agent 的 _systemPrompt（花名册变更时调用） */
+  _rebuildAllAgentSystemPrompts() {
+    for (const [id, agent] of this._agents) {
+      if (!agent.runtimeInitialized) continue;
+      try {
+        agent._systemPrompt = agent.buildSystemPrompt({
+          forceMemoryEnabled: agent._memoryMasterEnabled,
+        });
+      } catch (err) {
+        log.warn(`rebuild systemPrompt for ${id} failed: ${err?.message || err}`);
+      }
+    }
+  }
 
   get agents() { return this._agents; }
   get activeAgentId() { return this._activeAgentId; }
@@ -387,6 +414,41 @@ export class AgentManager {
       .filter(Boolean);
   }
 
+  /**
+   * 团队花名册唯一事实源：返回未删除、config 可用的 agent 轻量条目。
+   * system prompt Team 区块、subagent 发现、DM、workflow、channel 工具
+   * 都通过注入的回调消费这份列表，禁止在 Agent 内部私扫 agentsDir（#1657 / #1633）。
+   */
+  listActiveAgentsForRoster() {
+    try {
+      return this._scanAgentDirs().map((entry) => this._readRosterEntry(entry.name));
+    } catch {
+      return [];
+    }
+  }
+
+  _readRosterEntry(agentId) {
+    const dir = path.join(this._d.agentsDir, agentId);
+    try {
+      const cfg = safeReadYAMLSync(path.join(dir, "config.yaml"), {}, YAML);
+      const chatRef = cfg.models?.chat;
+      const model = typeof chatRef === "object"
+        ? String(chatRef?.id || "")
+        : String(chatRef || "");
+      let summary = "";
+      try {
+        summary = fs.readFileSync(path.join(dir, "description.md"), "utf-8")
+          .split("\n")
+          .filter((l) => !l.trim().startsWith("<!--"))
+          .join("\n")
+          .trim();
+      } catch {}
+      return { id: agentId, name: cfg.agent?.name || agentId, summary, model };
+    } catch {
+      return { id: agentId, name: agentId, summary: "", model: "" };
+    }
+  }
+
   /** 扫盘读取所有 agent 元数据（I/O 密集，由缓存保护） */
   _scanAgentList() {
     const entries = fs.readdirSync(this._d.agentsDir, { withFileTypes: true });
@@ -401,7 +463,8 @@ export class AgentManager {
         let identity = "";
         try {
           const idMd = fs.readFileSync(path.join(this._d.agentsDir, entry.name, "identity.md"), "utf-8");
-          const lines = idMd.split("\n").filter(l => l.trim() && !l.startsWith("#"));
+          const renderedIdMd = renderIdentityTemplateForList(idMd, cfg, entry.name);
+          const lines = renderedIdMd.split("\n").filter(l => l.trim() && !l.startsWith("#"));
           identity = lines[0]?.trim() || "";
         } catch {}
         const avatarDir = path.join(this._d.agentsDir, entry.name, "avatars");
@@ -565,10 +628,7 @@ export class AgentManager {
     ]);
     if (identitySrc) {
       const tmpl = fs.readFileSync(identitySrc, "utf-8");
-      const filled = tmpl
-        .replace(/\{\{agentName\}\}/g, name.trim())
-        .replace(/\{\{userName\}\}/g, currentAgent?.userName || t("error.fallbackUserName"));
-      fs.writeFileSync(path.join(agentDir, "identity.md"), filled, "utf-8");
+      fs.writeFileSync(path.join(agentDir, "identity.md"), tmpl, "utf-8");
     }
 
     // ishiki.md
@@ -687,6 +747,7 @@ export class AgentManager {
     }
 
     this.invalidateAgentListCache();
+    this._rebuildAllAgentSystemPrompts();
     log.log(`创建助手: ${name} (${agentId})`);
     return { id: agentId, name: name.trim() };
   }
@@ -867,6 +928,7 @@ export class AgentManager {
     }
 
     this.invalidateAgentListCache();
+    this._rebuildAllAgentSystemPrompts();
     log.log(`已删除助手: ${agentId}`);
   }
 
@@ -984,6 +1046,7 @@ export class AgentManager {
     ag.setCallbacks({
       emitDevLog:           (text, level) => getEngine()?.emitDevLog?.(text, level),
       getConfirmStore:      () => getEngine()?.confirmStore ?? null,
+      getAutomationSuggestionStore: () => getEngine()?.automationSuggestionStore ?? null,
       getApprovalGateway:   () => getEngine()?.approvalGateway ?? null,
       getCurrentSessionPath:() => getEngine()?.currentSessionPath ?? null,
       getSessionPermissionMode: (sp) => getEngine()?.getSessionPermissionMode?.(sp) ?? null,
@@ -1008,6 +1071,8 @@ export class AgentManager {
       getLearnSkills:       () => getEngine()?.getLearnSkills?.() ?? {},
       getPreferences:       () => getEngine()?.preferences ?? null,
       isChannelsEnabled:    () => getEngine()?.isChannelsEnabled?.() ?? false,
+      // 花名册唯一事实源：tombstone / 坏目录已在 AgentManager 层过滤
+      listActiveAgents:     () => this.listActiveAgentsForRoster(),
       createChannelEntry:    (input) => getEngine()?.createChannelEntry?.(input),
       resolveUtilityConfig: () => getEngine()?.resolveUtilityConfig?.({ agentId: ag.id }),
       getCwd:               () => getEngine()?.cwd ?? "",

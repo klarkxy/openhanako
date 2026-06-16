@@ -44,7 +44,7 @@ function makeAgent({ experienceEnabled }) {
   agent._webFetchTool = makeTool("web_fetch");
   agent._todoTool = makeTool("todo_write");
   agent._stageFilesTool = makeTool("stage_files");
-  agent._artifactTool = makeTool("create_artifact");
+  agent._fileTool = makeTool("file");
   agent._notifyTool = makeTool("notify");
   agent._stopTaskTool = makeTool("stop_task");
   agent._checkDeferredTool = makeTool("check_pending_tasks");
@@ -89,15 +89,6 @@ describe("agent experience toggle", () => {
     expect(toolNames).toContain("recall_experience");
   });
 
-  it("keeps create_artifact as an explicit legacy compatibility tool only", () => {
-    const { agent, root } = makeAgent({ experienceEnabled: false });
-    roots.push(root);
-
-    expect(agent.getToolsSnapshot().map((tool) => tool.name)).not.toContain("create_artifact");
-    expect(agent.getToolsSnapshot({ includeLegacyArtifactTool: true }).map((tool) => tool.name))
-      .toContain("create_artifact");
-  });
-
   it("does not expose a top-level wait tool", () => {
     const { agent, root } = makeAgent({ experienceEnabled: false });
     roots.push(root);
@@ -112,9 +103,22 @@ describe("agent experience toggle", () => {
     const prompt = agent.buildSystemPrompt();
     expect(prompt).toContain("SessionFile means a local file related to the current session");
     expect(prompt).toContain("After write/edit succeeds, the tool layer records the file as session-related automatically");
-    expect(prompt).toContain("use stage_files to mark it as delivered");
-    expect(prompt).toContain("Do not repeatedly stage the same file once it has already been staged");
+    expect(prompt).toContain("use the file tool");
+    expect(prompt).toContain("use action=copy and prefer passing fileId");
+    expect(prompt).toContain("Staging promotes this session-related file");
+    expect(prompt).toContain("After write/edit creates or modifies a file, call stage_files for that changed file");
+    expect(prompt).toContain("Do not repeatedly stage the same unchanged file");
     expect(prompt).not.toContain("create_artifact");
+  });
+
+  it("exposes transitional file tool beside legacy stage_files for SessionFile materialization v0", () => {
+    const { agent, root } = makeAgent({ experienceEnabled: false });
+    roots.push(root);
+
+    const toolNames = agent.getToolsSnapshot().map((tool) => tool.name);
+    expect(toolNames).toContain("stage_files");
+    expect(toolNames).toContain("file");
+    expect(toolNames).not.toContain("copy_file");
   });
 
   it("lets session creation force the frozen experience tool state", () => {

@@ -28,9 +28,9 @@ export const CORE_TOOL_NAMES = [
 export const STANDARD_TOOL_NAMES = [
   "web_fetch",
   "todo_write",
-  "create_artifact",
   "notify",
   "stage_files",
+  "file",
   "text_file",
   "apply_patch",
   "json_query",
@@ -59,12 +59,14 @@ export const OPTIONAL_TOOL_NAMES = [
   "browser",
   "dm",
   "install_skill",
+  "office",
   "update_settings",
   "workflow",
 ];
 
 export const PLUGIN_BACKED_OPTIONAL_TOOL_IDS = {
   beautify: "beautify",
+  office: "office",
 };
 
 const OPTIONAL_TOOL_NAMES_SET = new Set(OPTIONAL_TOOL_NAMES);

@@ -131,6 +131,134 @@ describe("SessionCoordinator", () => {
     expect(createAgentSessionMock.mock.calls[0][0].resourceLoader.getSystemPrompt()).toBe("MEMORY OFF");
   });
 
+  it("builds a fresh session prompt snapshot with the effective cwd", async () => {
+    const newCwd = path.join(tempDir, "new-workspace");
+    const oldCwd = path.join(tempDir, "old-workspace");
+    fs.mkdirSync(newCwd, { recursive: true });
+    fs.mkdirSync(oldCwd, { recursive: true });
+
+    const agent = {
+      id: "hana",
+      agentDir: path.join(tempDir, "agents", "hana"),
+      sessionDir: path.join(tempDir, "agents", "hana", "sessions"),
+      memoryMasterEnabled: true,
+      sessionMemoryEnabled: true,
+      setMemoryEnabled: vi.fn(),
+      buildSystemPrompt: vi.fn(({ cwdOverride }: any = {}) => `prompt cwd=${cwdOverride || "missing"}`),
+      tools: [],
+    };
+    fs.mkdirSync(agent.sessionDir, { recursive: true });
+
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: { id: "m", provider: "test" },
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: () => "medium",
+      }),
+      getResourceLoader: () => ({
+        getSystemPrompt: () => "BASE",
+        getAppendSystemPrompt: () => [],
+        getExtensions: () => ({ extensions: [], errors: [] }),
+        getSkills: () => ({ skills: [], diagnostics: [] }),
+        getAgentsFiles: () => ({ agentsFiles: [] }),
+      }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: vi.fn(),
+      getHomeCwd: () => oldCwd,
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [],
+    });
+
+    await coordinator.createSession(null, newCwd, true);
+
+    expect(agent.buildSystemPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      cwdOverride: newCwd,
+    }));
+    expect(createAgentSessionMock.mock.calls[0][0].resourceLoader.getSystemPrompt()).toBe(`prompt cwd=${newCwd}`);
+  });
+
+  it("refreshes agent appearance after the fresh session exists instead of blocking prompt snapshot", async () => {
+    const order: string[] = [];
+    const agent = {
+      sessionDir: "/tmp/agent-sessions",
+      memoryMasterEnabled: true,
+      sessionMemoryEnabled: true,
+      setMemoryEnabled: vi.fn(),
+      refreshAppearanceSummary: vi.fn(async () => {
+        order.push("refresh");
+        return "你的形象安静而专注。";
+      }),
+      buildSystemPrompt: vi.fn(() => {
+        order.push("prompt");
+        return "BASE";
+      }),
+    };
+
+    createAgentSessionMock.mockImplementationOnce(async (opts) => {
+      order.push("create");
+      return {
+        session: {
+          sessionManager: { getSessionFile: () => "/tmp/session.jsonl" },
+          subscribe: vi.fn(() => vi.fn()),
+          setActiveToolsByName: vi.fn(),
+          model: opts.model,
+        },
+      };
+    });
+
+    const model = { id: "vision-chat", provider: "test", input: ["text", "image"] };
+    const coordinator = new SessionCoordinator({
+      agentsDir: "/tmp/agents",
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: model,
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: () => "medium",
+      }),
+      getResourceLoader: () => ({
+        getSystemPrompt: () => "BASE",
+        getAppendSystemPrompt: () => [],
+        getExtensions: () => ({ extensions: [], errors: [] }),
+        getSkills: () => ({ skills: [], diagnostics: [] }),
+        getAgentsFiles: () => ({ agentsFiles: [] }),
+      }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: vi.fn(),
+      getHomeCwd: () => "/tmp/home",
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [],
+    });
+
+    await coordinator.createSession(null, "/tmp/workspace", true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(agent.refreshAppearanceSummary).toHaveBeenCalledWith({
+      targetModel: model,
+      rebuildSystemPrompt: true,
+    });
+    expect(order).toEqual(["prompt", "create", "refresh"]);
+  });
+
   it("keeps different cached session memory flags without mutating the agent session flag on switch", async () => {
     const agentDir = path.join(tempDir, "agents", "hana");
     const sessionDir = path.join(agentDir, "sessions");
@@ -311,6 +439,146 @@ describe("SessionCoordinator", () => {
     const meta = JSON.parse(fs.readFileSync(path.join(sessionDir, "session-meta.json"), "utf-8"));
     expect(meta["first.jsonl"].thinkingLevel).toBe("high");
     expect(meta["second.jsonl"].thinkingLevel).toBe("medium");
+  });
+
+  it("persists a new session before the first assistant response and keeps the prefix non-duplicated", async () => {
+    const agentDir = path.join(tempDir, "agents", "hana");
+    const sessionDir = path.join(agentDir, "sessions");
+    const sessionPath = path.join(sessionDir, "first-turn-failure.jsonl");
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    const header = {
+      type: "session",
+      version: 3,
+      id: "sess-first-turn",
+      timestamp: "2026-06-14T12:00:00.000Z",
+      cwd: tempDir,
+    };
+    const sessionManager: any = {
+      fileEntries: [header],
+      flushed: false,
+      getCwd: () => tempDir,
+      getSessionFile: () => sessionPath,
+      _rewriteFile: vi.fn(function () {
+        fs.writeFileSync(
+          sessionPath,
+          `${this.fileEntries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+          "utf-8",
+        );
+      }),
+    };
+    let listener: any = null;
+    const model = { id: "m", provider: "test" };
+    const agent = {
+      id: "hana",
+      name: "Hana",
+      agentName: "Hana",
+      agentDir,
+      sessionDir,
+      sessionMemoryEnabled: true,
+      memoryMasterEnabled: true,
+      config: {},
+      setMemoryEnabled: vi.fn(),
+      buildSystemPrompt: () => "BASE",
+      tools: [],
+    };
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: model,
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: (level) => level,
+      }),
+      getResourceLoader: () => ({
+        getSystemPrompt: () => "BASE",
+        getAppendSystemPrompt: () => [],
+        getExtensions: () => ({ extensions: [], errors: [] }),
+        getSkills: () => ({ skills: [], diagnostics: [] }),
+        getAgentsFiles: () => ({ agentsFiles: [] }),
+      }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: vi.fn(),
+      getHomeCwd: () => tempDir,
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map([["hana", agent]]),
+      listAgents: () => [agent],
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+    });
+
+    sessionManagerCreateMock.mockReturnValueOnce(sessionManager);
+    createAgentSessionMock.mockResolvedValueOnce({
+      session: {
+        sessionManager,
+        subscribe: vi.fn((fn) => {
+          listener = fn;
+          return vi.fn();
+        }),
+        setActiveToolsByName: vi.fn(),
+        setThinkingLevel: vi.fn(),
+        model,
+      },
+    });
+
+    await coordinator.createSession(null, tempDir, true);
+
+    expect(fs.existsSync(sessionPath)).toBe(true);
+    expect(sessionManager.flushed).toBe(true);
+    expect(JSON.parse(fs.readFileSync(sessionPath, "utf-8").trim())).toMatchObject({
+      type: "session",
+      id: "sess-first-turn",
+    });
+    expect((await coordinator.listSessions()).some((session) => session.path === sessionPath)).toBe(true);
+
+    const userEntry = {
+      type: "message",
+      id: "u1",
+      parentId: null,
+      timestamp: "2026-06-14T12:00:01.000Z",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "look at this image" }],
+        timestamp: Date.now(),
+      },
+    };
+    listener?.({ type: "message_end", message: userEntry.message });
+    sessionManager.fileEntries.push(userEntry);
+    sessionManager.flushed = false;
+    await Promise.resolve();
+
+    let lines = fs.readFileSync(sessionPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(lines.filter((entry) => entry.type === "session")).toHaveLength(1);
+    expect(lines.filter((entry) => entry.type === "message")).toHaveLength(1);
+    expect(sessionManager.flushed).toBe(true);
+
+    const assistantEntry = {
+      type: "message",
+      id: "a1",
+      parentId: "u1",
+      timestamp: "2026-06-14T12:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        timestamp: Date.now(),
+      },
+    };
+    sessionManager.fileEntries.push(assistantEntry);
+    if (sessionManager.flushed) {
+      fs.appendFileSync(sessionPath, `${JSON.stringify(assistantEntry)}\n`, "utf-8");
+    } else {
+      sessionManager._rewriteFile();
+    }
+
+    lines = fs.readFileSync(sessionPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(lines.filter((entry) => entry.type === "session")).toHaveLength(1);
+    expect(lines.filter((entry) => entry.type === "message")).toHaveLength(2);
   });
 
   it("uses the model-level thinking default for new sessions without an explicit draft", async () => {
@@ -1165,6 +1433,7 @@ describe("SessionCoordinator", () => {
       },
     }));
     coordinator._sessions = new Map();
+    coordinator._hibernatedSessionMeta = new Map();
     coordinator._prePromptAbortControllers = new Map();
     coordinator._currentSessionPath = null;
     coordinator._sessionStarted = false;
@@ -1486,103 +1755,6 @@ describe("SessionCoordinator", () => {
     });
   });
 
-  it("keeps legacy create_artifact out of fresh sessions but restores it for old sessions", async () => {
-    const freshSessionFile = path.join(tempDir, "agents", "hana", "sessions", "fresh.jsonl");
-    const restoredSessionFile = path.join(tempDir, "agents", "hana", "sessions", "restored.jsonl");
-    const restoredNewSessionFile = path.join(tempDir, "agents", "hana", "sessions", "restored-new.jsonl");
-    const agent = {
-      id: "hana",
-      agentDir: path.join(tempDir, "agents", "hana"),
-      sessionDir: path.join(tempDir, "agents", "hana", "sessions"),
-      memoryEnabled: true,
-      experienceEnabled: false,
-      setMemoryEnabled: vi.fn(),
-      buildSystemPrompt: () => "BASE",
-      getToolsSnapshot: vi.fn(( options: any = {}) => [
-        { name: "stage_files" },
-        ...(options.includeLegacyArtifactTool ? [{ name: "create_artifact" }] : []),
-      ]),
-    };
-    fs.mkdirSync(agent.sessionDir, { recursive: true });
-    const buildTools = vi.fn((_cwd, customTools) => ({ tools: [], customTools }));
-    createAgentSessionMock
-      .mockResolvedValueOnce({
-        session: {
-          sessionManager: { getSessionFile: () => freshSessionFile },
-          subscribe: vi.fn(() => vi.fn()),
-          setActiveToolsByName: vi.fn(),
-        },
-      })
-      .mockResolvedValueOnce({
-        session: {
-          sessionManager: { getSessionFile: () => restoredSessionFile },
-          subscribe: vi.fn(() => vi.fn()),
-          setActiveToolsByName: vi.fn(),
-        },
-      })
-      .mockResolvedValueOnce({
-        session: {
-          sessionManager: { getSessionFile: () => restoredNewSessionFile },
-          subscribe: vi.fn(() => vi.fn()),
-          setActiveToolsByName: vi.fn(),
-        },
-      });
-
-    const coordinator = new SessionCoordinator({
-      agentsDir: path.join(tempDir, "agents"),
-      getAgent: () => agent,
-      getActiveAgentId: () => "hana",
-      getModels: () => ({
-        currentModel: { name: "test-model" },
-        authStorage: {},
-        modelRegistry: {},
-        resolveThinkingLevel: () => "medium",
-      }),
-      getResourceLoader: () => ({
-        getSystemPrompt: () => "BASE",
-        getAppendSystemPrompt: () => [],
-        getExtensions: () => ({ extensions: [], errors: [] }),
-      }),
-      getSkills: () => null,
-      buildTools,
-      emitEvent: () => {},
-      getHomeCwd: () => tempDir,
-      agentIdFromSessionPath: () => "hana",
-      switchAgentOnly: async () => {},
-      getConfig: () => ({}),
-      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
-      getAgents: () => new Map(),
-      getActivityStore: () => null,
-      getAgentById: () => agent,
-      listAgents: () => [],
-    });
-
-    await coordinator.createSession(null, tempDir, true);
-    await coordinator.createSession(null, tempDir, true, null, { restore: true });
-    fs.writeFileSync(
-      path.join(agent.sessionDir, "session-meta.json"),
-      JSON.stringify({ [path.basename(restoredNewSessionFile)]: { toolNames: ["stage_files"] } }, null, 2),
-    );
-    await coordinator.createSession(
-      { getCwd: () => tempDir, getSessionFile: () => restoredNewSessionFile },
-      tempDir,
-      true,
-      null,
-      { restore: true },
-    );
-
-    expect(buildTools.mock.calls[0][1].map((tool) => tool.name)).toEqual(["stage_files"]);
-    expect(buildTools.mock.calls[1][1].map((tool) => tool.name)).toEqual([
-      "stage_files",
-      "create_artifact",
-    ]);
-    expect(buildTools.mock.calls[2][1].map((tool) => tool.name)).toEqual(["stage_files"]);
-    expect(agent.getToolsSnapshot.mock.calls[0][0]).not.toHaveProperty("includeLegacyArtifactTool", true);
-    expect(agent.getToolsSnapshot.mock.calls[1][0]).toMatchObject({
-      includeLegacyArtifactTool: true,
-    });
-    expect(agent.getToolsSnapshot.mock.calls[2][0]).not.toHaveProperty("includeLegacyArtifactTool", true);
-  });
 
   it("threads extra workspace folders into tools, prompt context, and session meta", async () => {
     const sessionFile = path.join(tempDir, "agents", "hana", "sessions", "scope.jsonl");
@@ -1815,7 +1987,10 @@ describe("SessionCoordinator", () => {
     expect(restoreOptions.resourceLoader.getAgentsFiles()).toEqual({ agentsFiles: [{ path: "/AGENTS.md", content: "rules v1" }] });
     expect(restoredSession._baseSystemPrompt).toBe("FINAL PROMPT V1");
     expect(restoredSession.agent.state.systemPrompt).toBe("FINAL PROMPT V1");
+    // context ring refresh keeps restore cheap: old sessions keep frozen prompt snapshots,
+    // while explicit refresh/fresh compact is responsible for rebuilding capability snapshots.
     expect(agent.buildSystemPrompt).toHaveBeenCalledTimes(1);
+    expect(coordinator.getSessionCapabilityDriftNotice(sessionFile)).toBeNull();
   });
 
   it("restores a prompt-snapshotted session with xhigh before the SDK model is available", async () => {
@@ -3013,6 +3188,77 @@ describe("SessionCoordinator", () => {
     );
   });
 
+  it("aborts session-owned sidecars when the user cancels a streaming session", async () => {
+    const sessionFile = path.join(tempDir, "cancel-sidecars.jsonl");
+    const taskRegistry = { abortByParentSession: vi.fn() };
+    const subagentRuns = { abortByParentSession: vi.fn() };
+    const subagentThreads = { removeBySession: vi.fn() };
+    const deferredStore = { suppressBySession: vi.fn() };
+    const confirmStore = { abortBySession: vi.fn() };
+    const closeTerminalsForSession = vi.fn();
+    const closeBrowserForSession = vi.fn(async () => undefined);
+    const browserSpy = vi.spyOn(BrowserManager, "instance").mockReturnValue({
+      closeBrowserForSession,
+    } as any);
+    const stuckSession = {
+      isStreaming: true,
+      sessionManager: { getSessionFile: () => sessionFile },
+      abort: vi.fn(),
+      dispose: vi.fn(),
+      extensionRunner: null,
+    };
+    const coordinator = new SessionCoordinator({
+      agentsDir: tempDir,
+      getAgent: () => ({
+        id: "hana",
+        agentDir: tempDir,
+        sessionDir: tempDir,
+        _memoryTicker: { notifySessionEnd: vi.fn(() => Promise.resolve()) },
+      }),
+      getActiveAgentId: () => "hana",
+      getModels: () => ({ authStorage: {}, modelRegistry: {}, resolveThinkingLevel: () => "medium" }),
+      getResourceLoader: () => ({ getSystemPrompt: () => "prompt" }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: vi.fn(),
+      getHomeCwd: () => tempDir,
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => null,
+      listAgents: () => [],
+      taskRegistry,
+      subagentRuns,
+      subagentThreads,
+      getDeferredResultStore: () => deferredStore,
+      getConfirmStore: () => confirmStore,
+      closeTerminalsForSession,
+    });
+    coordinator.sessions.set(sessionFile, {
+      session: stuckSession,
+      agentId: "hana",
+      lastTouchedAt: Date.now(),
+      unsub: vi.fn(),
+    });
+
+    try {
+      await coordinator.abortSession(sessionFile);
+
+      expect(taskRegistry.abortByParentSession).toHaveBeenCalledWith(sessionFile, "abort");
+      expect(subagentRuns.abortByParentSession).toHaveBeenCalledWith(sessionFile, "abort");
+      expect(subagentThreads.removeBySession).toHaveBeenCalledWith(sessionFile);
+      expect(deferredStore.suppressBySession).toHaveBeenCalledWith(sessionFile, "abort");
+      expect(confirmStore.abortBySession).toHaveBeenCalledWith(sessionFile);
+      expect(closeTerminalsForSession).toHaveBeenCalledWith(sessionFile);
+      expect(closeBrowserForSession).toHaveBeenCalledWith(sessionFile);
+    } finally {
+      browserSpy.mockRestore();
+    }
+  });
+
   it("executeIsolated builds non-session tools from the master memory switch, not the focused session switch", async () => {
     const sessionFile = path.join(tempDir, "isolated-master-tools.jsonl");
     const builtinTool = { name: "read" };
@@ -4122,6 +4368,50 @@ describe("SessionCoordinator", () => {
     expect(onSessionRuntimeDiscarded).toHaveBeenCalledTimes(2);
     expect(onSessionRuntimeDiscarded).toHaveBeenNthCalledWith(1, livePath, "archive");
     expect(onSessionRuntimeDiscarded).toHaveBeenNthCalledWith(2, hibernatedPath, "archive");
+  });
+
+  it("discardSessionRuntime can skip memory session-end notification for archived sessions", async () => {
+    const notifySessionEnd = vi.fn(async () => {});
+    const agent = {
+      id: "hana",
+      agentName: "小花",
+      sessionDir: path.join(tempDir, "agents", "hana", "sessions"),
+      _memoryTicker: { notifySessionEnd },
+    };
+    const livePath = path.join(agent.sessionDir, "skip-memory.jsonl");
+    fs.mkdirSync(agent.sessionDir, { recursive: true });
+    const session = {
+      isStreaming: false,
+      dispose: vi.fn(),
+      sessionManager: { getSessionFile: () => livePath },
+    };
+    const coordinator = new SessionCoordinator({
+      agentsDir: path.join(tempDir, "agents"),
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({ authStorage: {}, modelRegistry: {}, resolveThinkingLevel: () => "medium" }),
+      getResourceLoader: () => ({ getSystemPrompt: () => "BASE" }),
+      getSkills: () => null,
+      buildTools: () => ({ tools: [], customTools: [] }),
+      emitEvent: () => {},
+      getHomeCwd: () => "/tmp/home",
+      agentIdFromSessionPath: () => "hana",
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [{ id: "hana", name: "小花" }],
+      getConfirmStore: () => ({ abortBySession: vi.fn() }),
+      getDeferredResultStore: () => ({ clearBySession: vi.fn() }),
+      closeTerminalsForSession: vi.fn(),
+    });
+    coordinator._sessions.set(livePath, { session, agentId: "hana", unsub: vi.fn() });
+
+    await expect(coordinator.discardSessionRuntime(livePath, "parent session archived", { skipMemory: true })).resolves.toBe(true);
+
+    expect(notifySessionEnd).not.toHaveBeenCalled();
   });
 
   it("discardSessionRuntime keeps a completed discard successful when the discard hook rejects", async () => {

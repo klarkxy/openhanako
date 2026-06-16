@@ -339,6 +339,23 @@ export function register(app, ctx) {
 
 All three patterns are backward-compatible: plugins that don't use ctx need no changes. `ctx.bus` can directly call built-in session operations: `session:create`, `session:get`, `session:update`, `session:send`, `session:abort`, `session:history`, `session:list`, `agent:list`, `agent:profile`, `agent:create`, and `agent:update`. Operations against an existing session must include a `sessionPath` parameter. See the Route Context and Session Bus Handlers sections below for the full API.
 
+#### Request-level context (pluginRequestContext)
+
+Every HTTP request entering a plugin route gets its own request-level context, readable via `c.get("pluginRequestContext")` in all three patterns:
+
+```js
+app.post("/create-session", async (c) => {
+  const reqCtx = c.get("pluginRequestContext");
+  // reqCtx.principal        identity behind this request (owner device / this plugin's iframe surface…), null when invoked directly in tests
+  // reqCtx.agentId          current agent id injected by the proxy layer
+  // reqCtx.capabilityGrant  { accessLevel, declaredPermissions, legacyDeclaration }
+  const result = await reqCtx.bus.request("session:create", { agentId: reqCtx.agentId });
+  return c.json(result);
+});
+```
+
+`reqCtx.bus` differs from `ctx.bus` in one way: calling a system-sensitive capability through it (catalog entries with `owner: "system"` and a `permission`, e.g. `session:create` → `session.write`) is checked against the manifest declaration plus the user grant. A permission missing from manifest `capabilities` / `sensitiveCapabilities` (namespaces work: `session` covers `session.write`) returns 403 `PLUGIN_CAPABILITY_NOT_DECLARED`; a plugin without full access returns 403 `PLUGIN_CAPABILITY_NOT_GRANTED`. Error responses carry `capability` / `permission` / `pluginId` / `declared` / `granted` so the missing piece is immediately visible. Legacy manifests with no capability declarations at all (both fields absent) are treated as declaring everything, so existing plugins keep working; once either list is explicitly written, the declaration is enforced strictly — an explicit empty array (`"capabilities": []`) is not legacy and denies every system-sensitive capability. Prefer `reqCtx.bus` when handling requests that originate from iframe pages.
+
 ### Extensions (Pi SDK Event Interception) ⚡ full-access
 
 Each `.js` file in the `extensions/` directory exports a factory function that receives Pi SDK's `ExtensionAPI` and subscribes to LLM pipeline events:
@@ -512,6 +529,18 @@ The host appends `hana-theme` and `hana-css` query parameters to the iframe URL.
 ```
 
 Static frontend resources belong under the plugin's `assets/` directory and are served by the Hana host at `/api/plugins/{pluginId}/assets/...`. This follows the same boundary idea as VS Code Webview resources: the entry route is opened with the local token or `pluginIframeTicket`; after a successful page response, the host issues a short-lived HttpOnly cookie scoped only to `/api/plugins/{pluginId}/assets/`. Vite split chunks, `React.lazy()` imports, CSS, fonts, images, JSON, wasm, and related static requests should not depend on `?token` or `pluginIframeTicket`.
+
+When page scripts call the plugin's own dynamic route APIs (`/api/plugins/{pluginId}/...`), use the surface session credential the host appends to the iframe URL (query parameter `pluginSurfaceSession`) and send it back via the `X-Hana-Plugin-Surface-Session` header (or a query parameter of the same name):
+
+```js
+const surfaceSession = new URLSearchParams(location.search).get('pluginSurfaceSession');
+const res = await fetch('/api/plugins/my-plugin/create-session', {
+  method: 'POST',
+  headers: { 'X-Hana-Plugin-Surface-Session': surfaceSession },
+});
+```
+
+This credential only authorizes the plugin's own proxied route paths and carries no host scopes; the host strips it from the request before forwarding to the plugin handler. `pluginIframeTicket` is a one-time document-load credential — do not reuse it for XHR.
 
 Browser code should prefer the SDK helper:
 
@@ -801,7 +830,10 @@ Plugins should prefer the typed helpers from `@hana/plugin-runtime`. They map to
 | `agent:create` / `agent:update` | Create or update plugin-owned agents, including `visibility: "plugin_private"` |
 | `model:sample-text` | Run a non-streaming utility-model text sample for RAG query rewriting, summarization, routing, and similar plugin-side work |
 | `provider:media-providers` / `provider:resolve-media-model` | Discover configured media providers and resolve a concrete media model |
-| `media:generate-image` | Submit an image generation task through the built-in media task pipeline; completed files are delivered as `SessionFile` records |
+| `media:generate-image` | Submit an image generation task through the built-in media task pipeline; completed files are delivered as `SessionFile` records by default, while `delivery.mode="response"` returns task/file results only |
+| `media:generate` / `media:generate-video` / `media:transcribe-audio` | Submit generic media tasks, video generation, or audio transcription through the native Media Manager |
+
+Plugin backend code should prefer the `@hana/plugin-runtime` helpers. Plugin pages or route handlers that already hold host HTTP credentials can also use the native facade: `POST /api/media/generate`, `POST /api/media/image/generate`, `POST /api/media/video/generate`, and `POST /api/media/asr/transcribe`. These endpoints require chat scope. Image/video requests must include `prompt`; the default `delivery.mode="session"` also requires `sessionPath` and registers completed files as `SessionFile` records. For plugin-owned artifacts, pass `delivery: { mode: "response" }` and omit `sessionPath`; poll `GET /api/media/tasks/:taskId`, then fetch `task.files[]` through `GET /api/media/generated/:filename`. ASR requests still require `sessionPath` and `fileId`; image references must use `SessionFile` references such as `{ kind: "session_file", fileId }`. All of them forward into the same Media Manager task pipeline. Image adapters accept multiple reference images by default; adapters that only support one reference should declare `maxReferenceImages: 1`, and the pipeline rejects oversized requests before enqueueing.
 
 `session:send.context` is injected only into the current provider request. It does not rewrite the visible user message and does not persist as user text. A plugin can run its own RAG, world-state, mood, or character-state system, then attach those snippets when sending:
 
@@ -809,7 +841,9 @@ Plugins should prefer the typed helpers from `@hana/plugin-runtime`. They map to
 import {
   createAgent,
   createSession,
+  generateMedia,
   generateImage,
+  transcribeAudio,
   sampleText,
   sendSessionMessage,
 } from "@hana/plugin-runtime";
@@ -846,8 +880,30 @@ await sendSessionMessage(ctx, session.sessionPath, {
 await generateImage(ctx, {
   sessionPath: session.sessionPath,
   prompt: "A handwritten character card on warm paper",
+  referenceImages: [
+    { kind: "session_file", fileId: "sf_reference_a" },
+    { kind: "session_file", fileId: "sf_reference_b" },
+  ],
   ratio: "3:2",
 });
+
+await generateMedia(ctx, {
+  kind: "video",
+  sessionPath: session.sessionPath,
+  prompt: "A slow page-turn animation on warm paper",
+});
+
+const artifactOnly = await generateImage(ctx, {
+  prompt: "A small icon on transparent background",
+  delivery: { mode: "response" },
+});
+// Later poll /api/media/tasks/{artifactOnly.tasks[0].taskId}
+
+const transcription = await transcribeAudio(ctx, {
+  sessionPath: session.sessionPath,
+  fileId: "session-file-id",
+});
+// transcription = { ok: true, transcription: { status, text, ... } }
 ```
 
 ### Dynamic Tool Registration ⚡ full-access

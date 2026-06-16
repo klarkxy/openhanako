@@ -7,6 +7,7 @@ import { BridgeAgentRow } from './bridge/BridgeAgentRow';
 import { BridgePermissionModeSelect, type BridgePermissionMode } from './bridge/BridgeWidgets';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
+import { Toggle } from '../widgets/Toggle';
 import { useSettingsStore } from '../store';
 import styles from '../Settings.module.css';
 
@@ -20,6 +21,14 @@ export function BridgeTab() {
   const qqInfo = b.status?.qq;
   const wxInfo = b.status?.wechat;
   const permissionMode = (b.status?.permissionMode || snapshotBridge?.permissionMode) as BridgePermissionMode | undefined;
+  const receiptEnabled = typeof b.status?.receiptEnabled === 'boolean'
+    ? b.status.receiptEnabled
+    : snapshotBridge?.receiptEnabled;
+  const richStreamingEnabled = typeof b.status?.richStreamingEnabled === 'boolean'
+    ? b.status.richStreamingEnabled
+    : snapshotBridge
+      ? snapshotBridge.richStreamingEnabled !== false
+      : undefined;
   const globalSettingsPending = !permissionMode || b.globalSettingsSaving;
 
   return (
@@ -33,6 +42,30 @@ export function BridgeTab() {
               value={permissionMode}
               onChange={(mode) => b.saveGlobalSettings({ permissionMode: mode })}
               disabled={globalSettingsPending}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.bridge.receiptEnabled')}
+          hint={t('settings.bridge.receiptEnabledDesc')}
+          control={
+            <Toggle
+              on={receiptEnabled}
+              ariaLabel={t('settings.bridge.receiptEnabled')}
+              onChange={(on) => b.saveGlobalSettings({ receiptEnabled: on })}
+              disabled={b.globalSettingsSaving}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.bridge.richStreamingEnabled')}
+          hint={t('settings.bridge.richStreamingEnabledDesc')}
+          control={
+            <Toggle
+              on={richStreamingEnabled}
+              ariaLabel={t('settings.bridge.richStreamingEnabled')}
+              onChange={(on) => b.saveGlobalSettings({ richStreamingEnabled: on })}
+              disabled={b.globalSettingsSaving}
             />
           }
         />
@@ -75,6 +108,15 @@ export function BridgeTab() {
           {t('settings.bridge.howTo')}
         </span>
       </div>
+
+      {/* 微信 */}
+      <WechatSection
+        status={wxInfo}
+        showToast={b.showToast}
+        onSaveConfig={(creds, enabled) => b.saveBridgeConfig('wechat', creds, enabled)}
+        onReload={b.loadStatus}
+        agentId={b.selectedAgentId}
+      />
 
       {/* Telegram */}
       <PlatformSection
@@ -156,15 +198,6 @@ export function BridgeTab() {
         ownerUsers={b.status?.knownUsers?.qq || []}
         currentOwner={b.status?.owner?.qq}
         onOwnerChange={(userId) => b.setOwner('qq', userId)}
-      />
-
-      {/* 微信 */}
-      <WechatSection
-        status={wxInfo}
-        showToast={b.showToast}
-        onSaveConfig={(creds, enabled) => b.saveBridgeConfig('wechat', creds, enabled)}
-        onReload={b.loadStatus}
-        agentId={b.selectedAgentId}
       />
     </div>
   );

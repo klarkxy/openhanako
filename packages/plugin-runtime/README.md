@@ -90,7 +90,9 @@ detached Hana session, so it does not switch the main UI focus.
 import {
   createAgent,
   createSession,
+  generateMedia,
   generateImage,
+  transcribeAudio,
   sampleText,
   sendSessionMessage,
   subscribeSessionEvents,
@@ -134,9 +136,36 @@ export default definePlugin({
     await generateImage(ctx, {
       sessionPath: (session as any).sessionPath,
       prompt: 'A handwritten character card on warm paper',
+      referenceImages: [
+        { kind: 'session_file', fileId: 'sf_reference_a' },
+        { kind: 'session_file', fileId: 'sf_reference_b' },
+      ],
       ratio: '3:2',
     });
+
+    await generateMedia(ctx, {
+      kind: 'video',
+      sessionPath: (session as any).sessionPath,
+      prompt: 'A slow page-turn animation on warm paper',
+    });
+
+    const transcription = await transcribeAudio(ctx, {
+      sessionPath: (session as any).sessionPath,
+      fileId: 'session-file-id',
+    });
+    ctx.log.info('transcription', transcription);
   },
+});
+```
+
+For backend code, prefer these helpers so permission checks and delivery semantics stay explicit. Plugin pages or plugin route handlers that already have host HTTP credentials can call the native facade directly: `POST /api/media/image/generate`, `POST /api/media/video/generate`, `POST /api/media/generate`, and `POST /api/media/asr/transcribe`. The submit routes require chat scope, image references must use `SessionFile` references such as `{ kind: 'session_file', fileId }`, and all requests forward into the same native Media Manager pipeline. Image adapters accept multiple reference images by default; adapters that only support one reference should declare `maxReferenceImages: 1`.
+
+Image and video generation default to `delivery: { mode: 'session' }`, which requires `sessionPath` and delivers completed files as `SessionFile` records. For plugin-owned jobs that only need a generated artifact, use `delivery: { mode: 'response' }` and omit `sessionPath`; poll `GET /api/media/tasks/:taskId` until `task.status === 'done'`, then fetch filenames from `task.files[]` via `GET /api/media/generated/:filename`.
+
+```ts
+const result = await generateImage(ctx, {
+  prompt: 'A small icon on transparent background',
+  delivery: { mode: 'response' },
 });
 ```
 
@@ -205,6 +234,7 @@ Use `stageFile()` for plugin-generated local files. `createMediaDetails()` norma
 
 Provider plugins live in `providers/*.js` and require `trust: "full-access"`.
 The runtime package exposes provider types and `defineProvider()` for authoring, but the host loader still reads named exports from each provider file.
+Provider declarations are the canonical discovery layer for models and media capabilities. Media adapters execute a declared `protocolId`; adapter registration alone does not make a model discoverable in provider settings, default media model selectors, or media helper APIs.
 
 ```ts
 import { defineProvider } from '@hana/plugin-runtime';
@@ -250,6 +280,8 @@ export const { id, displayName, authType, runtime, capabilities } = provider;
 ```
 
 Keep chat and media capabilities explicit. Media-only providers should use `chat.projection = "none"`, and CLI providers must use structured argument bindings rather than shell command strings.
+
+Legacy image-generation plugins may still use `media-gen:register-adapter` as a compatibility execution path, but new plugins should not treat the `media-gen:*` namespace as the public provider API. Add a ProviderPlugin with `capabilities.media.*`, then keep adapter registration only for custom protocol execution until the host exposes a stable Adapter Plugin API.
 
 ## Pi SDK extensions
 

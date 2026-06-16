@@ -84,6 +84,18 @@ describe("workflow tool", () => {
     expect(store.defer).not.toHaveBeenCalled();
   });
 
+  it("rejects declarative meta.nodes workflows before dispatching a no-op background task (#1639)", async () => {
+    const store = makeStore();
+    const tool = createWorkflowTool({
+      executeIsolated: async () => ({}), emitEvent: () => {},
+      getDeferredStore: () => store, getSubagentRunStore: () => makeRunStore(),
+    });
+    const script = `export const meta = { name: 'nodes', description: 'd', nodes: [{ id: 'a', prompt: 'x' }] }\n`;
+    const res = await tool.execute("c1", { script }, undefined, undefined, makeCtx()) as any;
+    expect(res.details.error).toMatch(/meta\.nodes/);
+    expect(store.defer).not.toHaveBeenCalled();
+  });
+
   it("脚本运行时出错 → 后台 fail 到 deferred store", async () => {
     const store = makeStore();
     const runStore = makeRunStore();

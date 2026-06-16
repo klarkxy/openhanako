@@ -110,7 +110,15 @@ export function createBrowserTool(getSessionPath: any, options: {
   async function statusFields(sessionPath: any) {
     const running = browser.isRunning(sessionPath);
     const url = browser.currentUrl(sessionPath);
-    const fields: Record<string, any> = { running, url };
+    const activeTab = browser.activeTab?.(sessionPath) || null;
+    const tabs = browser.getTabs?.(sessionPath) || [];
+    const fields: Record<string, any> = {
+      running,
+      url,
+      tabId: activeTab?.tabId || null,
+      title: activeTab?.title || "",
+      tabs,
+    };
     if (running) {
       const thumbnail = await browser.thumbnail(sessionPath);
       if (thumbnail) {
@@ -144,10 +152,11 @@ export function createBrowserTool(getSessionPath: any, options: {
   return {
     name: "browser",
     label: "Browser",
-    description: "Control a headless browser (navigate, click, type, scroll, screenshot, evaluate JS). Use the action parameter to pick an operation; see its description for per-action parameters. Element [ref] ids from snapshot become stale after any navigate/click/type — those operations auto-return a fresh snapshot, always use refs from the latest one.",
+    description: "Control a headless browser (navigate, click, type, scroll, screenshot, evaluate JS). Element [ref] ids from snapshot become stale after page changes; always use refs from the latest snapshot.",
     parameters: Type.Object({
       action: StringEnum(actionValues, { description: "Which operation to run. Required params per action: navigate→url; click→ref; type→text (optional ref, pressEnter); scroll→direction (optional amount); select→ref+value; key→key; wait→(optional timeout, state); evaluate→expression. start, stop, snapshot, screenshot, show take no extra params." }),
       url: Type.Optional(Type.String({ description: "URL (required for navigate)" })),
+      tabId: Type.Optional(Type.String({ description: "Optional browser tab id. Defaults to the active tab." })),
       ref: Type.Optional(Type.Number({ description: "Element ref number (used for click/type/select)" })),
       text: Type.Optional(Type.String({ description: "Input text (required for type)" })),
       direction: Type.Optional(StringEnum(
@@ -196,7 +205,7 @@ export function createBrowserTool(getSessionPath: any, options: {
           // ── navigate ──
           case "navigate": {
             if (!params.url) return browserError(t("error.browserNavigateNeedUrl"));
-            const result = await browser.navigate(params.url, sessionPath);
+            const result = await browser.navigate(params.url, sessionPath, { tabId: params.tabId });
             logAction(sessionPath, "navigate", { url: params.url }, result.title);
             return toolOk(
               t("error.browserNavigated", { title: result.title, url: result.url, snapshot: result.snapshot }),
@@ -206,7 +215,7 @@ export function createBrowserTool(getSessionPath: any, options: {
 
           // ── snapshot ──
           case "snapshot": {
-            const text = await browser.snapshot(sessionPath);
+            const text = await browser.snapshot(sessionPath, params.tabId || null);
             return toolOk(text, { action: "snapshot", ...await statusFields(sessionPath) });
           }
 
@@ -222,7 +231,7 @@ export function createBrowserTool(getSessionPath: any, options: {
                 details: { action: "screenshot", visionAdapted: false, visionError: msg, error: msg },
               };
             }
-            const { base64, mimeType } = await browser.screenshot(sessionPath);
+            const { base64, mimeType } = await browser.screenshot(sessionPath, params.tabId || null);
             const screenshotFile = await persistBrowserScreenshotFile({
               hanakoHome: options.getHanakoHome?.(),
               sessionPath,
@@ -246,7 +255,7 @@ export function createBrowserTool(getSessionPath: any, options: {
           // ── click ──
           case "click": {
             if (params.ref == null) return browserError(t("error.browserClickNeedRef"));
-            const snapshot = await browser.click(params.ref, sessionPath);
+            const snapshot = await browser.click(params.ref, sessionPath, params.tabId || null);
             logAction(sessionPath, "click", { ref: params.ref }, `clicked [${params.ref}]`);
             return toolOk(t("error.browserClicked", { ref: params.ref, snapshot }), { action: "click", ref: params.ref, ...await statusFields(sessionPath) });
           }
@@ -254,7 +263,7 @@ export function createBrowserTool(getSessionPath: any, options: {
           // ── type ──
           case "type": {
             if (params.text == null) return browserError(t("error.browserTypeNeedText"));
-            const snapshot = await browser.type(params.text, params.ref, { pressEnter: params.pressEnter ?? false }, sessionPath);
+            const snapshot = await browser.type(params.text, params.ref, { pressEnter: params.pressEnter ?? false }, sessionPath, params.tabId || null);
             logAction(sessionPath, "type", { ref: params.ref, text: params.text, pressEnter: params.pressEnter ?? false }, "typed");
             return toolOk(
               t("error.browserTyped", { target: params.ref != null ? ` to [${params.ref}]` : "", snapshot }),
@@ -265,7 +274,7 @@ export function createBrowserTool(getSessionPath: any, options: {
           // ── scroll ──
           case "scroll": {
             if (!params.direction) return browserError(t("error.browserScrollNeedDir"));
-            const snapshot = await browser.scroll(params.direction, params.amount ?? 3, sessionPath);
+            const snapshot = await browser.scroll(params.direction, params.amount ?? 3, sessionPath, params.tabId || null);
             logAction(sessionPath, "scroll", { direction: params.direction, amount: params.amount }, "scrolled");
             return toolOk(
               t("error.browserScrolled", { dir: params.direction, snapshot }),
@@ -277,7 +286,7 @@ export function createBrowserTool(getSessionPath: any, options: {
           case "select": {
             if (params.ref == null) return browserError(t("error.browserSelectNeedRef"));
             if (!params.value) return browserError(t("error.browserSelectNeedValue"));
-            const snapshot = await browser.select(params.ref, params.value, sessionPath);
+            const snapshot = await browser.select(params.ref, params.value, sessionPath, params.tabId || null);
             return toolOk(
               t("error.browserSelected", { ref: params.ref, value: params.value, snapshot }),
               { action: "select", ref: params.ref, value: params.value, ...await statusFields(sessionPath) },
@@ -287,7 +296,7 @@ export function createBrowserTool(getSessionPath: any, options: {
           // ── key ──
           case "key": {
             if (!params.key) return browserError(t("error.browserKeyNeedKey"));
-            const snapshot = await browser.pressKey(params.key, sessionPath);
+            const snapshot = await browser.pressKey(params.key, sessionPath, params.tabId || null);
             return toolOk(t("error.browserKeyPressed", { key: params.key, snapshot }), { action: "key", key: params.key, ...await statusFields(sessionPath) });
           }
 
@@ -296,14 +305,14 @@ export function createBrowserTool(getSessionPath: any, options: {
             const snapshot = await browser.wait({
               timeout: params.timeout ?? 5000,
               state: params.state ?? "domcontentloaded",
-            }, sessionPath);
+            }, sessionPath, params.tabId || null);
             return toolOk(t("error.browserWaitDone", { snapshot }), { action: "wait", ...await statusFields(sessionPath) });
           }
 
           // ── evaluate ──
           case "evaluate": {
             if (!params.expression) return browserError(t("error.browserEvalNeedExpr"));
-            const result = await browser.evaluate(params.expression, sessionPath);
+            const result = await browser.evaluate(params.expression, sessionPath, params.tabId || null);
             const truncated = result.length > 30000
               ? result.slice(0, 30000) + t("error.browserOutputTruncated")
               : result;
@@ -312,7 +321,7 @@ export function createBrowserTool(getSessionPath: any, options: {
 
           // ── show ──
           case "show": {
-            await browser.show(sessionPath);
+            await browser.show(sessionPath, params.tabId || null);
             return toolOk(t("error.browserShown"), { action: "show", ...await statusFields(sessionPath) });
           }
 

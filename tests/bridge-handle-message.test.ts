@@ -33,6 +33,9 @@ import { createSlashSystem } from "../core/slash-commands/index.ts";
 /** 匹配 timeTag 前缀（<t>MM-DD HH:mm</t> ）后跟预期文本 */
 const tagged = (text) => expect.stringMatching(new RegExp(`^<t>\\d{2}-\\d{2} \\d{2}:\\d{2}</t> ${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
 
+/** executeExternalMessage 的结构化结果（#1607）：正文 / 错误 / 截断正交 */
+const bridgeReply = (text) => ({ text, toolMedia: [], error: null, truncated: false });
+
 function createMocks() {
   const adapter = {
     sendReply: (vi.fn().mockResolvedValue as any)(),
@@ -47,6 +50,7 @@ function createMocks() {
       return null;
     }),
     getBridgeReceiptEnabled: vi.fn().mockReturnValue(true),
+    getBridgeRichStreamingEnabled: vi.fn().mockReturnValue(true),
     isBridgeSessionStreaming: vi.fn().mockReturnValue(false),
     abortBridgeSession: vi.fn().mockResolvedValue(false),
     steerBridgeSession: vi.fn().mockReturnValue(false),
@@ -62,7 +66,7 @@ function createMocks() {
   };
 
   const hub = {
-    send: vi.fn().mockResolvedValue("AI response"),
+    send: vi.fn().mockResolvedValue(bridgeReply("AI response")),
     eventBus: { emit: vi.fn() },
   };
 
@@ -229,7 +233,7 @@ describe("BridgeManager._handleMessage", () => {
 
       expect(hub.send).toHaveBeenCalledTimes(1);
 
-      resolveFirst("response 1");
+      resolveFirst(bridgeReply("response 1"));
       await vi.waitFor(() => expect(hub.send).toHaveBeenCalledTimes(2));
 
       expect(hub.send).toHaveBeenNthCalledWith(
@@ -286,6 +290,53 @@ describe("BridgeManager._handleMessage", () => {
 
       expect(adapter.sendReply).toHaveBeenCalledWith("owner123", "AI response");
       expect(adapter.sendTypingIndicator).not.toHaveBeenCalled();
+    });
+
+    it("uses declared native typing receipt instead of a text prompt", async () => {
+      const { bm, adapter } = createMocks();
+      (adapter as any).receiptCapabilities = {
+        mode: "native_typing",
+        scopes: ["dm"],
+        refreshIntervalMs: 0,
+      };
+
+      bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "hello",
+        userId: "owner123",
+        chatId: "owner123",
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2100);
+
+      await vi.waitFor(() => expect(adapter.sendReply).toHaveBeenCalledWith("owner123", "AI response"));
+      expect(adapter.sendTypingIndicator).toHaveBeenCalledWith("owner123", expect.any(Object));
+      expect(adapter.sendReply).not.toHaveBeenCalledWith("owner123", "（TestAgent正在输入...）");
+    });
+
+    it("cancels declared native typing receipt after reply generation settles", async () => {
+      const { bm, adapter } = createMocks();
+      (adapter as any).receiptCapabilities = {
+        mode: "native_typing",
+        scopes: ["dm"],
+        refreshIntervalMs: 0,
+        cancellable: true,
+      };
+      (adapter as any).cancelTypingIndicator = (vi.fn().mockResolvedValue as any)();
+
+      bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "hello",
+        userId: "owner123",
+        chatId: "owner123",
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2100);
+
+      await vi.waitFor(() => expect(adapter.sendReply).toHaveBeenCalledWith("owner123", "AI response"));
+      expect((adapter as any).cancelTypingIndicator).toHaveBeenCalledWith("owner123", expect.any(Object));
     });
 
     it("buffers messages and sends merged after 2s", async () => {
@@ -639,6 +690,81 @@ describe("BridgeManager._handleMessage", () => {
       });
     });
 
+    it("fans proactive replies out to every explicitly requested Bridge platform", async () => {
+      const { bm, engine } = createMocks();
+      const wechatAdapter = {
+        sendReply: (vi.fn().mockResolvedValue as any)(),
+      };
+      const feishuAdapter = {
+        sendReply: (vi.fn().mockResolvedValue as any)(),
+      };
+      bm._platforms.clear();
+      bm._platforms.set("wechat:hana", {
+        adapter: wechatAdapter,
+        status: "connected",
+        agentId: "hana",
+        platform: "wechat",
+      });
+      bm._platforms.set("feishu:hana", {
+        adapter: feishuAdapter,
+        status: "connected",
+        agentId: "hana",
+        platform: "feishu",
+      });
+      engine.getAgent.mockImplementation((id) => {
+        if (id === "hana") {
+          return {
+            agentName: "TestAgent",
+            config: {
+              bridge: {
+                wechat: { owner: "wx-user" },
+                feishu: { owner: "owner-user-id" },
+              },
+            },
+            sessionDir: os.tmpdir(),
+          };
+        }
+        return null;
+      });
+      engine.getBridgeIndex = vi.fn().mockReturnValue({
+        "wx_dm_wx-user@hana": {
+          file: "owner/wx.jsonl",
+          userId: "wx-user",
+        },
+        "fs_dm_owner-open-id@hana": {
+          file: "owner/fs.jsonl",
+          userId: "owner-user-id",
+          chatId: "oc_owner_chat",
+        },
+      });
+
+      const result = await bm.sendProactive("hello", "hana", {
+        bridgePlatforms: ["wechat", "feishu"],
+      });
+
+      expect(wechatAdapter.sendReply).toHaveBeenCalledWith("wx-user", "hello");
+      expect(feishuAdapter.sendReply).toHaveBeenCalledWith("oc_owner_chat", "hello");
+      expect(result).toMatchObject({
+        platform: "wechat",
+        chatId: "wx-user",
+        sessionKey: "wx_dm_wx-user@hana",
+        deliveries: [
+          {
+            status: "sent",
+            platform: "wechat",
+            chatId: "wx-user",
+            sessionKey: "wx_dm_wx-user@hana",
+          },
+          {
+            status: "sent",
+            platform: "feishu",
+            chatId: "oc_owner_chat",
+            sessionKey: "fs_dm_owner-open-id@hana",
+          },
+        ],
+      });
+    });
+
     it("deduplicates proactive sends with the same explicit idempotency key", async () => {
       const { bm, engine } = createMocks();
       const feishuAdapter = {
@@ -816,7 +942,7 @@ describe("BridgeManager._handleMessage", () => {
       hub.send.mockImplementation(async (_text, opts) => {
         opts.onDelta("Hel", "Hel");
         opts.onDelta("lo", "Hello");
-        return "Hello";
+        return bridgeReply("Hello");
       });
 
       bm._handleMessage("telegram", {
@@ -834,6 +960,93 @@ describe("BridgeManager._handleMessage", () => {
       expect(adapter.sendBlockReply).not.toHaveBeenCalled();
       const draftIds = (adapter as any).sendDraft.mock.calls.map(call => call[2]?.draftId);
       expect(new Set(draftIds).size).toBe(1);
+    });
+
+    it("prefers Telegram rich draft streaming when the rich switch is enabled", async () => {
+      const { bm, hub, adapter, engine } = createMocks();
+      engine.getBridgeReceiptEnabled.mockReturnValue(false);
+      (adapter as any).richStreamingCapabilities = {
+        mode: "rich_draft",
+        scopes: ["dm"],
+        minIntervalMs: 0,
+        maxChars: 32768,
+        requiresRichStreaming: true,
+      };
+      (adapter as any).streamingCapabilities = {
+        mode: "draft",
+        scopes: ["dm"],
+        minIntervalMs: 0,
+        maxChars: 4096,
+      };
+      (adapter as any).sendRichDraft = (vi.fn().mockResolvedValue as any)();
+      (adapter as any).sendRichReply = (vi.fn().mockResolvedValue as any)();
+      (adapter as any).sendDraft = (vi.fn().mockResolvedValue as any)();
+      hub.send.mockImplementation(async (_text, opts) => {
+        opts.onDelta("**Hel", "**Hel");
+        opts.onDelta("lo**", "**Hello**");
+        return bridgeReply("**Hello**");
+      });
+
+      bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "hi",
+        userId: "owner123",
+        chatId: "owner123",
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2100);
+      await vi.waitFor(() => expect((adapter as any).sendRichReply).toHaveBeenCalledWith(
+        "owner123",
+        "**Hello**",
+        expect.any(Object),
+      ));
+
+      expect((adapter as any).sendRichDraft).toHaveBeenCalled();
+      expect((adapter as any).sendDraft).not.toHaveBeenCalled();
+      expect(adapter.sendReply).not.toHaveBeenCalledWith("owner123", "**Hello**");
+    });
+
+    it("falls back from Telegram rich drafts to the legacy draft capability when rich streaming is disabled", async () => {
+      const { bm, hub, adapter, engine } = createMocks();
+      engine.getBridgeReceiptEnabled.mockReturnValue(false);
+      engine.getBridgeRichStreamingEnabled.mockReturnValue(false);
+      (adapter as any).richStreamingCapabilities = {
+        mode: "rich_draft",
+        scopes: ["dm"],
+        minIntervalMs: 0,
+        maxChars: 32768,
+        requiresRichStreaming: true,
+      };
+      (adapter as any).streamingCapabilities = {
+        mode: "draft",
+        scopes: ["dm"],
+        minIntervalMs: 0,
+        maxChars: 4096,
+      };
+      (adapter as any).sendRichDraft = (vi.fn().mockResolvedValue as any)();
+      (adapter as any).sendRichReply = (vi.fn().mockResolvedValue as any)();
+      (adapter as any).sendDraft = (vi.fn().mockResolvedValue as any)();
+      hub.send.mockImplementation(async (_text, opts) => {
+        opts.onDelta("Hel", "Hel");
+        opts.onDelta("lo", "Hello");
+        return bridgeReply("Hello");
+      });
+
+      bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "hi",
+        userId: "owner123",
+        chatId: "owner123",
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2100);
+      await vi.waitFor(() => expect(adapter.sendReply).toHaveBeenCalledWith("owner123", "Hello"));
+
+      expect((adapter as any).sendRichDraft).not.toHaveBeenCalled();
+      expect((adapter as any).sendRichReply).not.toHaveBeenCalled();
+      expect((adapter as any).sendDraft).toHaveBeenCalled();
     });
 
     it("updates one Feishu stream message instead of sending block replies", async () => {
@@ -857,7 +1070,7 @@ describe("BridgeManager._handleMessage", () => {
       hub.send.mockImplementation(async (_text, opts) => {
         opts.onDelta("Hel", "Hel");
         opts.onDelta("lo", "Hello");
-        return "Hello";
+        return bridgeReply("Hello");
       });
 
       bm._handleMessage("feishu", {
@@ -887,6 +1100,68 @@ describe("BridgeManager._handleMessage", () => {
       expect(feishuAdapter.sendReply).not.toHaveBeenCalledWith("oc_chat", "Hello");
     });
 
+    it("prefers Feishu CardKit rich streaming when the rich switch is enabled", async () => {
+      const { bm, hub, engine } = createMocks();
+      engine.getBridgeReceiptEnabled.mockReturnValue(false);
+      const feishuAdapter = {
+        richStreamingCapabilities: {
+          mode: "cardkit_stream",
+          scopes: ["dm"],
+          minIntervalMs: 0,
+          maxChars: 150_000,
+          requiresRichStreaming: true,
+          receiptMode: "fold_into_stream",
+        },
+        streamingCapabilities: {
+          mode: "edit_message",
+          scopes: ["dm"],
+          minIntervalMs: 0,
+          maxChars: 150_000,
+        },
+        startRichStreamReply: vi.fn().mockResolvedValue({ cardId: "card_stream_001" }),
+        updateRichStreamReply: (vi.fn().mockResolvedValue as any)(),
+        finishRichStreamReply: (vi.fn().mockResolvedValue as any)(),
+        startStreamReply: vi.fn().mockResolvedValue({ messageId: "om_stream_001" }),
+        updateStreamReply: (vi.fn().mockResolvedValue as any)(),
+        finishStreamReply: (vi.fn().mockResolvedValue as any)(),
+        sendReply: (vi.fn().mockResolvedValue as any)(),
+        sendBlockReply: (vi.fn().mockResolvedValue as any)(),
+        stop: vi.fn(),
+      };
+      bm._platforms.set("feishu:hana", { adapter: feishuAdapter, status: "connected", agentId: "hana", platform: "feishu" });
+      hub.send.mockImplementation(async (_text, opts) => {
+        opts.onDelta("Hel", "Hel");
+        opts.onDelta("lo", "Hello");
+        return bridgeReply("Hello");
+      });
+
+      bm._handleMessage("feishu", {
+        sessionKey: "fs_dm_owner123@hana",
+        text: "hi",
+        userId: "owner123",
+        chatId: "oc_chat",
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2100);
+      await vi.waitFor(() => expect(feishuAdapter.finishRichStreamReply).toHaveBeenCalledWith(
+        "oc_chat",
+        { cardId: "card_stream_001" },
+        "Hello",
+        expect.any(Object),
+      ));
+
+      expect(feishuAdapter.startRichStreamReply).toHaveBeenCalledWith("oc_chat", "Hel", expect.any(Object));
+      expect(feishuAdapter.updateRichStreamReply).toHaveBeenCalledWith(
+        "oc_chat",
+        { cardId: "card_stream_001" },
+        "Hello",
+        expect.any(Object),
+      );
+      expect(feishuAdapter.startStreamReply).not.toHaveBeenCalled();
+      expect(feishuAdapter.sendReply).not.toHaveBeenCalledWith("oc_chat", "Hello");
+    });
+
     it("folds Feishu waiting receipts into the edit-message stream lifecycle", async () => {
       const { bm, hub } = createMocks();
       const feishuAdapter = {
@@ -909,7 +1184,7 @@ describe("BridgeManager._handleMessage", () => {
       hub.send.mockImplementation(async (_text, opts) => {
         opts.onDelta("Hel", "Hel");
         opts.onDelta("lo", "Hello");
-        return "Hello";
+        return bridgeReply("Hello");
       });
 
       bm._handleMessage("feishu", {
@@ -962,7 +1237,7 @@ describe("BridgeManager._handleMessage", () => {
         stop: vi.fn(),
       };
       bm._platforms.set("feishu:hana", { adapter: feishuAdapter, status: "connected", agentId: "hana", platform: "feishu" });
-      hub.send.mockResolvedValue("Hello");
+      hub.send.mockResolvedValue(bridgeReply("Hello"));
 
       bm._handleMessage("feishu", {
         sessionKey: "fs_dm_owner123@hana",
@@ -986,7 +1261,7 @@ describe("BridgeManager._handleMessage", () => {
       bm.blockStreaming = true;
       hub.send.mockImplementation(async (_text, opts) => {
         expect(opts.onDelta).toBeUndefined();
-        return "final only";
+        return bridgeReply("final only");
       });
 
       bm._handleMessage("telegram", {
@@ -1001,6 +1276,115 @@ describe("BridgeManager._handleMessage", () => {
 
       expect(adapter.sendBlockReply).not.toHaveBeenCalled();
       expect(adapter.sendReply).toHaveBeenCalledWith("owner123", "final only");
+    });
+
+    it("falls back to batch when a rich-only streaming capability is disabled globally", async () => {
+      const { bm, hub, adapter, engine } = createMocks();
+      engine.getBridgeReceiptEnabled.mockReturnValue(false);
+      engine.getBridgeRichStreamingEnabled.mockReturnValue(false);
+      (adapter as any).streamingCapabilities = {
+        mode: "draft",
+        scopes: ["dm"],
+        minIntervalMs: 0,
+        maxChars: 4096,
+        requiresRichStreaming: true,
+      };
+      (adapter as any).sendDraft = (vi.fn().mockResolvedValue as any)();
+      hub.send.mockImplementation(async (_text, opts) => {
+        expect(opts.onDelta).toBeUndefined();
+        return bridgeReply("compatible final");
+      });
+
+      bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "hi",
+        userId: "owner123",
+        chatId: "owner123",
+        agentId: "hana",
+      });
+
+      await vi.advanceTimersByTimeAsync(2100);
+
+      expect((adapter as any).sendDraft).not.toHaveBeenCalled();
+      expect(adapter.sendReply).toHaveBeenCalledWith("owner123", "compatible final");
+    });
+  });
+
+  // ── Reply error layering (#1607) ──
+
+  describe("reply error layering (#1607)", () => {
+    it("sends partial text first plus a brief interruption note, never the raw error string", async () => {
+      const { bm, hub, adapter } = createMocks();
+      hub.send.mockResolvedValue({
+        text: "我查到一半的内容",
+        toolMedia: [],
+        error: "terminated",
+        truncated: true,
+      });
+
+      bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "hi",
+        userId: "owner123",
+        chatId: "owner123",
+        agentId: "hana",
+      });
+      await vi.advanceTimersByTimeAsync(2100);
+
+      const replies = adapter.sendReply.mock.calls.map((c) => c[1]);
+      expect(replies).toContain("我查到一半的内容");
+      const bodyIndex = replies.indexOf("我查到一半的内容");
+      const noteIndex = replies.findIndex((r) => /回复中断/.test(r));
+      expect(noteIndex).toBeGreaterThan(bodyIndex);
+      expect(replies.some((r) => /\[Error\]/.test(r))).toBe(false);
+      expect(replies.some((r) => /terminated/.test(r))).toBe(false);
+    });
+
+    it("sends a human-readable failure notice when no text was generated", async () => {
+      const { bm, hub, adapter } = createMocks();
+      hub.send.mockResolvedValue({
+        text: null,
+        toolMedia: [],
+        error: "terminated",
+        truncated: false,
+      });
+
+      bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "hi",
+        userId: "owner123",
+        chatId: "owner123",
+        agentId: "hana",
+      });
+      await vi.advanceTimersByTimeAsync(2100);
+
+      const replies = adapter.sendReply.mock.calls.map((c) => c[1]);
+      expect(replies.some((r) => /回复生成失败/.test(r))).toBe(true);
+      expect(replies.some((r) => /\[Error\]/.test(r))).toBe(false);
+      expect(replies.some((r) => /terminated/.test(r))).toBe(false);
+    });
+
+    it("sends nothing extra for a clean reply without error", async () => {
+      const { bm, hub, adapter } = createMocks();
+      hub.send.mockResolvedValue({
+        text: "一切正常的回复",
+        toolMedia: [],
+        error: null,
+        truncated: false,
+      });
+
+      bm._handleMessage("telegram", {
+        sessionKey: "tg_dm_owner123@hana",
+        text: "hi",
+        userId: "owner123",
+        chatId: "owner123",
+        agentId: "hana",
+      });
+      await vi.advanceTimersByTimeAsync(2100);
+
+      const replies = adapter.sendReply.mock.calls.map((c) => c[1]);
+      expect(replies).toContain("一切正常的回复");
+      expect(replies.some((r) => /回复中断|回复生成失败/.test(r))).toBe(false);
     });
   });
 
@@ -1310,7 +1694,7 @@ describe("BridgeManager._handleMessage", () => {
 
       expect(hub.send).toHaveBeenCalledOnce();
 
-      resolveFirst("response 1");
+      resolveFirst(bridgeReply("response 1"));
       await vi.advanceTimersByTimeAsync(600);
 
       expect(hub.send).toHaveBeenCalledTimes(2);

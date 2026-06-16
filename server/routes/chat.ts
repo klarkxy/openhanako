@@ -19,6 +19,7 @@ import { debugLog, createModuleLogger } from "../../lib/debug-log.ts";
 import { t } from "../../lib/i18n.ts";
 import { getLastAssistantUsage } from "../../lib/pi-sdk/index.ts";
 import { compactSessionWithCachePreservation, isStaleExtensionContextError } from "../../core/session-compactor.ts";
+import { submitDesktopSessionInterjection } from "../../core/desktop-session-submit.ts";
 import { logLlmUsage } from "../../lib/llm/usage-observer.ts";
 import { BrowserManager } from "../../lib/browser/browser-manager.ts";
 import {
@@ -180,11 +181,19 @@ export function toAgentActivityWsMessage(event: any, sessionPath: any) {
 }
 
 export const DEFAULT_DISCONNECT_ABORT_GRACE_MS = 5 * 60_000;
+export const DEFAULT_TURN_STALL_ABORT_MS = 20 * 60_000;
 
 export function resolveDisconnectAbortGraceMs(value = process.env.HANA_WS_DISCONNECT_ABORT_GRACE_MS) {
   if (value === undefined || value === null || value === "") return DEFAULT_DISCONNECT_ABORT_GRACE_MS;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_DISCONNECT_ABORT_GRACE_MS;
+  return Math.floor(parsed);
+}
+
+export function resolveTurnStallAbortMs(value = process.env.HANA_TURN_STALL_ABORT_MS) {
+  if (value === undefined || value === null || value === "") return DEFAULT_TURN_STALL_ABORT_MS;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_TURN_STALL_ABORT_MS;
   return Math.floor(parsed);
 }
 
@@ -195,6 +204,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
   let activeWsClients = 0;
   let disconnectAbortTimer = null;
   const disconnectAbortGraceMs = resolveDisconnectAbortGraceMs();
+  const turnStallAbortMs = resolveTurnStallAbortMs();
   const sessionState = new Map(); // sessionPath -> shared stream state
 
   function cancelDisconnectAbort() {
@@ -269,6 +279,9 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         titleRequested: false,
         titlePreview: "",
         pendingDeferredContentEvents: [],
+        pendingTurnCompletionNotification: null,
+        turnStallTimer: null,
+        lastStreamActivityAt: 0,
         lastAccessed: Date.now(),
         ...createSessionStreamState(),
       });
@@ -387,10 +400,12 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
 
   function buildDeferredResultContentEvents(sessionPath, event) {
     const events = [];
-    const interlude = buildDeferredResultInterludeBlock(event, {
-      receiverName: resolveDeferredReceiverName(engine, sessionPath),
-    });
-    if (interlude) events.push({ type: "content_block", block: interlude });
+    if (event.meta?.interlude) {
+      const interlude = buildDeferredResultInterludeBlock(event, {
+        receiverName: resolveDeferredReceiverName(engine, sessionPath),
+      });
+      if (interlude) events.push({ type: "content_block", block: interlude });
+    }
 
     if (event.status === "success") {
       for (const block of enrichSessionFileBlocks(deferredResultFileBlocks(event.result, event.taskId), engine, sessionPath)) {
@@ -429,10 +444,47 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
   function finishStreamingState(ss) {
     if (!ss) return;
     ss.turnActive = false;
+    clearTurnStallWatchdog(ss);
     if (ss.isStreaming) finishSessionStream(ss);
     ss.thinkTagParser.reset();
     ss.moodParser.reset();
     ss.cardParser.reset();
+  }
+
+  function clearTurnStallWatchdog(ss) {
+    if (!ss?.turnStallTimer) return;
+    clearTimeout(ss.turnStallTimer);
+    ss.turnStallTimer = null;
+  }
+
+  function scheduleTurnStallWatchdog(sessionPath, ss) {
+    if (!sessionPath || !ss || turnStallAbortMs === 0) return;
+    clearTurnStallWatchdog(ss);
+    const lastActivity = ss.lastStreamActivityAt || Date.now();
+    const delay = Math.max(0, turnStallAbortMs - (Date.now() - lastActivity));
+    ss.turnStallTimer = setTimeout(() => {
+      ss.turnStallTimer = null;
+      const idleFor = Date.now() - (ss.lastStreamActivityAt || 0);
+      if (idleFor < turnStallAbortMs) {
+        scheduleTurnStallWatchdog(sessionPath, ss);
+        return;
+      }
+      if (!isSessionRuntimeStreaming(sessionPath)) return;
+      ss.isAborted = true;
+      const reason = "turn_stall_timeout";
+      Promise.resolve(hub.abort?.(sessionPath, { reason })).then((aborted) => {
+        if (aborted === false) return engine.abortSessionByPath?.(sessionPath, { reason });
+      }).catch((err) => {
+        log.warn(`turn stall abort failed for ${path.basename(sessionPath)}: ${err.message}`);
+      });
+    }, delay);
+    ss.turnStallTimer.unref?.();
+  }
+
+  function markTurnStreamActivity(sessionPath, ss) {
+    if (!sessionPath || !ss || !isSessionRuntimeStreaming(sessionPath)) return;
+    ss.lastStreamActivityAt = Date.now();
+    scheduleTurnStallWatchdog(sessionPath, ss);
   }
 
   function maybeGenerateFirstTurnTitle(sessionPath, ss) {
@@ -506,6 +558,37 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
     }
   }
 
+  function isSessionRuntimeStreaming(sessionPath) {
+    try {
+      return engine.isSessionStreaming?.(sessionPath) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  function deliverOrDeferTurnCompletionNotification(sessionPath, ss, details) {
+    if (!ss) {
+      maybeDeliverTurnCompletionNotification(sessionPath, details);
+      return;
+    }
+    if (isSessionRuntimeStreaming(sessionPath)) {
+      ss.pendingTurnCompletionNotification = details;
+      return;
+    }
+    ss.pendingTurnCompletionNotification = null;
+    maybeDeliverTurnCompletionNotification(sessionPath, details);
+  }
+
+  function flushPendingTurnCompletionNotification(sessionPath, ss) {
+    const pending = ss?.pendingTurnCompletionNotification;
+    if (!pending || isSessionRuntimeStreaming(sessionPath)) return;
+    ss.pendingTurnCompletionNotification = null;
+    maybeDeliverTurnCompletionNotification(sessionPath, {
+      ...pending,
+      wasAborted: pending.wasAborted || ss.isAborted === true,
+    });
+  }
+
   // 单订阅：事件只写入一次，再按需广播到所有连接中的客户端。
   hub.subscribe((event, sessionPath) => {
     // Non-session-scoped events: handle before session resolution
@@ -531,6 +614,9 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
     }
 
     const ss = sessionPath ? getState(sessionPath) : null;
+    if (ss && event.type !== "session_status") {
+      markTurnStreamActivity(sessionPath, ss);
+    }
 
     // Helper: feed CardParser, emit card events or pass text through as text_delta
     const feedCardPipeline = (text) => {
@@ -789,7 +875,11 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
       });
     } else if (event.type === "session_user_message") {
       if (!ss) return;
-      emitStreamEvent(sessionPath, ss, { type: "session_user_message", message: event.message });
+      emitStreamEvent(sessionPath, ss, {
+        type: "session_user_message",
+        clientMessageId: event.clientMessageId || null,
+        message: event.message,
+      });
     } else if (event.type === "voice_transcription_update") {
       broadcast({
         type: "voice_transcription_update",
@@ -804,9 +894,15 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         session: event.session || null,
       });
     } else if (event.type === "session_status") {
+      let statusStreamId = null;
       if (ss) {
+        const eventStreamId = typeof event.streamId === "string" && event.streamId.trim()
+          ? event.streamId
+          : null;
         if (event.isStreaming) {
           flushPendingDeferredContentEvents(sessionPath, ss);
+          ss.pendingTurnCompletionNotification = null;
+          ss.lastStreamActivityAt = Date.now();
           ss.turnActive = true;
           ss.thinkTagParser.reset();
           ss.moodParser.reset();
@@ -821,16 +917,29 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
           ss.isAborted = false;
           ss.titleRequested = false;
           ss.titlePreview = "";
-          beginSessionStream(ss);
+          statusStreamId = beginSessionStream(ss, eventStreamId);
+          scheduleTurnStallWatchdog(sessionPath, ss);
         } else if (ss.isStreaming) {
+          statusStreamId = eventStreamId || ss.streamId || null;
           finishStreamingState(ss);
         } else {
+          statusStreamId = eventStreamId || ss.streamId || null;
           ss.turnActive = false;
+          clearTurnStallWatchdog(ss);
         }
       }
-      broadcast({ type: "status", isStreaming: !!event.isStreaming, sessionPath });
+      const payload: any = {
+        type: "status",
+        isStreaming: !!event.isStreaming,
+        sessionPath,
+        streamId: statusStreamId,
+      };
+      if (event.aborted !== undefined) payload.aborted = !!event.aborted;
+      if (typeof event.reason === "string" && event.reason.trim()) payload.reason = event.reason.trim();
+      broadcast(payload);
       if (ss && !event.isStreaming) {
         flushPendingDeferredContentEvents(sessionPath, ss);
+        flushPendingTurnCompletionNotification(sessionPath, ss);
       }
     } else if (event.type === "bridge_rc_attached") {
       broadcast({
@@ -988,13 +1097,16 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
       } catch (_) { /* 统计失败不阻塞主流程 */ }
 
       emitStreamEvent(sessionPath, ss, { type: "turn_end" });
-      maybeDeliverTurnCompletionNotification(sessionPath, {
+      finishSessionStream(ss);
+      ss.turnActive = false;
+      if (!isSessionRuntimeStreaming(sessionPath)) {
+        clearTurnStallWatchdog(ss);
+      }
+      deliverOrDeferTurnCompletionNotification(sessionPath, ss, {
         wasAborted: turnWasAborted,
         wasSuccessful: turnWasSuccessful,
         streamId: turnStreamId,
       });
-      finishSessionStream(ss);
-      ss.turnActive = false;
       ss.hasOutput = false;
       ss.hasToolCall = false;
       ss.hasThinking = false;
@@ -1083,12 +1195,23 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
             if (msg.type === "abort") {
               const abortPath = requireSessionPath(msg, ws); if (!abortPath) return;
               const abortSs = getState(abortPath);
+              const abortReason = typeof msg.reason === "string" && msg.reason.trim()
+                ? msg.reason.trim()
+                : "user_abort";
               if (abortSs) abortSs.isAborted = true;
               let abortAccepted = false;
-              try { abortAccepted = !!(await hub.abort(abortPath)); } catch {}
+              try { abortAccepted = !!(await hub.abort(abortPath, { reason: abortReason })); } catch {}
               if (!abortAccepted) {
+                const abortStreamId = abortSs?.streamId || null;
                 finishStreamingState(abortSs);
-                broadcast({ type: "status", isStreaming: false, sessionPath: abortPath });
+                broadcast({
+                  type: "status",
+                  isStreaming: false,
+                  sessionPath: abortPath,
+                  streamId: abortStreamId,
+                  aborted: true,
+                  reason: abortReason,
+                });
               }
               return;
             }
@@ -1233,7 +1356,8 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
               return;
             }
 
-            if (msg.type === "prompt" && (msg.text || msg.images?.length || msg.videos?.length || msg.audios?.length)) {
+            if ((msg.type === "prompt" || msg.type === "interject") && (msg.text || msg.images?.length || msg.videos?.length || msg.audios?.length)) {
+              const interject = msg.type === "interject";
               // 图片校验：最多 10 张，单张 ≤ 20MB，仅允许常见图片 MIME
               if (msg.images?.length) {
                 const MAX_IMAGES = 10;
@@ -1300,7 +1424,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
                 rejectDeletedAgentSession(ws, promptSessionPath);
                 return;
               }
-              if (engine.isSessionStreaming(promptSessionPath)) {
+              if (!interject && engine.isSessionStreaming(promptSessionPath)) {
                 wsSend(ws, { type: "error", message: t("error.stillStreaming", { name: engine.agentName }), sessionPath: promptSessionPath });
                 return;
               }
@@ -1309,9 +1433,32 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
                 wsSend(ws, { type: "error", message: t("chat.modelSwitching"), sessionPath: promptSessionPath });
                 return;
               }
+              if (interject && engine.isSessionStreaming(promptSessionPath)) {
+                try {
+                  await submitDesktopSessionInterjection(engine, {
+                    sessionPath: promptSessionPath,
+                    text: promptText,
+                    clientMessageId: msg.clientMessageId,
+                    images: msg.images,
+                    videos: msg.videos,
+                    audios: msg.audios,
+                    uiContext: msg.uiContext ?? null,
+                    displayMessage: msg.displayMessage,
+                    sessionFileRefs: msg.sessionFileRefs,
+                  });
+                  wsSend(ws, { type: "steered", sessionPath: promptSessionPath });
+                } catch (err) {
+                  const errMessage = err.message === "session_busy"
+                    ? t("error.stillStreaming", { name: engine.agentName })
+                    : err.message;
+                  wsSend(ws, { type: "error", message: errMessage, sessionPath: promptSessionPath });
+                }
+                return;
+              }
               try {
                 await hub.send(promptText, {
                   sessionPath: promptSessionPath,
+                  clientMessageId: msg.clientMessageId,
                   images: msg.images,
                   videos: msg.videos,
                   audios: msg.audios,

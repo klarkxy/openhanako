@@ -108,7 +108,8 @@ export const BLOCK_EXTRACTORS = {
   automation: (details) => {
     if (!["pending_add", "pending_update"].includes(details.action) || !details.jobData) return null;
     return [buildAutomationSuggestionBlock({
-      confirmId: details.confirmId || "",
+      suggestionId: details.suggestionId || "",
+      suggestionShortCode: details.suggestionShortCode || "",
       jobData: details.jobData,
       operation: details.operation === "update" ? "update" : "create",
       status: "pending",
@@ -303,20 +304,6 @@ function mediaGenerationReplacementBlocks(block, result) {
   return [block];
 }
 
-function fileBlockKey(block) {
-  if (!block || block.type !== "file") return null;
-  return block.fileId || block.filePath || null;
-}
-
-function pushUniqueBlock(target, seenFiles, block) {
-  const key = fileBlockKey(block);
-  if (key) {
-    if (seenFiles.has(key)) return;
-    seenFiles.add(key);
-  }
-  target.push(block);
-}
-
 function mediaKindFromDeferredType(type) {
   if (type === "video-generation") return "video";
   if (type === "image-generation") return "image";
@@ -326,7 +313,6 @@ function mediaKindFromDeferredType(type) {
 export function resolveMediaGenerationBlocks(blocks, results = new Map(), standaloneResults = []) {
   const resolved = [];
   const consumedTaskIds = new Set();
-  const seenFiles = new Set();
   const resultMap = results && typeof results.get === "function" ? results : new Map();
   const mediaInterludesByTask = new Map();
   const emittedInterludeIds = new Set();
@@ -356,15 +342,16 @@ export function resolveMediaGenerationBlocks(blocks, results = new Map(), standa
       consumedTaskIds.add(block.taskId);
       pushInterludesForTask(block.taskId);
       for (const replacement of mediaGenerationReplacementBlocks(block, result)) {
-        pushUniqueBlock(resolved, seenFiles, replacement);
+        resolved.push(replacement);
       }
       continue;
     }
-    pushUniqueBlock(resolved, seenFiles, block);
+    resolved.push(block);
   }
 
   for (const result of standaloneResults || []) {
     if (!result?.taskId || consumedTaskIds.has(result.taskId)) continue;
+    consumedTaskIds.add(result.taskId);
     const syntheticBlock = {
       type: "media_generation",
       taskId: result.taskId,
@@ -374,7 +361,7 @@ export function resolveMediaGenerationBlocks(blocks, results = new Map(), standa
     };
     pushInterludesForTask(result.taskId);
     for (const replacement of mediaGenerationReplacementBlocks(syntheticBlock, result)) {
-      pushUniqueBlock(resolved, seenFiles, replacement);
+      resolved.push(replacement);
     }
   }
 

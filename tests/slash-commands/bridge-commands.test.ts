@@ -170,6 +170,69 @@ describe("/confirm and /reject", () => {
   });
 });
 
+describe("/apply", () => {
+  const apply = bridgeCommands.find(c => c.name === "apply");
+
+  it("applies the latest automation suggestion in the current bridge session", async () => {
+    const automationSuggestionStore = {
+      apply: vi.fn(async () => ({
+        ok: true,
+        suggestion: { jobData: { label: "Tea reminder" } },
+        result: { id: "job_1" },
+      })),
+    };
+    const ctx = makeCtx({
+      args: "",
+      engine: { automationSuggestionStore },
+    });
+
+    const r = await apply.handler(ctx);
+
+    expect(automationSuggestionStore.apply).toHaveBeenCalledWith({
+      bridgeSessionKey: "tg_dm_x@a1",
+      sessionPath: null,
+      ref: null,
+    });
+    expect((r as any).reply).toMatch(/已创建自动任务.*Tea reminder/);
+  });
+
+  it("applies a numeric automation suggestion id inside the current bridge session", async () => {
+    const automationSuggestionStore = {
+      apply: vi.fn(async () => ({
+        ok: true,
+        suggestion: { jobData: { label: "Lunch reminder" }, shortCode: "3827" },
+        result: { id: "job_2" },
+      })),
+    };
+    const ctx = makeCtx({
+      args: "3827",
+      engine: { getAutomationSuggestionStore: () => automationSuggestionStore },
+    });
+
+    const r = await apply.handler(ctx);
+
+    expect(automationSuggestionStore.apply).toHaveBeenCalledWith({
+      bridgeSessionKey: "tg_dm_x@a1",
+      sessionPath: null,
+      ref: "3827",
+    });
+    expect((r as any).reply).toMatch(/已创建自动任务.*Lunch reminder/);
+  });
+
+  it("reports when the current bridge session has no pending automation suggestions", async () => {
+    const automationSuggestionStore = {
+      apply: vi.fn(async () => ({ ok: false, reason: "not-found" })),
+    };
+
+    const r = await apply.handler(makeCtx({
+      args: "",
+      engine: { automationSuggestionStore },
+    }));
+
+    expect((r as any).reply).toMatch(/没有待创建/);
+  });
+});
+
 describe("/compact", () => {
   const cmd = bridgeCommands.find(c => c.name === "compact");
 

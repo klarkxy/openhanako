@@ -1,3 +1,5 @@
+import type { ThinkingLevel } from './stores/model-slice';
+
 // ── Auto-update ──
 
 export interface AutoUpdateState {
@@ -40,11 +42,32 @@ export interface DesktopNotificationOptions {
 
 export type SessionPermissionMode = 'auto' | 'operate' | 'ask' | 'read_only';
 
+/**
+ * #1624：服务端在 session restore 时算好的"工具能力有更新"提示数据
+ * （冻结快照 vs 当前 agent 配置）。前端只消费，不自行计算。
+ */
+export interface SessionCapabilityDrift {
+  version: number;
+  /** 当前 live 配置的能力 fingerprint（dismiss 时回传） */
+  fingerprint: string;
+  frozenFingerprint: string;
+  addedToolNames: string[];
+  removedToolNames: string[];
+  invalidToolNames: string[];
+  promptChanged: boolean;
+  hasDrift: boolean;
+}
+
 export interface Session {
   path: string;
   title: string | null;
   firstMessage: string;
   modified: string;
+  /**
+   * 服务端磁盘修订点（stat 签名）。null = 服务端未提供（老服务端 / 内存占位投影）。
+   * 与 chatSessions[path].revision 对比用于判断缓存内容是否落后于磁盘真相。
+   */
+  revision?: string | null;
   messageCount: number;
   agentId: string | null;
   agentName: string | null;
@@ -90,6 +113,8 @@ export interface Model {
   isCurrent?: boolean;
   reasoning?: boolean;
   xhigh?: boolean;
+  thinkingLevels?: ThinkingLevel[];
+  defaultThinkingLevel?: ThinkingLevel;
   audio?: boolean;
   audioTransport?: string | null;
   audioTransportSupported?: boolean;
@@ -196,6 +221,8 @@ export interface PreviewItem {
   mime?: string;
   kind?: string;
   storageKind?: string;
+  sourceUrl?: string;
+  sourceRootPath?: string;
   status?: 'available' | 'expired' | string;
   missingAt?: number | null;
   fileVersion?: FileVersion | null;
@@ -218,6 +245,11 @@ export interface StudioWorkspace {
   presentation?: string | null;
   capabilities?: string[];
   isDefault?: boolean;
+  /**
+   * local_fs mount 的 native 绝对根路径。仅当服务端按 principal 判定为
+   * 本地 owner 时披露；远端/虚拟 mount 恒为 null。
+   */
+  nativeRootPath?: string | null;
 }
 
 export interface WorkspaceChangePayload {
@@ -312,6 +344,28 @@ export interface PluginUiHostCapabilityGrant {
   hostCapabilities: string[];
 }
 
+export interface BrowserViewerTab {
+  tabId: string;
+  title?: string;
+  url?: string | null;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface BrowserViewerUpdate {
+  title?: string;
+  url?: string | null;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  running?: boolean;
+  reason?: string | null;
+  sessionPath?: string | null;
+  activeTabId?: string | null;
+  tabs?: BrowserViewerTab[];
+}
+
 // ── Platform API 类型声明 ──
 export interface PlatformApi {
   getServerPort(): Promise<string>;
@@ -386,12 +440,15 @@ export interface PlatformApi {
     thumbnailUrl?: string | null;
     thumbnailFresh?: boolean;
   }): void;
-  onBrowserUpdate?(callback: (data: { title?: string; canGoBack?: boolean; canGoForward?: boolean; running?: boolean }) => void): void;
+  onBrowserUpdate?(callback: (data: BrowserViewerUpdate) => void): void | (() => void);
   closeBrowserViewer?(): void;
   closeBrowser?(): void;
   browserGoBack?(): void;
   browserGoForward?(): void;
   browserReload?(): void;
+  browserNewTab?(): void;
+  browserSwitchTab?(tabId: string): void;
+  browserCloseTab?(tabId: string): void;
 
   // ── Skill viewer (preload) ──
   listSkillFiles?(baseDir: string): Promise<unknown[]>;
