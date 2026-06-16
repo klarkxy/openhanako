@@ -84,6 +84,7 @@ Behavior:
    - Example or template plugin: `examples/plugins/<plugin-id>`.
    - User-installed plugin: the directory reported by `/api/plugins/settings` or `${HANA_HOME}/plugins`.
 6. Generate the scaffold with the bundled script, then adjust names, descriptions, tools, routes, capabilities, and UI to the user's request.
+   - When converting an existing website or single-page app into a Hana iframe plugin, rewrite same-plugin browser `fetch('/api/...')` calls to `hana.api.fetch(...)`, move static files under `assets/`, and use `hana.assets.url(...)` for browser-side asset references.
 7. Use the Plugin Dev Loop when available:
    - confirm the user has enabled Settings -> Plugins -> "Allow Agent plugin dev tools";
    - install source with `plugin.dev.install`;
@@ -146,6 +147,7 @@ python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "Jimeng Pro
 - Use `generateImage()` / `generateMedia()` for host media generation instead of calling provider internals directly. The media task pipeline owns progress, cancellation, delivery, and `SessionFile` registration. Image references should use `{ kind: "session_file", fileId }` instead of raw local paths. Provider models must declare reference-image support on each mode with `modes[].inputLimits.referenceImages`, such as `{ min: 0, max: 0 }` for text-only generation or `{ min: 1, max: 1 }` for a single-reference mode. Use `transcribeAudio()` for ASR over registered `SessionFile` audio.
 - Local files returned to users must go through `toolCtx.stageFile({ sessionPath, filePath, label })`, then media details. Do not hand-build local `MEDIA:` or `file://` output.
 - Page and widget contributions require `"trust": "full-access"` and route-backed iframe UI.
+- Iframe browser code must call this plugin's own route handlers with `hana.api.fetch('route/path', init)` or `hana.api.url('route/path')`. Do not hard-code `/api/plugins/{pluginId}/...` in browser code, do not reuse `pluginIframeTicket` for XHR/fetch, and do not ask authors to manually pass `pluginSurfaceSession` unless documenting the low-level protocol.
 - Pi SDK extension factories under `extensions/*.js` require `"trust": "full-access"`. They are for provider request rewriting, context filtering, and tool-call observation; use ordinary `tools/*.js` for Agent-callable actions.
 - After full-access plugin install, enable, or reload, Hana rebinds extension runners for idle sessions. Busy sessions pick up the change on the next safe rebuild, so do not promise that an in-flight reply will use freshly edited extension code.
 - Declare only the iframe host capabilities actually used.
@@ -175,3 +177,4 @@ python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "Jimeng Pro
 - Use `mode="hana"` for a named Hana theme, and `mode="custom"` only for explicit token overrides.
 - Route shells should read `hana-theme` and `hana-css` query params, include the theme CSS link when present, and escape values inserted into HTML attributes.
 - Direct templates may use small no-build host messaging helpers, but should stay compatible with the public iframe protocol.
+- Direct templates include `hana.api.fetch()` for plugin route calls; preserve that helper when simplifying generated browser code.

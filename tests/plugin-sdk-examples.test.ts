@@ -66,6 +66,8 @@ describe("plugin SDK examples and docs", () => {
   it("keeps hana-plugin-creator bundled SDK tarballs aligned with current runtime and protocol APIs", () => {
     const runtimeTypes = readBundledSdkFile("hana-plugin-runtime-0.0.0.tgz", "dist/index.d.ts");
     const runtimeReadme = readBundledSdkFile("hana-plugin-runtime-0.0.0.tgz", "README.md");
+    const sdkTypes = readBundledSdkFile("hana-plugin-sdk-0.0.0.tgz", "dist/index.d.ts");
+    const sdkReadme = readBundledSdkFile("hana-plugin-sdk-0.0.0.tgz", "README.md");
     const protocolTypes = readBundledSdkFile("hana-plugin-protocol-0.0.0.tgz", "dist/index.d.ts");
 
     expect(runtimeTypes).toContain("generateVideo");
@@ -73,6 +75,9 @@ describe("plugin SDK examples and docs", () => {
     expect(runtimeTypes).toContain("transcribeAudio");
     expect(runtimeTypes).toContain("HanaProviderMediaMode");
     expect(runtimeReadme).toContain("modes[].inputLimits.referenceImages");
+    expect(sdkTypes).toContain("api:");
+    expect(sdkTypes).toContain("fetch(");
+    expect(sdkReadme).toContain("hana.api.fetch");
     expect(protocolTypes).toContain("PLUGIN_SURFACE_SESSION_HEADER");
     expect(protocolTypes).toContain("PLUGIN_SURFACE_SESSION_QUERY");
   });
@@ -143,6 +148,34 @@ describe("plugin SDK examples and docs", () => {
       expect(route).not.toContain("function serveAsset");
       expect(viteConfig).toContain("sourcemap: false");
       expect(viteConfig).not.toContain("sourcemap: true");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("scaffolds direct UI helpers with plugin API surface-session fetch support", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-direct-ui-scaffold-"));
+    try {
+      execFileSync("python3", [
+        path.join(root, "skills2set", "hana-plugin-creator", "scripts", "create_hana_plugin.py"),
+        "Direct API Panel",
+        "--path",
+        tmpDir,
+        "--kind",
+        "ui",
+        "--audience",
+        "beginner",
+        "--template",
+        "direct",
+      ], { cwd: root, stdio: "pipe" });
+
+      const pluginDir = path.join(tmpDir, "direct-api-panel");
+      const panel = fs.readFileSync(path.join(pluginDir, "assets", "panel.js"), "utf-8");
+
+      expect(panel).toContain("pluginSurfaceSession");
+      expect(panel).toContain("X-Hana-Plugin-Surface-Session");
+      expect(panel).toContain("api: {");
+      expect(panel).toContain("fetch: pluginApiFetch");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

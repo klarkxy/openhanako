@@ -530,7 +530,17 @@ The host appends `hana-theme` and `hana-css` query parameters to the iframe URL.
 
 Static frontend resources belong under the plugin's `assets/` directory and are served by the Hana host at `/api/plugins/{pluginId}/assets/...`. This follows the same boundary idea as VS Code Webview resources: the entry route is opened with the local token or `pluginIframeTicket`; after a successful page response, the host issues a short-lived HttpOnly cookie scoped only to `/api/plugins/{pluginId}/assets/`. Vite split chunks, `React.lazy()` imports, CSS, fonts, images, JSON, wasm, and related static requests should not depend on `?token` or `pluginIframeTicket`.
 
-When page scripts call the plugin's own dynamic route APIs (`/api/plugins/{pluginId}/...`), use the surface session credential the host appends to the iframe URL (query parameter `pluginSurfaceSession`) and send it back via the `X-Hana-Plugin-Surface-Session` header (or a query parameter of the same name):
+When page scripts call the plugin's own dynamic route APIs, prefer `hana.api.fetch()` from `@hana/plugin-sdk`. It derives the current plugin id from the iframe route and sends the surface session credential that the host appended to the iframe URL:
+
+```js
+import { hana } from '@hana/plugin-sdk';
+
+const res = await hana.api.fetch('create-session', {
+  method: 'POST',
+});
+```
+
+When converting a website into a plugin, rewrite same-plugin `fetch('/api/...')` calls to `hana.api.fetch(...)` instead of hard-coding `/api/plugins/{pluginId}/...` in browser code. The lower-level protocol is: the host appends the surface session as the `pluginSurfaceSession` query parameter, and page scripts send it back with the `X-Hana-Plugin-Surface-Session` header (or a query parameter of the same name):
 
 ```js
 const surfaceSession = new URLSearchParams(location.search).get('pluginSurfaceSession');

@@ -619,7 +619,17 @@ window.parent.postMessage({ type: 'ready' }, '*');
 
 静态前端资源放在插件目录的 `assets/` 下，由 Hana 宿主通过 `/api/plugins/{pluginId}/assets/...` 统一服务。这个模型参考 VS Code Webview 的资源边界：入口 route 通过本地 token 或 `pluginIframeTicket` 打开，成功返回页面后，宿主下发一个只作用于 `/api/plugins/{pluginId}/assets/` 的 HttpOnly 短会话 cookie。Vite split chunks、`React.lazy()`、CSS、字体、图片、JSON、wasm 等资源请求不需要也不应该携带 `?token` 或 `pluginIframeTicket`。
 
-页面脚本调用本插件的动态 route API（`/api/plugins/{pluginId}/...`）时，使用宿主随 iframe URL 下发的 surface session 凭证（query 参数 `pluginSurfaceSession`），以 `X-Hana-Plugin-Surface-Session` 请求头（或同名 query 参数）回传：
+页面脚本调用本插件的动态 route API 时，优先使用 `@hana/plugin-sdk` 的 `hana.api.fetch()`。它会从当前 iframe route 推导 pluginId，并自动携带宿主随 iframe URL 下发的 surface session 凭证：
+
+```js
+import { hana } from '@hana/plugin-sdk';
+
+const res = await hana.api.fetch('create-session', {
+  method: 'POST',
+});
+```
+
+网页转换成插件时，要把同插件的 `fetch('/api/...')` 重写为 `hana.api.fetch(...)`，不要在浏览器代码里硬编码 `/api/plugins/{pluginId}/...`。底层协议是：宿主把 surface session 放在 query 参数 `pluginSurfaceSession`，页面调用本插件 route handler 时以 `X-Hana-Plugin-Surface-Session` 请求头（或同名 query 参数）回传：
 
 ```js
 const surfaceSession = new URLSearchParams(location.search).get('pluginSurfaceSession');

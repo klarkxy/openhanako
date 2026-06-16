@@ -25,6 +25,20 @@ const logo = hana.assets.url('/images/logo.svg');
 
 The helper returns `/api/plugins/{pluginId}/assets/{path}` for the current iframe plugin. It accepts only relative, non-dotfile paths. Hana serves these resources through a path-scoped, HttpOnly asset session cookie, so Vite chunks, lazy imports, CSS, fonts, images, JSON, and wasm files should live under `assets/`. Do not put secrets, source files, or source maps in that directory.
 
+## Plugin API Routes
+
+Use `hana.api.fetch(path, init)` when browser code calls this plugin's own route handlers:
+
+```ts
+const res = await hana.api.fetch('api/translate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ domain: 'football' }),
+});
+```
+
+The helper builds `/api/plugins/{pluginId}/{path}` for the current iframe plugin and sends the `X-Hana-Plugin-Surface-Session` header from the iframe URL. Do not reuse `pluginIframeTicket` for `fetch()` calls, and do not hard-code `/api/plugins/{pluginId}/...` in browser code. `hana.api.url(path)` is available when you only need the current plugin route URL.
+
 ## Host Requests
 
 Stable helpers are thin wrappers around `hana.host.request(type, payload)`.

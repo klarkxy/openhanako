@@ -608,9 +608,57 @@ function request(type, payload, timeoutMs = 10000) {{
   }});
 }}
 
+function currentPluginId() {{
+  const match = /^\\/api\\/plugins\\/([^/]+)(?:\\/|$)/.exec(window.location.pathname || "");
+  if (!match) throw new Error("Plugin API helper requires an iframe route under /api/plugins/:pluginId/.");
+  return decodeURIComponent(match[1]);
+}}
+
+function normalizePluginApiPath(input) {{
+  if (typeof input !== "string" || !input.trim()) throw new Error("Invalid plugin API path.");
+  const trimmed = input.trim();
+  if (
+    trimmed.includes("\\\\") ||
+    trimmed.includes("\\0") ||
+    trimmed.includes("#") ||
+    trimmed.startsWith("//") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+  ) throw new Error("Invalid plugin API path.");
+
+  const stripped = trimmed.replace(/^\\/+/, "");
+  if (!stripped || stripped.startsWith("./") || stripped === "api/plugins" || stripped.startsWith("api/plugins/")) {{
+    throw new Error("Invalid plugin API path. Use a route path relative to the current plugin.");
+  }}
+  const queryIndex = stripped.indexOf("?");
+  const rawPath = queryIndex >= 0 ? stripped.slice(0, queryIndex) : stripped;
+  const segments = rawPath.split("/");
+  for (const segment of segments) {{
+    if (!segment) throw new Error("Invalid plugin API path.");
+    const decoded = decodeURIComponent(segment);
+    if (decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\\\")) {{
+      throw new Error("Invalid plugin API path.");
+    }}
+  }}
+  const parsed = new URL(`http://hana.local/${{stripped}}`);
+  return `${{segments.map(segment => encodeURIComponent(decodeURIComponent(segment))).join("/")}}${{parsed.search}}`;
+}}
+
+function pluginApiUrl(path) {{
+  return `${{window.location.origin}}/api/plugins/${{encodeURIComponent(currentPluginId())}}/${{normalizePluginApiPath(path)}}`;
+}}
+
+function pluginApiFetch(path, init = {{}}) {{
+  const surfaceSession = new URLSearchParams(window.location.search).get("pluginSurfaceSession");
+  if (!surfaceSession) throw new Error("hana.api.fetch requires pluginSurfaceSession in the iframe URL.");
+  const headers = new Headers(init.headers || {{}});
+  headers.set("X-Hana-Plugin-Surface-Session", surfaceSession);
+  return fetch(pluginApiUrl(path), {{ ...init, headers }});
+}}
+
 const hana = {{
   ready: () => event("hana.ready"),
   ui: {{ resize: (size) => event("ui.resize", size) }},
+  api: {{ url: pluginApiUrl, fetch: pluginApiFetch }},
   toast: {{ show: (input) => request("toast.show", input) }},
   external: {{ open: (url) => request("external.open", typeof url === "string" ? {{ url }} : url) }},
   clipboard: {{ writeText: (text) => request("clipboard.writeText", typeof text === "string" ? {{ text }} : text) }},

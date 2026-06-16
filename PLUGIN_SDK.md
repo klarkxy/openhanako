@@ -87,6 +87,18 @@ hana.ui.resize({ height: 320 });
 await hana.toast.show({ message: 'Ready' });
 ```
 
+Use `hana.api.fetch(path, init)` for browser-side calls to this plugin's own dynamic route handlers. It derives the current plugin id from the iframe route and sends the `X-Hana-Plugin-Surface-Session` header that Hana issued with the iframe URL:
+
+```ts
+const res = await hana.api.fetch('api/translate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ domain: 'football' }),
+});
+```
+
+Website-to-plugin conversions should rewrite same-plugin `fetch('/api/...')` calls to `hana.api.fetch(...)`. Do not hard-code `/api/plugins/{pluginId}/...` in browser code, and do not reuse `pluginIframeTicket` for XHR/fetch calls; that ticket is only for the iframe document load.
+
 Use `hana.assets.url(path)` for browser-side references to files bundled under the plugin's `assets/` directory:
 
 ```ts

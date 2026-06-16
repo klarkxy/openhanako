@@ -1,4 +1,6 @@
 import {
+  PLUGIN_SURFACE_SESSION_HEADER,
+  PLUGIN_SURFACE_SESSION_QUERY,
   PLUGIN_UI_CAPABILITY,
   PLUGIN_UI_PROTOCOL,
   PLUGIN_UI_PROTOCOL_VERSION,
@@ -57,6 +59,10 @@ export interface HanaPluginSdk {
   ready(payload?: unknown): void;
   assets: {
     url(path: string): string;
+  };
+  api: {
+    url(path: string): string;
+    fetch(path: string, init?: RequestInit): Promise<Response>;
   };
   ui: {
     resize(size: HanaPluginSize): void;
@@ -191,6 +197,79 @@ function pluginAssetUrl(targetWindow: Window, input: string): string {
   return `${targetWindow.location.origin}/api/plugins/${encodeURIComponent(pluginId)}/assets/${assetPath}`;
 }
 
+function readSurfaceSession(targetWindow: Window): string | null {
+  return new URLSearchParams(targetWindow.location.search).get(PLUGIN_SURFACE_SESSION_QUERY) || null;
+}
+
+function normalizePluginApiPath(input: string): string {
+  if (typeof input !== 'string' || input.length === 0) {
+    throw new Error('Invalid plugin API path.');
+  }
+  const trimmed = input.trim();
+  if (
+    !trimmed
+    || trimmed.includes('\\')
+    || trimmed.includes('\0')
+    || trimmed.includes('#')
+    || trimmed.startsWith('//')
+    || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+  ) {
+    throw new Error('Invalid plugin API path.');
+  }
+
+  const stripped = trimmed.replace(/^\/+/, '');
+  if (!stripped || stripped.startsWith('./') || stripped === 'api/plugins' || stripped.startsWith('api/plugins/')) {
+    throw new Error('Invalid plugin API path. Use a route path relative to the current plugin.');
+  }
+
+  const queryIndex = stripped.indexOf('?');
+  const rawPath = queryIndex >= 0 ? stripped.slice(0, queryIndex) : stripped;
+  if (!rawPath) {
+    throw new Error('Invalid plugin API path.');
+  }
+  const segments = rawPath.split('/');
+  for (const segment of segments) {
+    if (!segment) throw new Error('Invalid plugin API path.');
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      throw new Error('Invalid plugin API path.');
+    }
+    if (decoded === '.' || decoded === '..' || decoded.includes('/') || decoded.includes('\\')) {
+      throw new Error('Invalid plugin API path.');
+    }
+  }
+
+  const parsed = new URL(`http://hana.local/${stripped}`);
+  const safePath = segments.map(segment => encodeURIComponent(decodeURIComponent(segment))).join('/');
+  return `${safePath}${parsed.search}`;
+}
+
+function pluginApiUrl(targetWindow: Window, input: string): string {
+  const pluginId = readPluginIdFromIframeRoute(targetWindow);
+  const apiPath = normalizePluginApiPath(input);
+  return `${targetWindow.location.origin}/api/plugins/${encodeURIComponent(pluginId)}/${apiPath}`;
+}
+
+function pluginApiFetch(targetWindow: Window, input: string, init?: RequestInit): Promise<Response> {
+  const surfaceSession = readSurfaceSession(targetWindow);
+  if (!surfaceSession) {
+    throw new Error('hana.api.fetch requires pluginSurfaceSession in the iframe URL.');
+  }
+  const fetchImpl = targetWindow.fetch?.bind(targetWindow) ?? globalThis.fetch?.bind(globalThis);
+  if (!fetchImpl) {
+    throw new Error('hana.api.fetch requires window.fetch.');
+  }
+  const requestInit = init ?? {};
+  const headers = new Headers(requestInit.headers);
+  headers.set(PLUGIN_SURFACE_SESSION_HEADER, surfaceSession);
+  return fetchImpl(pluginApiUrl(targetWindow, input), {
+    ...requestInit,
+    headers,
+  });
+}
+
 export function createHanaPluginSdk(options: HanaPluginSdkOptions = {}): HanaPluginSdk {
   const targetWindow = options.targetWindow ?? getBrowserWindow();
   const parentWindow = options.parentWindow ?? targetWindow.parent;
@@ -295,6 +374,14 @@ export function createHanaPluginSdk(options: HanaPluginSdkOptions = {}): HanaPlu
         return pluginAssetUrl(targetWindow, assetPath);
       },
     },
+    api: {
+      url(apiPath: string) {
+        return pluginApiUrl(targetWindow, apiPath);
+      },
+      fetch(apiPath: string, init?: RequestInit) {
+        return pluginApiFetch(targetWindow, apiPath, init);
+      },
+    },
     ui: {
       resize(size: HanaPluginSize) {
         postEvent(PLUGIN_UI_CAPABILITY.UI_RESIZE, size);
@@ -357,6 +444,14 @@ export const hana: HanaPluginSdk = {
   assets: {
     url(assetPath: string) {
       return getSingleton().assets.url(assetPath);
+    },
+  },
+  api: {
+    url(apiPath: string) {
+      return getSingleton().api.url(apiPath);
+    },
+    fetch(apiPath: string, init?: RequestInit) {
+      return getSingleton().api.fetch(apiPath, init);
     },
   },
   ui: {
