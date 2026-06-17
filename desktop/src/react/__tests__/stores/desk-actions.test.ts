@@ -311,6 +311,44 @@ describe('desk-actions workspace roots', () => {
     );
   });
 
+  it('removes a Studio workspace mount and clears the selected mount when it was active', async () => {
+    useStore.setState({
+      selectedWorkspaceMountId: 'mount_docs',
+      selectedWorkspaceLabel: 'Docs',
+      deskBasePath: 'studio:mount_docs',
+      deskWorkspaceMountId: 'mount_docs',
+      deskWorkspaceLabel: 'Docs',
+      studioWorkspaces: [
+        { workspaceId: 'default', mountId: 'default', label: 'Default', isDefault: true },
+        { workspaceId: 'mount_docs', mountId: 'mount_docs', label: 'Docs', isDefault: false },
+      ],
+    } as never);
+    mockHanaFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url === '/api/studio/workspaces/mount_docs' && opts?.method === 'DELETE') {
+        return jsonResponse({ ok: true, mountId: 'mount_docs' });
+      }
+      if (url === '/api/studio/workspaces') {
+        return jsonResponse({
+          workspaces: [{ workspaceId: 'default', mountId: 'default', label: 'Default', isDefault: true }],
+        });
+      }
+      if (url.startsWith('/api/preferences/workspace-ui-state')) return jsonResponse({ state: null });
+      return jsonResponse({});
+    });
+
+    const { removeStudioWorkspace } = await import('../../stores/desk-actions');
+    await removeStudioWorkspace('mount_docs');
+
+    expect(useStore.getState().studioWorkspaces.map(workspace => workspace.mountId)).toEqual(['default']);
+    expect(useStore.getState().selectedWorkspaceMountId).toBeNull();
+    expect(useStore.getState().deskWorkspaceMountId).toBeNull();
+    expect(useStore.getState().deskBasePath).toBe('');
+    expect(mockHanaFetch).toHaveBeenCalledWith(
+      '/api/studio/workspaces/mount_docs',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
   it('clears recent workspace history through the server API', async () => {
     useStore.setState({
       cwdHistory: ['/workspace/Desktop', '/workspace/Novel'],
