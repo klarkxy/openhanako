@@ -38,6 +38,7 @@ import { VisionBridge, VISION_CONTEXT_START } from "../core/vision-bridge.ts";
 import { createUsageLedger } from "../lib/llm/usage-ledger.ts";
 import { BrowserManager } from "../lib/browser/browser-manager.ts";
 import { DEEPSEEK_ROLEPLAY_REASONING_PATCH_EXPERIMENT_ID } from "../lib/experiments/registry.ts";
+import { SessionManager } from "../lib/pi-sdk/index.js";
 
 const PNG_BASE64 = "iVBORw0KGgo=";
 
@@ -3071,6 +3072,67 @@ describe("SessionCoordinator", () => {
       error: "aborted",
     });
     expect(fs.existsSync(sessionFile)).toBe(false);
+  });
+
+  it("keeps a deleted-agent continuation session when fresh compact fails", async () => {
+    const agentsDir = path.join(tempDir, "agents");
+    const sourcePath = path.join(agentsDir, "deleted", "sessions", "old.jsonl");
+    const createdPath = path.join(agentsDir, "hana", "sessions", "continued.jsonl");
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.mkdirSync(path.dirname(createdPath), { recursive: true });
+    fs.writeFileSync(sourcePath, "source", "utf-8");
+    fs.writeFileSync(createdPath, "created", "utf-8");
+
+    (SessionManager.open as any).mockReturnValue({
+      getCwd: () => tempDir,
+      getBranch: () => [{
+        type: "message",
+        message: { role: "user", content: "old hello", timestamp: "2026-06-17T00:00:00.000Z" },
+      }],
+    });
+
+    const targetAgent = { id: "hana", agentName: "Hana" };
+    const manager = {
+      getCwd: () => tempDir,
+      appendMessage: vi.fn(),
+      appendModelChange: vi.fn(),
+      _rewriteFile: vi.fn(),
+    };
+    const coordinator = Object.create(SessionCoordinator.prototype);
+    coordinator._assertActiveDesktopSessionPath = vi.fn();
+    coordinator._d = {
+      agentIdFromSessionPath: vi.fn(() => "deleted"),
+      isAgentDeleted: vi.fn((agentId) => agentId === "deleted"),
+      getPrefs: vi.fn(() => ({ getPrimaryAgent: () => "hana" })),
+      getAgentById: vi.fn(() => targetAgent),
+      getAgent: vi.fn(() => targetAgent),
+      getHomeCwd: vi.fn(() => tempDir),
+    };
+    coordinator.createSession = vi.fn(async () => ({
+      sessionPath: createdPath,
+      session: { sessionManager: manager, model: null },
+    }));
+    coordinator.writeSessionMeta = vi.fn(async () => {});
+    coordinator._freshCompactDeletedAgentContinuation = vi.fn(async () => {
+      throw new Error("model unavailable");
+    });
+    coordinator.discardSessionRuntime = vi.fn(async () => {});
+    coordinator.getSessionWorkspaceFolders = vi.fn(() => []);
+
+    const result = await coordinator.continueDeletedAgentSession(sourcePath);
+
+    expect(result).toMatchObject({
+      sessionPath: createdPath,
+      agentId: "hana",
+      compacted: false,
+      compactionError: "model unavailable",
+    });
+    expect(manager.appendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      role: "user",
+      content: [{ type: "text", text: "old hello" }],
+    }));
+    expect(coordinator.discardSessionRuntime).not.toHaveBeenCalled();
+    expect(fs.existsSync(createdPath)).toBe(true);
   });
 
   const isoDeps = () => ({
