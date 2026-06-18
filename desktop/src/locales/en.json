@@ -239,6 +239,8 @@
     "copy": "Copy",
     "copied": "Copied",
     "copyText": "Copy text",
+    "close": "Close",
+    "loading": "Loading...",
     "regenerate": "Regenerate",
     "confirm": "Confirm",
     "cancel": "Cancel",
@@ -346,6 +348,7 @@
     "extraFolders": "Extra folders",
     "addExternalFolder": "Add folder outside workspace",
     "removeStudioWorkspace": "Remove workspace",
+    "removeRecentWorkspace": "Remove from list",
     "planMode": "Access mode",
     "accessMode": "Session access mode",
     "autoMode": "Auto approval",
@@ -2065,6 +2068,7 @@
     }
   },
   "onboarding": {
+    "error": "Something went wrong. Try again.",
     "welcome": {
       "title": "Hi, I'm {name} ✿",
       "subtitle": "I'm your personal AI assistant.\nLet's do some quick setup to get started.",

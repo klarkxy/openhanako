@@ -534,17 +534,6 @@ export function handleServerMessage(msg: any): void {
         : null;
       const thumbnailFresh = bRunning && hasFreshThumbnail;
       setBrowserStateForPath(bsp, { running: bRunning, url: bUrl, thumbnail: bThumbnail, thumbnailCapturedAt, thumbnailUrl, thumbnailFresh });
-      // renderBrowserCard — no-op (browser card rendering handled by React)
-      if (typeof window !== 'undefined' && window.platform?.updateBrowserViewer) {
-        window.platform.updateBrowserViewer({
-          running: bRunning,
-          url: bUrl,
-          thumbnail: bThumbnail,
-          thumbnailCapturedAt,
-          thumbnailUrl,
-          thumbnailFresh,
-        });
-      }
       break;
     }
 

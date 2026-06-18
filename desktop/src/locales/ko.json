@@ -231,6 +231,8 @@
     "copy": "복사",
     "copied": "복사됨",
     "copyText": "텍스트 복사",
+    "close": "닫기",
+    "loading": "불러오는 중...",
     "regenerate": "다시 생성",
     "confirm": "확인",
     "cancel": "취소",
@@ -313,6 +315,7 @@
     "extraFolders": "추가 폴더",
     "addExternalFolder": "작업 공간 외부 폴더 추가",
     "removeStudioWorkspace": "작업 공간 제거",
+    "removeRecentWorkspace": "목록에서 제거",
     "planMode": "접근 모드",
     "accessMode": "세션 접근 모드",
     "autoMode": "자동 승인",
@@ -1853,6 +1856,7 @@
     }
   },
   "onboarding": {
+    "error": "작업에 실패했습니다. 다시 시도해 주세요",
     "welcome": {
       "title": "안녕하세요, 저는 {name}이에요 ✿",
       "subtitle": "저는 당신의 개인 AI 어시스턴트예요.\n간단한 설정을 하고 시작해 볼까요.",

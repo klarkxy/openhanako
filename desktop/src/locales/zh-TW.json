@@ -231,6 +231,8 @@
     "copy": "複製",
     "copied": "已複製",
     "copyText": "複製文字",
+    "close": "關閉",
+    "loading": "載入中...",
     "regenerate": "重新生成",
     "confirm": "確認",
     "cancel": "取消",
@@ -313,6 +315,7 @@
     "extraFolders": "額外資料夾",
     "addExternalFolder": "加入工作台以外的資料夾",
     "removeStudioWorkspace": "移除工作台",
+    "removeRecentWorkspace": "從列表移除",
     "planMode": "權限模式",
     "accessMode": "會話權限模式",
     "autoMode": "自動審核",
@@ -1845,6 +1848,7 @@
     }
   },
   "onboarding": {
+    "error": "操作失敗，請重試",
     "welcome": {
       "title": "你好，我是 {name} ✿",
       "subtitle": "我是你的個人 AI 助手。\n來做一些簡單的設定，讓我們開始吧。",

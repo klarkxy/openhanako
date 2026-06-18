@@ -239,6 +239,8 @@
     "copy": "复制",
     "copied": "已复制",
     "copyText": "复制文本",
+    "close": "关闭",
+    "loading": "加载中...",
     "regenerate": "重新生成",
     "confirm": "确认",
     "cancel": "取消",
@@ -346,6 +348,7 @@
     "extraFolders": "额外文件夹",
     "addExternalFolder": "添加工作台以外的文件夹",
     "removeStudioWorkspace": "移除工作台",
+    "removeRecentWorkspace": "从列表移除",
     "planMode": "权限模式",
     "accessMode": "会话权限模式",
     "autoMode": "自动审核",
@@ -2065,6 +2068,7 @@
     }
   },
   "onboarding": {
+    "error": "操作失败，请重试",
     "welcome": {
       "title": "你好，我是 {name} ✿",
       "subtitle": "我是你的个人 AI 助手。\n来做一些简单的设置，让我们开始吧。",
