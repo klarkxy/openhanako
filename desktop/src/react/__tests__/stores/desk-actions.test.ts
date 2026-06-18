@@ -151,6 +151,40 @@ describe('desk-actions workspace roots', () => {
     expect(useStore.getState().deskWorkspaceNativeRoot).toBe('/Users/me/docs');
   });
 
+  it('keeps the visible mounted workspace files when a refresh fails', async () => {
+    const existingFiles = [{ name: 'existing.md', isDir: false }];
+    useStore.setState({
+      deskBasePath: 'studio:mount_docs',
+      deskWorkspaceMountId: 'mount_docs',
+      deskWorkspaceLabel: 'Docs',
+      deskFiles: existingFiles,
+      deskTreeFilesByPath: { '': existingFiles },
+    } as never);
+    mockHanaFetch.mockResolvedValueOnce(jsonResponse({ error: 'workspace_not_found' }));
+
+    const { loadDeskFiles } = await import('../../stores/desk-actions');
+    await loadDeskFiles('', null, 'mount_docs');
+
+    expect(useStore.getState().deskFiles).toBe(existingFiles);
+    expect(useStore.getState().deskTreeFilesByPath['']).toBe(existingFiles);
+  });
+
+  it('keeps cached tree children when a background tree refresh fails', async () => {
+    const existingChildren = [{ name: 'child.md', isDir: false }];
+    useStore.setState({
+      deskBasePath: 'studio:mount_docs',
+      deskWorkspaceMountId: 'mount_docs',
+      deskWorkspaceLabel: 'Docs',
+      deskTreeFilesByPath: { docs: existingChildren },
+    } as never);
+    mockHanaFetch.mockResolvedValueOnce(jsonResponse({ error: 'workspace_not_found' }));
+
+    const { loadDeskTreeFiles } = await import('../../stores/desk-actions');
+    await loadDeskTreeFiles('docs', { force: true });
+
+    expect(useStore.getState().deskTreeFilesByPath.docs).toBe(existingChildren);
+  });
+
   it('clears the stored native root when the workbench files response stops disclosing it', async () => {
     useStore.setState({
       deskBasePath: 'studio:mount_docs',
@@ -274,6 +308,44 @@ describe('desk-actions workspace roots', () => {
         method: 'DELETE',
         body: JSON.stringify({ path: '/workspace/Desktop' }),
       }),
+    );
+  });
+
+  it('removes a Studio workspace mount and clears the selected mount when it was active', async () => {
+    useStore.setState({
+      selectedWorkspaceMountId: 'mount_docs',
+      selectedWorkspaceLabel: 'Docs',
+      deskBasePath: 'studio:mount_docs',
+      deskWorkspaceMountId: 'mount_docs',
+      deskWorkspaceLabel: 'Docs',
+      studioWorkspaces: [
+        { workspaceId: 'default', mountId: 'default', label: 'Default', isDefault: true },
+        { workspaceId: 'mount_docs', mountId: 'mount_docs', label: 'Docs', isDefault: false },
+      ],
+    } as never);
+    mockHanaFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url === '/api/studio/workspaces/mount_docs' && opts?.method === 'DELETE') {
+        return jsonResponse({ ok: true, mountId: 'mount_docs' });
+      }
+      if (url === '/api/studio/workspaces') {
+        return jsonResponse({
+          workspaces: [{ workspaceId: 'default', mountId: 'default', label: 'Default', isDefault: true }],
+        });
+      }
+      if (url.startsWith('/api/preferences/workspace-ui-state')) return jsonResponse({ state: null });
+      return jsonResponse({});
+    });
+
+    const { removeStudioWorkspace } = await import('../../stores/desk-actions');
+    await removeStudioWorkspace('mount_docs');
+
+    expect(useStore.getState().studioWorkspaces.map(workspace => workspace.mountId)).toEqual(['default']);
+    expect(useStore.getState().selectedWorkspaceMountId).toBeNull();
+    expect(useStore.getState().deskWorkspaceMountId).toBeNull();
+    expect(useStore.getState().deskBasePath).toBe('');
+    expect(mockHanaFetch).toHaveBeenCalledWith(
+      '/api/studio/workspaces/mount_docs',
+      expect.objectContaining({ method: 'DELETE' }),
     );
   });
 

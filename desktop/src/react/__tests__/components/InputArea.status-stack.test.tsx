@@ -289,6 +289,27 @@ describe('InputArea status stack', () => {
     expect(deskActionMocks.loadDeskFiles).not.toHaveBeenCalled();
   });
 
+  it('opens the generated screenshot image directly when the notice carries a file path', async () => {
+    const openFile = vi.fn();
+    window.platform = { openFile } as unknown as typeof window.platform;
+    render(React.createElement(InputArea));
+
+    window.dispatchEvent(new CustomEvent('hana-inline-notice', {
+      detail: {
+        text: '截图已保存到工作目录下的「OH-Works」文件夹',
+        type: 'success',
+        deskDir: '/workspace/OH-Works/截图',
+        filePath: '/workspace/OH-Works/截图/hanako-20260617.png',
+      },
+    }));
+
+    fireEvent.click(await screen.findByTestId('input-status-bars'));
+
+    expect(openFile).toHaveBeenCalledWith('/workspace/OH-Works/截图/hanako-20260617.png');
+    expect(deskActionMocks.toggleJianSidebar).not.toHaveBeenCalled();
+    expect(deskActionMocks.revealDeskDirectory).not.toHaveBeenCalled();
+  });
+
   it('does not show the composer context row for todos alone', () => {
     const sessionPath = '/session/todos-only.jsonl';
     useStore.setState({

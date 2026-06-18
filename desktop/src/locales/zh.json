@@ -19,6 +19,11 @@
   "selection": {
     "quoteToChat": "引用到对话"
   },
+  "mermaid": {
+    "viewSource": "查看源码",
+    "hideSource": "隐藏源码",
+    "copySource": "复制源码"
+  },
   "quickChat": {
     "title": "快速聊天",
     "close": "关闭快速聊天",
@@ -104,6 +109,15 @@
     "toolWrite": "写入",
     "filesUnsupported": "频道暂只支持文本消息，文件不会加入普通聊天附件"
   },
+  "skills": {
+    "panel": {
+      "title": "Skills",
+      "allTab": "全部技能",
+      "agentTabs": "按助手查看技能",
+      "previousAgent": "上一个助手",
+      "nextAgent": "下一个助手"
+    }
+  },
   "sidebar": {
     "title": "对话",
     "newChat": "新对话",
@@ -169,10 +183,11 @@
     "archive": "归档",
     "deletedAgent": {
       "title": "Agent 已删除",
-      "description": "这段对话会保留为只读历史。继续聊天会用主 Agent 新建一个 session，并先压缩旧上下文。",
+      "description": "这段对话会保留为只读历史。继续聊天会用主 Agent 新建一个 session，并尝试压缩旧上下文。",
       "continueButton": "迁移到现有主 Agent",
-      "continuing": "正在压缩并新建 session",
+      "continuing": "正在迁移并尝试压缩 session",
       "continueFailed": "迁移失败",
+      "continueCompactionFailed": "迁移已完成，但旧上下文压缩失败",
       "meta": "只读"
     },
     "summary": {
@@ -243,6 +258,7 @@
     "empty": "空",
     "edit": "编辑",
     "screenshot": "截图",
+    "screenshotShare": "截图分享",
     "selectMessage": "选择消息",
     "selectAllMessages": "全选消息",
     "screenshotInProgress": "正在截图",
@@ -329,6 +345,7 @@
     "selectOtherFolder": "选择其他文件夹",
     "extraFolders": "额外文件夹",
     "addExternalFolder": "添加工作台以外的文件夹",
+    "removeStudioWorkspace": "移除工作台",
     "planMode": "权限模式",
     "accessMode": "会话权限模式",
     "autoMode": "自动审核",
@@ -339,7 +356,7 @@
     "deskContext": "看着书桌说",
     "pastedImage": "粘贴图片",
     "textModelImageFileOnly": "当前模型不能查看图片，也未启用辅助视觉：图片将作为文件发送，模型只能看到文件路径，看不到图片内容。",
-    "textModelVideoBlocked": "当前模型不支持视频输入。请在设置里开启视频能力，或切换到支持视频的模型。",
+    "textModelVideoFileOnly": "当前模型不支持直接查看视频：视频将作为文件发送，模型只能看到文件路径，看不到视频内容。",
     "textModelAudioBlocked": "当前模型不支持音频输入。请切换到支持音频的模型。",
     "imageReadFailedSentAsFile": "图片内容读取失败，这张图已改为按文件路径发送，模型不会看到它的内容。",
     "videoReadFailed": "视频读取失败，消息没有发送。请重新添加视频。",
@@ -1714,13 +1731,14 @@
       "heartbeatMaster": "巡检总开关",
       "heartbeatMasterDesc": "关闭后所有助手的巡检均暂停",
       "heartbeatEnabled": "巡检模式",
+      "heartbeatOperationalNotice": "开启后，助手会在后台进入可操作状态，可能读取或修改工作台文件、触发工具调用，甚至产生意料之外的文件和行为。请配合自动审核模式使用，审核不通过的操作会被拒绝。",
       "heartbeatOn": "已开启",
       "heartbeatOff": "已关闭",
       "heartbeatInterval": "巡检间隔",
       "heartbeatUnit": "分钟",
       "heartbeatDesc": "助手每隔多久自动巡检一次工作台",
       "automationPermissionMode": "自动化运行权限",
-      "automationPermissionModeDesc": "决定后台自动化 Agent Run 能否自动审核工具调用、完整执行，或只读取信息",
+      "automationPermissionModeDesc": "决定后台自动化 Agent Run 是自动审核工具调用、完整执行，还是只读取信息；自动审核不通过时会拒绝操作",
       "homeFolder": "工作台",
       "homeFolderDesc": "新建对话默认使用的工作目录，巡检和定时任务也在这里执行",
       "homeFolderPlaceholder": "未设置（每次手动选择）",

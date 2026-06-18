@@ -931,6 +931,29 @@ html[data-platform="linux"] .tb-toggle-right {
     display: none;
 }
 
+.md-content .mermaid-source-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-xs);
+}
+
+.md-content .mermaid-source-toolbar button {
+    border: var(--panel-card-border);
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.7rem;
+    padding: 0.15rem var(--space-xs);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.md-content .mermaid-source-toolbar button:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+}
+
 .md-content .mermaid-rendered {
     min-width: 0;
     overflow-x: auto;

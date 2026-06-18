@@ -46,7 +46,7 @@ import {
   getModelAudioInputMode,
   notifyTextModelImageFileOnly,
   notifyTextModelAudioBlocked,
-  notifyTextModelVideoBlocked,
+  notifyTextModelVideoFileOnly,
 } from '../utils/chat-image-send-preflight';
 import { openProviderModelSettings } from '../utils/model-settings-navigation';
 import { shouldShowThinkingControl } from '../utils/model-thinking';
@@ -367,7 +367,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashSelected, setSlashSelected] = useState(0);
   const [slashBusy, setSlashBusy] = useState<string | null>(null);
-  const [slashResult, setSlashResult] = useState<{ text: string; type: 'success' | 'error'; deskDir?: string } | null>(null);
+  const [slashResult, setSlashResult] = useState<{ text: string; type: 'success' | 'error'; deskDir?: string; filePath?: string } | null>(null);
   const [visibleSessionConfirmation, setVisibleSessionConfirmation] = useState<SessionConfirmationBlock | null>(null);
   const [sessionConfirmationExiting, setSessionConfirmationExiting] = useState(false);
 
@@ -430,8 +430,8 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   // ── 全局 inline notice（截图等非斜杠命令的轻提示）──
   useEffect(() => {
     const handler = (e: Event) => {
-      const { text, type, deskDir } = (e as CustomEvent).detail;
-      setSlashResult({ text, type, deskDir });
+      const { text, type, deskDir, filePath } = (e as CustomEvent).detail;
+      setSlashResult({ text, type, deskDir, filePath });
       setTimeout(() => setSlashResult(null), 3000);
     };
     window.addEventListener('hana-inline-notice', handler);
@@ -1449,13 +1449,14 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
         attachments: inputFiles,
         model: currentModelInfo,
       });
-      if (!videoPreflight.ok) {
-        notifyTextModelVideoBlocked({
+      const sendVideosNatively = videoPreflight.ok && videoPreflight.reason === 'native-video';
+      const videosAsFileOnly = !videoPreflight.ok;
+      if (videosAsFileOnly) {
+        notifyTextModelVideoFileOnly({
           t,
           addToast: useStore.getState().addToast,
           openSettings: () => openProviderModelSettings(currentModelInfo?.provider),
         });
-        return;
       }
       const audioPreflight = await evaluateChatAudioSendPreflight({
         attachments: inputFiles,
@@ -1465,7 +1466,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       const otherFiles = hasFiles ? inputFiles.filter(f =>
         f.isDirectory || (
           !isImageFile(f.name)
-          && !isVideoFile(f.name)
+          && !(sendVideosNatively && isVideoFile(f.name))
           && !(sendAudiosNatively && isAudioFileName(f.name, f.mimeType))
         )
       ) : [];
@@ -1546,7 +1547,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
           return;
         }
       }
-      for (const video of videoFiles) {
+      for (const video of sendVideosNatively ? videoFiles : []) {
         try {
           if (video.base64Data && video.mimeType) {
             const mimeType = chatVideoMimeTypeForName(video.name, video.mimeType);
@@ -1758,10 +1759,14 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   };
 
   const handleSlashResultClick = useCallback(() => {
+    if (slashResult?.filePath) {
+      window.platform?.openFile?.(slashResult.filePath);
+      return;
+    }
     if (!slashResult?.deskDir) return;
     toggleJianSidebar(true);
     void revealDeskDirectory(slashResult.deskDir);
-  }, [slashResult?.deskDir]);
+  }, [slashResult?.deskDir, slashResult?.filePath]);
 
   const handleContinueDeletedAgentSession = useCallback(async () => {
     const path = currentSessionPath;
@@ -1805,7 +1810,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
         screenshotProgress={screenshotProgress}
         inlineError={inlineError}
         slashResult={slashResult}
-        onResultClick={slashResult?.deskDir ? handleSlashResultClick : undefined}
+        onResultClick={(slashResult?.filePath || slashResult?.deskDir) ? handleSlashResultClick : undefined}
       />
       <div className={styles['slash-menu-anchor']} ref={slashMenuRef}>
         {slashMenuOpen && filteredCommands.length > 0 && (

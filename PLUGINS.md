@@ -202,7 +202,7 @@ export const description = "...";       // 必须
 export const parameters = { ... };      // JSON Schema，可选
 export async function execute(input, toolCtx) {  // 必须
   // input: 用户传入的参数
-  // toolCtx: { pluginId, pluginDir, dataDir, sessionPath, bus, config, log, registerSessionFile, stageFile }
+  // toolCtx: { pluginId, pluginDir, dataDir, sessionPath, bus, network, config, log, registerSessionFile, stageFile }
   return "result";
 }
 ```
@@ -262,6 +262,46 @@ return {
 - 用户上传、Bridge 入站、浏览器截图、旧 `create_artifact` 兼容工具输出等临时产物由框架登记为 `managed_cache`
 - 安装来源（`.skill`、plugin 目录或 zip）：由安装 route 登记为 `install_source`
 - Card 负责呈现交互界面，文件仍然是资源；卡片需要引用文件时，应引用 `SessionFile`，不要把文件内容塞进 card payload
+
+#### 外部数据访问
+
+插件需要实时比分、天气、行情、外部搜索结果或第三方平台数据时，新代码应通过宿主提供的 `ctx.network.fetch()` 访问外部 HTTP API。iframe 页面只调用本插件自己的 route，例如 `hana.api.fetch("api/live-scores")`；route handler 再调用 `ctx.network.fetch("https://...")`。这样 iframe 认证、外部域名声明、超时、缓存和响应大小限制都在宿主边界内统一处理。
+
+`ctx.network.fetch()` 需要 manifest 显式声明 `network.fetch`，并列出允许访问的主机：
+
+```json
+{
+  "trust": "full-access",
+  "capabilities": ["network.fetch"],
+  "network": {
+    "allowedHosts": ["site.api.espn.com"],
+    "methods": ["GET"],
+    "defaultTimeoutMs": 8000,
+    "maxResponseBytes": 1048576
+  }
+}
+```
+
+```js
+// routes/api.js
+route.get("/live-scores", async (c) => {
+  const ctx = c.get("pluginCtx");
+  const res = await ctx.network.fetch(
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard",
+    { cacheTtlMs: 30_000 },
+  );
+  return c.json(await res.json());
+});
+```
+
+边界规则：
+
+- `allowedHosts` 必须写主机名，可用 `*.example.com` 匹配子域；空列表拒绝所有外部主机
+- 默认只允许 `GET`；需要 `POST`、`PUT` 等方法时在 `network.methods` 中显式声明
+- 默认只允许 HTTPS；`http://127.0.0.1`、`localhost`、私网地址必须额外声明 `"allowLocalhost": true`
+- `timeoutMs`、`cacheTtlMs`、`maxResponseBytes` 可在单次调用覆盖 manifest 默认值
+- API key、token、cookie 不得写进 `assets/` 或 iframe JS；用 configuration schema 保存，由 route 在服务端读取
+- 旧插件已经直接在 Node route 中使用 `fetch()` 的路径继续兼容；新插件、模板和 Agent 生成代码应使用 `ctx.network.fetch()`，这样诊断能指出缺少能力声明、域名、方法或大小限制
 
 #### 可视化卡片
 
@@ -617,9 +657,19 @@ window.parent.postMessage({ type: 'ready' }, '*');
 <link rel="stylesheet" href="${new URLSearchParams(location.search).get('hana-css')}">
 ```
 
-静态前端资源放在插件目录的 `assets/` 下，由 Hana 宿主通过 `/api/plugins/{pluginId}/assets/...` 统一服务。这个模型参考 VS Code Webview 的资源边界：入口 route 通过本地 token 或 `pluginIframeTicket` 打开，成功返回页面后，宿主下发一个只作用于 `/api/plugins/{pluginId}/assets/` 的 HttpOnly 短会话 cookie。Vite split chunks、`React.lazy()`、CSS、字体、图片、JSON、wasm 等资源请求不需要也不应该携带 `?token` 或 `pluginIframeTicket`。
+静态前端资源放在插件目录的 `assets/` 下，由 Hana 宿主通过 `/api/plugins/{pluginId}/assets/...` 统一服务。这个模型参考 VS Code Webview 的资源边界：入口 route 通过本地 token 或 `pluginIframeTicket` 打开，成功返回页面后，宿主下发一个只作用于 `/api/plugins/{pluginId}/assets/` 的 HttpOnly 短会话 cookie。Vite split chunks、`React.lazy()`、CSS、字体、图片、JSON、wasm、MP4/WebM/MOV 等浏览器可播放视频请求不需要也不应该携带 `?token` 或 `pluginIframeTicket`。视频资源支持 HTTP Range，`<video>` 可以通过官方 assets 路由播放和 seek。
 
-页面脚本调用本插件的动态 route API（`/api/plugins/{pluginId}/...`）时，使用宿主随 iframe URL 下发的 surface session 凭证（query 参数 `pluginSurfaceSession`），以 `X-Hana-Plugin-Surface-Session` 请求头（或同名 query 参数）回传：
+页面脚本调用本插件的动态 route API 时，优先使用 `@hana/plugin-sdk` 的 `hana.api.fetch()`。它会从当前 iframe route 推导 pluginId，并自动携带宿主随 iframe URL 下发的 surface session 凭证：
+
+```js
+import { hana } from '@hana/plugin-sdk';
+
+const res = await hana.api.fetch('create-session', {
+  method: 'POST',
+});
+```
+
+网页转换成插件时，要把同插件的 `fetch('/api/...')` 重写为 `hana.api.fetch(...)`，不要在浏览器代码里硬编码 `/api/plugins/{pluginId}/...`。底层协议是：宿主把 surface session 放在 query 参数 `pluginSurfaceSession`，页面调用本插件 route handler 时以 `X-Hana-Plugin-Surface-Session` 请求头（或同名 query 参数）回传：
 
 ```js
 const surfaceSession = new URLSearchParams(location.search).get('pluginSurfaceSession');
@@ -637,6 +687,7 @@ const res = await fetch('/api/plugins/my-plugin/create-session', {
 import { hana } from '@hana/plugin-sdk';
 
 const iconUrl = hana.assets.url('images/icon.svg');
+const bgVideoUrl = hana.assets.url('videos/background.mp4');
 ```
 
 服务端 shell 可以直接引用同一个 host-served 资源路径：
@@ -646,6 +697,8 @@ const iconUrl = hana.assets.url('images/icon.svg');
 ```
 
 `assets/` 是公开静态资源根，只放构建产物和公开素材。不要放源码、密钥、私有配置或运行时数据。宿主默认拒绝路径穿越、隐藏文件、source map 和非 Web 静态扩展；动态数据继续走插件 route API 或 SDK host request。
+
+Agent 新生成或重构插件时，不要为了 CSS、JS、图片、字体、MP4 这类静态资源额外注册 `/api/file`、`/api/video`、`/assets/*` 等 route。已有插件中的静态资源兼容 handler 继续可用；新工作遵循的正式契约是把这些资源放进 `assets/`，用 `hana.assets.url(...)` 或 route shell 中的官方 assets 路径引用。`pluginIframeTicket` 只用于 iframe 文档加载，不要手动拼到静态资源 URL。
 
 React 插件 UI 建议使用 `@hana/plugin-components`，它提供和 Hana 当前控件接近的 Button、IconButton、TextInput、Textarea、Select、Switch、SettingRow、CardShell、List、EmptyState 等基础组件：
 
@@ -717,6 +770,7 @@ Widget 同样通过 iframe 渲染，需要发送 `ready` 握手信号。
 - 声明 `trust: "full-access"` 获取完整权限
 - 声明 iframe UI 需要的宿主能力（`ui.hostCapabilities`）
 - 声明插件希望使用的普通能力（`capabilities`）或未来需要用户授权的敏感能力（`sensitiveCapabilities`）
+- 声明外部 HTTP 数据访问边界（`network.allowedHosts`、`network.methods` 等）
 - Configuration schema（JSON Schema 声明）
 - Plugin 元信息（名称、版本、描述，给管理 UI 展示）
 - 软依赖声明
@@ -730,8 +784,14 @@ Widget 同样通过 iframe 渲染，需要发送 `ready` 握手信号。
   "description": "What this plugin does",
   "trust": "full-access",
   "activationEvents": ["onToolCall:search"],
-  "capabilities": ["session", "agent", "model.sample", "media.generate"],
+  "capabilities": ["session", "agent", "model.sample", "media.generate", "network.fetch"],
   "sensitiveCapabilities": ["filesystem.write"],
+  "network": {
+    "allowedHosts": ["api.example.com"],
+    "methods": ["GET", "POST"],
+    "defaultTimeoutMs": 8000,
+    "maxResponseBytes": 1048576
+  },
   "ui": {
     "hostCapabilities": ["external.open"]
   },
@@ -747,6 +807,8 @@ Widget 同样通过 iframe 渲染，需要发送 `ready` 握手信号。
 没有 manifest 时，`id` 从目录名推导，其他字段默认空，权限为 restricted。
 
 `capabilities` 是普通能力声明，加载后会出现在 `ctx.capabilities`，当前版本声明后即可通过 SDK / EventBus 使用对应稳定能力。`sensitiveCapabilities` 只记录插件意图，加载后出现在 `ctx.sensitiveCapabilities`；用户授权式权限系统接入后，文件系统写入、凭证读取、外部网络等高危能力会从这里进入授权流程。
+
+`network` 只描述外部 HTTP 访问边界，本身不授予能力；使用 `ctx.network.fetch()` 时仍必须在 `capabilities` 或 `sensitiveCapabilities` 中声明 `network.fetch`。新插件应把实时数据、第三方 API、搜索、网页转插件所需的动态业务数据放在 route 层获取，再把净化后的 JSON 返回给 iframe。`network` 不是静态资源服务配置；图片、视频、CSS、JS 等随插件分发的资源仍应放进 `assets/`。
 
 ## 有状态 Plugin（生命周期）⚡ full-access
 
@@ -920,7 +982,7 @@ this.register(
 | `media:generate-image` | 通过内置媒体任务管线提交生图任务，默认完成后以 `SessionFile` 交付；`delivery.mode="response"` 时只返回任务/文件结果 |
 | `media:generate` / `media:generate-video` / `media:transcribe-audio` | 通过原生 Media Manager 提交通用媒体任务、视频生成任务或音频转录任务 |
 
-插件后端优先使用 `@hana/plugin-runtime` helpers。插件页面或插件 route handler 如果已经有宿主 HTTP 凭证，也可以使用原生 façade：`POST /api/media/generate`、`POST /api/media/image/generate`、`POST /api/media/video/generate`、`POST /api/media/asr/transcribe`。这些入口需要 chat scope，图片/视频必须传 `prompt`；默认 `delivery.mode="session"` 时还必须传 `sessionPath`，完成后登记 `SessionFile`。如果插件只想拿生成产物，传 `delivery: { mode: "response" }` 可省略 `sessionPath`，完成后轮询 `GET /api/media/tasks/:taskId`，再用 `task.files[]` 调 `GET /api/media/generated/:filename` 读取文件。ASR 仍必须传 `sessionPath` 和 `fileId`。图片参考图只接受 `{ kind: "session_file", fileId }` 这类 SessionFile 引用，底层仍进入同一个 Media Manager 任务管线。图片 adapter 默认允许多张参考图；只支持单张参考图的 adapter 应声明 `maxReferenceImages: 1`，任务管线会在入队前拒绝超量请求。
+插件后端优先使用 `@hana/plugin-runtime` helpers。插件页面或插件 route handler 如果已经有宿主 HTTP 凭证，也可以使用原生 façade：`POST /api/media/generate`、`POST /api/media/image/generate`、`POST /api/media/video/generate`、`POST /api/media/asr/transcribe`。这些入口需要 chat scope，图片/视频必须传 `prompt`；默认 `delivery.mode="session"` 时还必须传 `sessionPath`，完成后登记 `SessionFile`。如果插件只想拿生成产物，传 `delivery: { mode: "response" }` 可省略 `sessionPath`，完成后轮询 `GET /api/media/tasks/:taskId`，再用 `task.files[]` 调 `GET /api/media/generated/:filename` 读取文件。ASR 仍必须传 `sessionPath` 和 `fileId`。图片参考图只接受 `{ kind: "session_file", fileId }` 这类 SessionFile 引用，底层仍进入同一个 Media Manager 任务管线。图片 / 视频模型必须在当前 mode 上声明参考图能力，例如 `modes[].inputLimits.referenceImages = { min: 0, max: 0 }` 表示纯文生图，`{ min: 1, max: 1 }` 表示单参考图模式。任务管线会按所选 mode 在入队前拒绝不足量或超量参考图。
 
 `session:send.context` 只注入到当轮 provider 请求，不会改写可见用户消息，也不会写入用户消息文本。插件可以在自己的 RAG、世界观、mood、角色状态系统里生成这些片段，然后在发送时附带：
 
@@ -1183,7 +1245,7 @@ https://raw.githubusercontent.com/liliMozi/OH-Plugins/main/marketplace.json
 
 ## 前向兼容
 
-系统忽略不认识的目录和 manifest 字段。老 plugin 永远能跑在新系统上，新 plugin 在老系统上只是新贡献类型不生效。`manifestVersion` 仍是可选兼容字段；新 iframe UI 若要声明 `ui.hostCapabilities`，建议写 `manifestVersion: 1` 让宿主和 SDK 文档语义对齐，但旧插件不需要补迁移。
+系统忽略不认识的目录和 manifest 字段。老 plugin 永远能跑在新系统上，新 plugin 在老系统上只是新贡献类型不生效。`manifestVersion` 仍是可选兼容字段；新 iframe UI 若要声明 `ui.hostCapabilities`，建议写 `manifestVersion: 1` 让宿主和 SDK 文档语义对齐，但旧插件不需要补迁移。已有插件中为了兼容早期资源限制而自建的静态资源 route 继续允许；诊断和 Agent 规则只把它们标记为“可整理项”，不会作为加载失败理由。
 
 ## 错误隔离
 

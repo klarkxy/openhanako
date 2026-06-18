@@ -866,6 +866,13 @@ export async function continueDeletedAgentSession(path: string): Promise<boolean
 
     await loadSessions();
     await switchSession(data.path);
+    if (data.compactionError) {
+      useStore.getState().addToast(
+        `${tr('session.deletedAgent.continueCompactionFailed')}: ${data.compactionError}`,
+        'warning',
+        6000,
+      );
+    }
     return true;
   } catch (err) {
     console.error('[session] continue deleted-agent session failed:', err);

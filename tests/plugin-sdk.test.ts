@@ -4,6 +4,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
+  PLUGIN_SURFACE_SESSION_HEADER,
   PLUGIN_UI_CAPABILITY,
   PLUGIN_UI_PROTOCOL,
   PLUGIN_UI_PROTOCOL_VERSION,
@@ -270,6 +271,74 @@ describe('plugin SDK', () => {
 
     expect(sdk.assets.url('dist/app.js')).toBe('https://hana.example/api/plugins/demo-plugin/assets/dist/app.js');
     expect(sdk.assets.url('/images/logo.svg')).toBe('https://hana.example/api/plugins/demo-plugin/assets/images/logo.svg');
+  });
+
+  it('resolves plugin API URLs from the current iframe route', () => {
+    const sdk = createHanaPluginSdk({
+      parentWindow: makeParentWindow(),
+      targetWindow: makeTargetWindow('https://hana.example/api/plugins/demo-plugin/page?pluginSurfaceSession=session-1'),
+      targetOrigin: 'https://hana.example',
+    });
+
+    expect(sdk.api.url('api/translate')).toBe('https://hana.example/api/plugins/demo-plugin/api/translate');
+    expect(sdk.api.url('/api/translate?mode=fast')).toBe('https://hana.example/api/plugins/demo-plugin/api/translate?mode=fast');
+  });
+
+  it('adds the plugin surface session when fetching the current plugin API', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('ok'));
+    const targetWindow = {
+      ...makeTargetWindow('https://hana.example/api/plugins/demo-plugin/page?pluginSurfaceSession=session-1'),
+      fetch: fetchMock,
+    } as unknown as Window;
+    const sdk = createHanaPluginSdk({
+      parentWindow: makeParentWindow(),
+      targetWindow,
+      targetOrigin: 'https://hana.example',
+    });
+
+    await sdk.api.fetch('api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: 'test' }),
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hana.example/api/plugins/demo-plugin/api/translate',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ domain: 'test' }),
+      }),
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(headers.get(PLUGIN_SURFACE_SESSION_HEADER)).toBe('session-1');
+  });
+
+  it('rejects unsafe plugin API inputs and missing surface sessions', () => {
+    const sdk = createHanaPluginSdk({
+      parentWindow: makeParentWindow(),
+      targetWindow: makeTargetWindow('https://hana.example/api/plugins/demo/page?pluginSurfaceSession=session-1'),
+      targetOrigin: 'https://hana.example',
+    });
+
+    for (const unsafePath of [
+      '../secret',
+      'api/../secret',
+      'api//secret',
+      'https://evil.test/api',
+      '/api/plugins/other-plugin/route',
+      '',
+      './api',
+    ]) {
+      expect(() => sdk.api.url(unsafePath)).toThrow(/plugin API path/i);
+    }
+
+    const missingSessionSdk = createHanaPluginSdk({
+      parentWindow: makeParentWindow(),
+      targetWindow: makeTargetWindow('https://hana.example/api/plugins/demo/page'),
+      targetOrigin: 'https://hana.example',
+    });
+    expect(() => missingSessionSdk.api.fetch('api/translate')).toThrow(/pluginSurfaceSession/);
   });
 
   it('rejects unsafe plugin asset URL inputs', () => {

@@ -11,14 +11,20 @@ import {
   createLocalServerConnection,
 } from '../services/server-connection';
 import { userFallbackAvatar, yuanFallbackAvatar } from './agent-helpers';
+import { isMarkdownFileName } from './file-kind';
 
 function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function dispatchInlineNotice(text: string, type: 'success' | 'error', deskDir?: string) {
+interface InlineNoticeTarget {
+  deskDir?: string;
+  filePath?: string;
+}
+
+function dispatchInlineNotice(text: string, type: 'success' | 'error', target: InlineNoticeTarget = {}) {
   window.dispatchEvent(new CustomEvent('hana-inline-notice', {
-    detail: { text, type, deskDir },
+    detail: { text, type, ...target },
   }));
 }
 
@@ -35,12 +41,19 @@ export interface ArticleScreenshotOptions {
   filePath?: string | null;
   articleType?: string | null;
   language?: string | null;
+  saveDir?: string | null;
+}
+
+export interface MarkdownFileScreenshotOptions {
+  saveDir?: string | null;
+  fileName?: string | null;
 }
 
 interface ScreenshotRenderResult {
   success: boolean;
   error?: string;
   dir?: string;
+  filePath?: string;
 }
 
 interface AvatarCache {
@@ -220,10 +233,11 @@ export async function takeScreenshot(targetMessageId: string, sessionPath: strin
     }
 
     const saveDir = results.find(result => result.dir)?.dir;
+    const firstFilePath = results.find(result => result.filePath)?.filePath;
     const savedText = chunks.length > 1
       ? t('common.screenshotSavedMultiple', { count: chunks.length })
       : t('common.screenshotSaved');
-    dispatchInlineNotice(savedText, 'success', saveDir);
+    dispatchInlineNotice(savedText, 'success', { deskDir: saveDir, filePath: firstFilePath });
   } catch (err) {
     dispatchInlineNotice(`${t('common.screenshotFailed')}: ${getErrorMessage(err)}`, 'error');
   } finally {
@@ -247,6 +261,9 @@ export async function takeArticleScreenshot(markdown: string, options: ArticleSc
   }
 
   const homeFolder = useStore.getState().homeFolder || null;
+  const saveDir = Object.prototype.hasOwnProperty.call(options, 'saveDir')
+    ? options.saveDir ?? null
+    : homeFolder;
   const endProgress = beginScreenshotProgress(1, 1);
   try {
     const result = await hana.screenshotRender({
@@ -256,14 +273,17 @@ export async function takeArticleScreenshot(markdown: string, options: ArticleSc
       filePath: options.filePath || null,
       articleType: options.articleType || 'markdown',
       language: options.language || null,
-      saveDir: homeFolder,
+      saveDir,
       locale: window.i18n?.locale || useStore.getState().locale || window.navigator?.language || 'zh',
       fontFamily: resolveScreenshotFontFamily(),
     });
 
     if (result.success) {
       updateScreenshotProgress({ completedBlocks: 1 });
-      dispatchInlineNotice(t('common.screenshotSaved'), 'success', result.dir);
+      dispatchInlineNotice(t('common.screenshotSaved'), 'success', {
+        deskDir: result.dir,
+        filePath: result.filePath,
+      });
     } else {
       dispatchInlineNotice(`${t('common.screenshotFailed')}: ${result.error}`, 'error');
     }
@@ -271,6 +291,44 @@ export async function takeArticleScreenshot(markdown: string, options: ArticleSc
     dispatchInlineNotice(`${t('common.screenshotFailed')}: ${getErrorMessage(err)}`, 'error');
   } finally {
     endProgress();
+  }
+}
+
+async function readMarkdownFileForScreenshot(filePath: string, fileName?: string | null): Promise<string> {
+  if (!filePath || (!isMarkdownFileName(filePath) && !isMarkdownFileName(fileName || undefined))) {
+    throw new Error('not a Markdown file');
+  }
+
+  const snapshot = await window.platform?.readFileSnapshot?.(filePath);
+  if (snapshot && typeof snapshot.content === 'string') {
+    return snapshot.content;
+  }
+
+  const content = await window.platform?.readFile?.(filePath);
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  throw new Error(`failed to read Markdown file: ${filePath}`);
+}
+
+export async function takeMarkdownFileScreenshot(
+  filePath: string,
+  options: MarkdownFileScreenshotOptions = {},
+): Promise<void> {
+  const t = window.t ?? ((p: string) => p);
+  try {
+    const markdown = await readMarkdownFileForScreenshot(filePath, options.fileName);
+    const articleOptions: ArticleScreenshotOptions = {
+      filePath,
+      articleType: 'markdown',
+    };
+    if (Object.prototype.hasOwnProperty.call(options, 'saveDir')) {
+      articleOptions.saveDir = options.saveDir;
+    }
+    await takeArticleScreenshot(markdown, articleOptions);
+  } catch (err) {
+    dispatchInlineNotice(`${t('common.screenshotFailed')}: ${getErrorMessage(err)}`, 'error');
   }
 }
 

@@ -19,6 +19,7 @@ import {
   createLocalStudioWorkspaceFromFolder,
   loadStudioWorkspaces,
   removeRecentWorkspace,
+  removeStudioWorkspace,
   removeWorkspaceFolder,
 } from '../stores/desk-actions';
 import { openSettingsModal } from '../stores/settings-modal-actions';
@@ -299,6 +300,10 @@ function FolderPicker({
     void applyStudioWorkspace(workspace);
   }, []);
 
+  const handleRemoveWorkspace = useCallback((mountId: string) => {
+    void removeStudioWorkspace(mountId);
+  }, []);
+
   const handleSelectHistory = useCallback((folder: string) => {
     setShowHistory(false);
     const agent = findAgentByHomeFolder(agents, folder);
@@ -368,6 +373,7 @@ function FolderPicker({
           onBrowse={handleBrowse}
           onAddWorkspaceFolder={handleAddWorkspaceFolder}
           onRemoveRecentWorkspace={removeRecentWorkspace}
+          onRemoveStudioWorkspace={handleRemoveWorkspace}
           onRemoveWorkspaceFolder={removeWorkspaceFolder}
         />
       )}
@@ -375,7 +381,7 @@ function FolderPicker({
   );
 }
 
-function FolderHistory({ cwdHistory, agentHomeFolders, selectedFolder, selectedWorkspaceMountId, studioWorkspaces, homeFolder, workspaceFolders, onSelectWorkspace, onSelect, onBrowse, onAddWorkspaceFolder, onRemoveRecentWorkspace, onRemoveWorkspaceFolder }: {
+function FolderHistory({ cwdHistory, agentHomeFolders, selectedFolder, selectedWorkspaceMountId, studioWorkspaces, homeFolder, workspaceFolders, onSelectWorkspace, onSelect, onBrowse, onAddWorkspaceFolder, onRemoveRecentWorkspace, onRemoveStudioWorkspace, onRemoveWorkspaceFolder }: {
   cwdHistory: string[];
   agentHomeFolders: string[];
   selectedFolder: string | null;
@@ -388,6 +394,7 @@ function FolderHistory({ cwdHistory, agentHomeFolders, selectedFolder, selectedW
   onBrowse: () => void;
   onAddWorkspaceFolder: () => void;
   onRemoveRecentWorkspace: (folder: string) => void;
+  onRemoveStudioWorkspace: (mountId: string) => void;
   onRemoveWorkspaceFolder: (folder: string) => void;
 }) {
   const primaryItems: string[] = buildWorkspacePickerItems({
@@ -425,6 +432,20 @@ function FolderHistory({ cwdHistory, agentHomeFolders, selectedFolder, selectedW
                 </svg>
               </span>
               <span className={styles.folderHistoryItemName}>{workspace.label}</span>
+              {!workspace.isDefault && (
+                <button
+                  type="button"
+                  className={styles.folderHistoryRemove}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveStudioWorkspace(workspace.mountId);
+                  }}
+                  title={t('input.removeStudioWorkspace')}
+                  aria-label={t('input.removeStudioWorkspace')}
+                >
+                  x
+                </button>
+              )}
             </div>
           );
         })}

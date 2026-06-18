@@ -1467,10 +1467,17 @@ export class SessionCoordinator {
           migratedAt: new Date().toISOString(),
         },
       });
-      await this._freshCompactDeletedAgentContinuation(session, transcriptMessages, {
-        sourceSessionPath,
-        sourceAgentId,
-      });
+      let compacted = false;
+      let compactionError = null;
+      try {
+        await this._freshCompactDeletedAgentContinuation(session, transcriptMessages, {
+          sourceSessionPath,
+          sourceAgentId,
+        });
+        compacted = true;
+      } catch (error) {
+        compactionError = error?.message || String(error);
+      }
       (manager as any)._rewriteFile?.();
       return {
         session,
@@ -1479,7 +1486,8 @@ export class SessionCoordinator {
         agentName: targetAgent.agentName || targetAgent.name || targetAgent.id,
         cwd: manager.getCwd?.() || targetCwd,
         workspaceFolders: this.getSessionWorkspaceFolders(createdSessionPath),
-        compacted: true,
+        compacted,
+        compactionError,
       };
     } catch (err) {
       if (createdSessionPath) {

@@ -755,7 +755,8 @@ describe("sessions route", () => {
         agentName: "Hana",
         cwd: "/tmp/work",
         workspaceFolders: [],
-        compacted: true,
+        compacted: false,
+        compactionError: "model unavailable",
       })),
       getSessionWorkspaceFolders: vi.fn(() => []),
       getAgent: vi.fn(() => ({ agentName: "Hana" })),
@@ -777,7 +778,13 @@ describe("sessions route", () => {
 
     expect(res.status).toBe(200);
     expect(engine.continueDeletedAgentSession).toHaveBeenCalledWith(oldPath);
-    expect(data).toMatchObject({ ok: true, path: newPath, agentId: "hana", compacted: true });
+    expect(data).toMatchObject({
+      ok: true,
+      path: newPath,
+      agentId: "hana",
+      compacted: false,
+      compactionError: "model unavailable",
+    });
     expect(hub.eventBus.emit).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "session_created",

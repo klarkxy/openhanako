@@ -3,6 +3,7 @@ import { useStore } from '../../stores';
 import { ActivityPanel } from '../ActivityPanel';
 import { AutomationPanel } from '../AutomationPanel';
 import { BridgePanel } from '../BridgePanel';
+import { SkillsPanel } from '../SkillsPanel';
 import { PreviewPanel } from '../PreviewPanel';
 import { PluginPageView } from '../plugin/PluginPageView';
 import { ChannelMessages, ChannelMembers, ChannelInput, ChannelReadonly, ChannelAgentActivityPanel, ChannelAgentSettingsPanel } from '../ChannelsPanel';
@@ -136,6 +137,7 @@ export function AppPages() {
         {isPluginTab && <PluginPage pluginId={currentTab.slice(7)} />}
         <ActivityPanel />
         <AutomationPanel />
+        <SkillsPanel />
         <BridgePanel />
       </MainContent>
 

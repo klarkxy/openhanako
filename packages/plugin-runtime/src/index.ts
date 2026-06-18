@@ -120,6 +120,16 @@ export interface HanaMediaDetails {
   };
 }
 
+export interface HanaPluginNetworkFetchInit extends RequestInit {
+  timeoutMs?: number;
+  cacheTtlMs?: number;
+  maxResponseBytes?: number;
+}
+
+export interface HanaPluginNetwork {
+  fetch(input: string | URL | Request, init?: HanaPluginNetworkFetchInit): Promise<Response>;
+}
+
 export interface HanaToolContext {
   serverId: string;
   serverNodeId?: string;
@@ -137,6 +147,7 @@ export interface HanaToolContext {
   sensitiveCapabilities?: string[];
   sessionPath?: string | null;
   bus: HanaEventBus;
+  network: HanaPluginNetwork;
   config: HanaPluginConfigStore;
   log: HanaPluginLogger;
   registerSessionFile?: (input: Record<string, unknown>) => HanaSessionFile;
@@ -651,6 +662,7 @@ export interface HanaBusHandlerContext {
   executionBoundary?: HanaExecutionBoundary;
   pluginId: string;
   bus: HanaEventBus;
+  network?: HanaPluginNetwork;
   config?: HanaPluginConfigStore;
   log?: HanaPluginLogger;
   [key: string]: unknown;
@@ -681,6 +693,7 @@ export interface HanaPluginContext {
   capabilities?: string[];
   sensitiveCapabilities?: string[];
   bus: HanaEventBus;
+  network: HanaPluginNetwork;
   config: HanaPluginConfigStore;
   log: HanaPluginLogger;
   registerTool?: (tool: HanaToolDefinition) => () => void;

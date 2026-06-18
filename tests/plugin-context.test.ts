@@ -172,6 +172,122 @@ describe("createPluginContext", () => {
       consoleSpy.mockRestore();
     }
   });
+
+  it("exposes declared network.fetch with host allowlist, timeout, and cache controls", async () => {
+    const fetchImpl = vi.fn(async (url, init) => new Response(JSON.stringify({
+      ok: true,
+      url: String(url),
+      signal: !!init?.signal,
+      call: fetchImpl.mock.calls.length,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    const ctx = createPluginContext({
+      pluginId: "scores-plugin",
+      pluginDir: "/plugins/scores-plugin",
+      dataDir: "/plugin-data/scores-plugin",
+      bus: { emit() {}, subscribe() {}, request() {}, hasHandler() {} },
+      capabilities: ["network.fetch"],
+      network: {
+        allowedHosts: ["api.example.com"],
+        methods: ["GET"],
+        defaultTimeoutMs: 2500,
+        maxResponseBytes: 1024,
+      },
+      fetchImpl,
+    } as any);
+
+    const first = await ctx.network.fetch("https://api.example.com/live?league=world-cup", {
+      cacheTtlMs: 1000,
+    });
+    const second = await ctx.network.fetch("https://api.example.com/live?league=world-cup", {
+      cacheTtlMs: 1000,
+    });
+
+    await expect(first.json()).resolves.toMatchObject({ ok: true, signal: true, call: 1 });
+    await expect(second.json()).resolves.toMatchObject({ ok: true, signal: true, call: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0][1]?.method).toBe("GET");
+  });
+
+  it("rejects network.fetch when the manifest did not declare the capability", async () => {
+    const ctx = createPluginContext({
+      pluginId: "scores-plugin",
+      pluginDir: "/plugins/scores-plugin",
+      dataDir: "/plugin-data/scores-plugin",
+      bus: { emit() {}, subscribe() {}, request() {}, hasHandler() {} },
+      capabilities: ["session"],
+      network: { allowedHosts: ["api.example.com"] },
+      fetchImpl: vi.fn(),
+    } as any);
+
+    await expect(ctx.network.fetch("https://api.example.com/live"))
+      .rejects.toMatchObject({ code: "PLUGIN_NETWORK_CAPABILITY_NOT_DECLARED" });
+  });
+
+  it("rejects network.fetch hosts outside the manifest allowlist", async () => {
+    const ctx = createPluginContext({
+      pluginId: "scores-plugin",
+      pluginDir: "/plugins/scores-plugin",
+      dataDir: "/plugin-data/scores-plugin",
+      bus: { emit() {}, subscribe() {}, request() {}, hasHandler() {} },
+      capabilities: ["network.fetch"],
+      network: { allowedHosts: ["api.example.com"] },
+      fetchImpl: vi.fn(),
+    } as any);
+
+    await expect(ctx.network.fetch("https://evil.example.net/live"))
+      .rejects.toMatchObject({
+        code: "PLUGIN_NETWORK_HOST_NOT_ALLOWED",
+        host: "evil.example.net",
+      });
+  });
+
+  it("blocks network.fetch private targets unless localhost access is explicitly declared", async () => {
+    const fetchImpl = vi.fn(async () => new Response("ok"));
+    const blockedCtx = createPluginContext({
+      pluginId: "local-plugin",
+      pluginDir: "/plugins/local-plugin",
+      dataDir: "/plugin-data/local-plugin",
+      bus: { emit() {}, subscribe() {}, request() {}, hasHandler() {} },
+      capabilities: ["network.fetch"],
+      network: { allowedHosts: ["127.0.0.1"] },
+      fetchImpl,
+    } as any);
+    const allowedCtx = createPluginContext({
+      pluginId: "local-plugin",
+      pluginDir: "/plugins/local-plugin",
+      dataDir: "/plugin-data/local-plugin",
+      bus: { emit() {}, subscribe() {}, request() {}, hasHandler() {} },
+      capabilities: ["network.fetch"],
+      network: { allowedHosts: ["127.0.0.1"], allowLocalhost: true },
+      fetchImpl,
+    } as any);
+
+    await expect(blockedCtx.network.fetch("http://127.0.0.1:11434/api/tags"))
+      .rejects.toMatchObject({ code: "PLUGIN_NETWORK_PRIVATE_HOST_FORBIDDEN" });
+    await expect(allowedCtx.network.fetch("http://127.0.0.1:11434/api/tags"))
+      .resolves.toBeInstanceOf(Response);
+  });
+
+  it("rejects network.fetch responses larger than the declared byte limit", async () => {
+    const ctx = createPluginContext({
+      pluginId: "scores-plugin",
+      pluginDir: "/plugins/scores-plugin",
+      dataDir: "/plugin-data/scores-plugin",
+      bus: { emit() {}, subscribe() {}, request() {}, hasHandler() {} },
+      capabilities: ["network.fetch"],
+      network: { allowedHosts: ["api.example.com"], maxResponseBytes: 3 },
+      fetchImpl: vi.fn(async () => new Response("1234")),
+    } as any);
+
+    await expect(ctx.network.fetch("https://api.example.com/live"))
+      .rejects.toMatchObject({
+        code: "PLUGIN_NETWORK_RESPONSE_TOO_LARGE",
+        maxResponseBytes: 3,
+      });
+  });
 });
 
 describe("createPluginContext with accessLevel", () => {

@@ -80,6 +80,43 @@ export default definePlugin({
 Use `ctx.bus.listCapabilities?.()` or `ctx.bus.getCapability?.(type)` to inspect
 the host EventBus capability directory before making optional requests.
 
+## External HTTP APIs
+
+Use `ctx.network.fetch()` when runtime plugin code needs public HTTP data such as
+live scores, weather, prices, search, or third-party platform APIs. Browser
+iframe code should call this plugin's own route with `hana.api.fetch(...)`; the
+route then calls `ctx.network.fetch(...)`.
+
+```json
+{
+  "trust": "full-access",
+  "capabilities": ["network.fetch"],
+  "network": {
+    "allowedHosts": ["site.api.espn.com"],
+    "methods": ["GET"],
+    "defaultTimeoutMs": 8000,
+    "maxResponseBytes": 1048576
+  }
+}
+```
+
+```ts
+route.get('/live-scores', async (c) => {
+  const ctx = c.get('pluginCtx');
+  const res = await ctx.network.fetch(
+    'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard',
+    { cacheTtlMs: 30_000 },
+  );
+  return c.json(await res.json());
+});
+```
+
+`ctx.network.fetch()` returns a standard `Response`. It validates the
+`network.fetch` capability, manifest host allowlist, HTTP method, HTTPS scheme,
+private-network targets, timeout, cache TTL, and response byte limit. Keep API
+keys in plugin configuration and read them from route or lifecycle code; do not
+ship secrets in iframe assets.
+
 ## Session, Agent, model, and media helpers
 
 Plugins that need their own chat surface should use the typed helpers instead of
@@ -158,7 +195,7 @@ export default definePlugin({
 });
 ```
 
-For backend code, prefer these helpers so permission checks and delivery semantics stay explicit. Plugin pages or plugin route handlers that already have host HTTP credentials can call the native facade directly: `POST /api/media/image/generate`, `POST /api/media/video/generate`, `POST /api/media/generate`, and `POST /api/media/asr/transcribe`. The submit routes require chat scope, image references must use `SessionFile` references such as `{ kind: 'session_file', fileId }`, and all requests forward into the same native Media Manager pipeline. Image adapters accept multiple reference images by default; adapters that only support one reference should declare `maxReferenceImages: 1`.
+For backend code, prefer these helpers so permission checks and delivery semantics stay explicit. Plugin pages or plugin route handlers that already have host HTTP credentials can call the native facade directly: `POST /api/media/image/generate`, `POST /api/media/video/generate`, `POST /api/media/generate`, and `POST /api/media/asr/transcribe`. The submit routes require chat scope, image references must use `SessionFile` references such as `{ kind: 'session_file', fileId }`, and all requests forward into the same native Media Manager pipeline. Image and video models must declare reference-image support on the selected mode through `modes[].inputLimits.referenceImages`, such as `{ min: 0, max: 0 }` for text-only generation or `{ min: 1, max: 1 }` for a single-reference mode.
 
 Image and video generation default to `delivery: { mode: 'session' }`, which requires `sessionPath` and delivers completed files as `SessionFile` records. For plugin-owned jobs that only need a generated artifact, use `delivery: { mode: 'response' }` and omit `sessionPath`; poll `GET /api/media/tasks/:taskId` until `task.status === 'done'`, then fetch filenames from `task.files[]` via `GET /api/media/generated/:filename`.
 
@@ -269,6 +306,19 @@ const provider = defineProvider({
             protocolId: 'local-cli-media',
             inputs: ['text'],
             outputs: ['image'],
+            modes: [
+              {
+                id: 'text2image',
+                label: 'Text to image',
+                inputLimits: { referenceImages: { min: 0, max: 0 } },
+                parameterSchema: {
+                  type: 'object',
+                  properties: {
+                    ratio: { type: 'string', enum: ['1:1', '16:9', '9:16'], default: '1:1' },
+                  },
+                },
+              },
+            ],
           },
         ],
       },

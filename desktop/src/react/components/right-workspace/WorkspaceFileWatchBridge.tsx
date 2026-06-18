@@ -49,6 +49,8 @@ function workspaceSubdirForAffectedDirectory(basePath: string, payload: Workspac
   return affected.slice(prefix.length).replace(/^\/+|\/+$/g, '');
 }
 
+const WATCH_RECONCILE_DELAY_MS = 160;
+
 export function WorkspaceFileWatchBridge() {
   const deskBasePath = useStore(s => s.deskBasePath);
   const deskWorkspaceMountId = useStore(s => s.deskWorkspaceMountId);
@@ -62,37 +64,55 @@ export function WorkspaceFileWatchBridge() {
 
   useEffect(() => {
     const platform = window.platform;
-    if (!platform?.unwatchWorkspace) return undefined;
+    const unwatchWorkspace = platform?.unwatchWorkspace;
+    const watchWorkspace = platform?.watchWorkspace;
+    if (!unwatchWorkspace) return undefined;
     const activeRoots = activeRootsRef.current;
-    const desiredRoots = deskBasePath && !deskWorkspaceMountId ? new Set(watchedRoots) : new Set<string>();
+    const desiredRoot = deskBasePath && !deskWorkspaceMountId ? watchedRoots[0] : null;
 
-    for (const root of [...activeRoots]) {
-      if (desiredRoots.has(root)) continue;
-      activeRoots.delete(root);
-      void platform.unwatchWorkspace(root);
-    }
+    const reconcile = () => {
+      const currentRoots = activeRootsRef.current;
+      const desiredRoots = deskBasePath && !deskWorkspaceMountId ? new Set(watchedRoots) : new Set<string>();
 
-    if (!deskBasePath || deskWorkspaceMountId || !platform.watchWorkspace) return undefined;
+      for (const root of [...currentRoots]) {
+        if (desiredRoots.has(root)) continue;
+        currentRoots.delete(root);
+        void unwatchWorkspace(root);
+      }
 
-    for (const root of desiredRoots) {
-      if (activeRoots.has(root)) continue;
-      activeRoots.add(root);
-      void platform.watchWorkspace(root)
-        .then((ok) => {
-          if (!ok) {
-            console.warn('[workspace-watch] watch failed:', root);
+      if (!deskBasePath || deskWorkspaceMountId || !watchWorkspace) return;
+
+      for (const root of desiredRoots) {
+        if (currentRoots.has(root)) continue;
+        currentRoots.add(root);
+        void watchWorkspace(root)
+          .then((ok) => {
+            if (!ok) {
+              console.warn('[workspace-watch] watch failed:', root);
+              activeRootsRef.current.delete(root);
+              return;
+            }
+            if (!activeRootsRef.current.has(root)) void unwatchWorkspace(root);
+          })
+          .catch((err) => {
             activeRootsRef.current.delete(root);
-            return;
-          }
-          if (!activeRootsRef.current.has(root)) void platform.unwatchWorkspace?.(root);
-        })
-        .catch((err) => {
-          activeRootsRef.current.delete(root);
-          console.warn('[workspace-watch] watch failed:', err);
-        });
+            console.warn('[workspace-watch] watch failed:', err);
+          });
+      }
+    };
+
+    const shouldReconcileImmediately = activeRoots.size === 0
+      || !deskBasePath
+      || !!deskWorkspaceMountId
+      || (!!desiredRoot && !activeRoots.has(desiredRoot));
+
+    if (shouldReconcileImmediately) {
+      reconcile();
+      return undefined;
     }
 
-    return undefined;
+    const timer = setTimeout(reconcile, WATCH_RECONCILE_DELAY_MS);
+    return () => clearTimeout(timer);
   }, [deskBasePath, deskWorkspaceMountId, watchedRoots, watchedRootsKey]);
 
   useEffect(() => () => {

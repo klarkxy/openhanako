@@ -604,6 +604,64 @@ describe("plugin management API", () => {
       }
     });
 
+    it("serves plugin video assets with byte ranges through the official assets route", async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-plugin-video-assets-"));
+      try {
+        const pluginDir = path.join(tmpDir, "plugins", "demo");
+        fs.mkdirSync(path.join(pluginDir, "assets", "videos"), { recursive: true });
+        fs.writeFileSync(path.join(pluginDir, "assets", "videos", "background.mp4"), Buffer.from("0123456789abcdef"));
+
+        const engine = mockEngine({
+          hanakoHome: tmpDir,
+          pm: {
+            getPlugin: (id) => (
+              id === "demo"
+                ? { id: "demo", status: "loaded", pluginDir }
+                : null
+            ),
+          },
+        });
+        const pluginApp = new Hono();
+        pluginApp.get("/page", (c) => c.html("<!doctype html><video src=\"/api/plugins/demo/assets/videos/background.mp4\"></video>"));
+        engine.pluginManager.routeRegistry.set("demo", pluginApp);
+        const app = createAppWithProductionPluginResourceAuth(engine);
+
+        const ticketRes = await app.request("/api/plugins/iframe-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ routeUrl: "/api/plugins/demo/page" }),
+        });
+        const ticketBody = await ticketRes.json();
+        const pageRes = await app.request(
+          `/api/plugins/demo/page?pluginIframeTicket=${encodeURIComponent(ticketBody.ticket)}`,
+        );
+        const cookie = pageRes.headers.get("set-cookie");
+        expect(cookie).toContain("Path=/api/plugins/demo/assets/");
+
+        const rangeRes = await app.request("/api/plugins/demo/assets/videos/background.mp4", {
+          headers: {
+            Cookie: cookie,
+            Range: "bytes=4-7",
+          },
+        });
+        expect(rangeRes.status).toBe(206);
+        expect(rangeRes.headers.get("content-type")).toContain("video/mp4");
+        expect(rangeRes.headers.get("accept-ranges")).toBe("bytes");
+        expect(rangeRes.headers.get("content-range")).toBe("bytes 4-7/16");
+        expect(await rangeRes.text()).toBe("4567");
+
+        const headRes = await app.request("/api/plugins/demo/assets/videos/background.mp4", {
+          method: "HEAD",
+          headers: { Cookie: cookie },
+        });
+        expect(headRes.status).toBe(200);
+        expect(headRes.headers.get("content-type")).toContain("video/mp4");
+        expect(headRes.headers.get("content-length")).toBe("16");
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
     it("keeps asset sessions confined to static files under the plugin assets root", async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-plugin-assets-confined-"));
       try {

@@ -37,6 +37,7 @@ import {
   updateAgent,
   updateSession,
 } from '@hana/plugin-runtime';
+import type { HanaPluginNetwork, HanaPluginNetworkFetchInit } from '@hana/plugin-runtime';
 
 describe('plugin runtime SDK', () => {
   it('defines tools with stable fields and default parameters', async () => {
@@ -195,6 +196,20 @@ describe('plugin runtime SDK', () => {
 
   it('exports the shared EventBus SKIP symbol for chained handlers', () => {
     expect(HANA_BUS_SKIP).toBe(Symbol.for('hana.event-bus.skip'));
+  });
+
+  it('types plugin network fetch options without host internals', async () => {
+    const init: HanaPluginNetworkFetchInit = {
+      cacheTtlMs: 1000,
+      timeoutMs: 5000,
+      maxResponseBytes: 1024,
+    };
+    const network: HanaPluginNetwork = {
+      fetch: vi.fn(async () => new Response('ok')),
+    };
+
+    await expect(network.fetch('https://api.example.com/live', init))
+      .resolves.toBeInstanceOf(Response);
   });
 
   it('requests bus handlers through the context bus with explicit payload and options', async () => {

@@ -13,6 +13,11 @@
   "selection": {
     "quoteToChat": "引用到對話"
   },
+  "mermaid": {
+    "viewSource": "查看原始碼",
+    "hideSource": "隱藏原始碼",
+    "copySource": "複製原始碼"
+  },
   "quickChat": {
     "title": "快速聊天",
     "close": "關閉快速聊天",
@@ -98,6 +103,15 @@
     "filesUnsupported": "頻道暫時只支援文字訊息，檔案不會加入普通聊天附件",
     "createIntroOptional": "說明"
   },
+  "skills": {
+    "panel": {
+      "title": "Skills",
+      "allTab": "全部技能",
+      "agentTabs": "按助手查看技能",
+      "previousAgent": "上一個助手",
+      "nextAgent": "下一個助手"
+    }
+  },
   "sidebar": {
     "title": "對話",
     "newChat": "新對話",
@@ -163,10 +177,11 @@
     "archive": "封存",
     "deletedAgent": {
       "title": "Agent 已刪除",
-      "description": "這段對話會保留為唯讀歷史。繼續聊天會用主 Agent 新建一個 session，並先壓縮舊上下文。",
+      "description": "這段對話會保留為唯讀歷史。繼續聊天會用主 Agent 新建一個 session，並嘗試壓縮舊上下文。",
       "continueButton": "遷移到現有主 Agent",
-      "continuing": "正在壓縮並新建 session",
+      "continuing": "正在遷移並嘗試壓縮 session",
       "continueFailed": "遷移失敗",
+      "continueCompactionFailed": "遷移已完成，但舊上下文壓縮失敗",
       "meta": "唯讀"
     },
     "summary": {
@@ -235,6 +250,7 @@
     "empty": "空",
     "edit": "編輯",
     "screenshot": "截圖",
+    "screenshotShare": "截圖分享",
     "selectMessage": "選擇訊息",
     "selectAllMessages": "全選訊息",
     "screenshotInProgress": "正在截圖",
@@ -306,6 +322,7 @@
     "selectOtherFolder": "選擇其他資料夾",
     "extraFolders": "額外資料夾",
     "addExternalFolder": "加入工作台以外的資料夾",
+    "removeStudioWorkspace": "移除工作台",
     "planMode": "權限模式",
     "accessMode": "會話權限模式",
     "autoMode": "自動審核",
@@ -316,7 +333,7 @@
     "deskContext": "看著書桌說",
     "pastedImage": "貼上圖片",
     "textModelImageFileOnly": "當前模型不能查看圖片，也未啟用輔助視覺：圖片將作為檔案發送，模型只能看到檔案路徑，看不到圖片內容。",
-    "textModelVideoBlocked": "目前模型不支援影片輸入。請在設定中開啟影片能力，或切換到支援影片的模型。",
+    "textModelVideoFileOnly": "目前模型不支援直接查看影片：影片將作為檔案發送，模型只能看到檔案路徑，看不到影片內容。",
     "textModelAudioBlocked": "目前模型不支援音訊輸入。請切換到支援音訊的模型。",
     "imageReadFailedSentAsFile": "圖片內容讀取失敗，這張圖已改為按檔案路徑發送，模型不會看到它的內容。",
     "videoReadFailed": "影片讀取失敗，訊息沒有傳送。請重新加入影片。",
@@ -1551,13 +1568,14 @@
       "heartbeatMaster": "巡檢總開關",
       "heartbeatMasterDesc": "關閉後所有助手的巡檢均暫停",
       "heartbeatEnabled": "巡檢模式",
+      "heartbeatOperationalNotice": "開啟後，助手會在背景進入可操作狀態，可能讀取或修改工作台檔案、觸發工具呼叫，甚至產生意料之外的檔案和行為。請搭配自動審核模式使用，審核不通過的操作會被拒絕。",
       "heartbeatOn": "已開啟",
       "heartbeatOff": "已關閉",
       "heartbeatInterval": "巡檢間隔",
       "heartbeatUnit": "分鐘",
       "heartbeatDesc": "助手每隔多久自動巡檢一次工作台",
       "automationPermissionMode": "自動化執行權限",
-      "automationPermissionModeDesc": "決定背景自動化 Agent Run 能否自動審核工具呼叫、完整執行，或只讀取資訊",
+      "automationPermissionModeDesc": "決定背景自動化 Agent Run 是自動審核工具呼叫、完整執行，還是只讀取資訊；自動審核不通過時會拒絕操作",
       "homeFolder": "工作台",
       "homeFolderDesc": "新建對話預設使用的工作目錄，巡檢和定時任務也在這裡執行",
       "homeFolderPlaceholder": "未設定（每次手動選擇）",

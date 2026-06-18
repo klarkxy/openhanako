@@ -147,7 +147,7 @@ describe('DeskSection workspace watching', () => {
     expect(mocks.loadDeskTreeFiles).toHaveBeenCalledWith('notes', { force: true });
   });
 
-  it('unwatches folders that are no longer visible and clears watchers when the workspace is removed', async () => {
+  it('debounces expanded folder watcher changes and clears watchers when the workspace is removed', async () => {
     const { WorkspaceFileWatchBridge } = await import('../../components/right-workspace/WorkspaceFileWatchBridge');
 
     render(<WorkspaceFileWatchBridge />);
@@ -157,6 +157,12 @@ describe('DeskSection workspace watching', () => {
 
     await act(async () => {
       useStore.setState({ deskExpandedPaths: [] } as never);
+    });
+
+    expect(unwatchWorkspace).not.toHaveBeenCalledWith('/tmp/hana-desk/notes');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
     });
 
     expect(unwatchWorkspace).toHaveBeenCalledWith('/tmp/hana-desk/notes');
@@ -200,7 +206,7 @@ describe('DeskSection workspace watching', () => {
     expect(screen.getByRole('tree')).toBeTruthy();
     fireEvent.click(screen.getByRole('treeitem', { name: /notes/ }));
 
-    expect(mocks.loadDeskTreeFiles).toHaveBeenCalledWith('notes', { force: true });
+    expect(mocks.loadDeskTreeFiles).toHaveBeenCalledWith('notes');
     expect(useStore.getState().deskExpandedPaths).toEqual(['notes']);
 
     act(() => {
@@ -218,7 +224,7 @@ describe('DeskSection workspace watching', () => {
     expect(screen.getByText('chapter.md')).toBeTruthy();
   });
 
-  it('force-refreshes cached folders when expanding them again', async () => {
+  it('shows cached folder children immediately and refreshes them in the background', async () => {
     useStore.setState({
       deskCurrentPath: '',
       deskTreeFilesByPath: {
@@ -230,8 +236,16 @@ describe('DeskSection workspace watching', () => {
     const { DeskSection } = await import('../../components/DeskSection');
 
     render(<DeskSection />);
+    mocks.loadDeskTreeFiles.mockClear();
 
     fireEvent.click(screen.getByRole('treeitem', { name: /notes/ }));
+
+    expect(screen.getByText('old.md')).toBeTruthy();
+    expect(mocks.loadDeskTreeFiles).not.toHaveBeenCalledWith('notes', { force: true });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+    });
 
     expect(mocks.loadDeskTreeFiles).toHaveBeenCalledWith('notes', { force: true });
   });

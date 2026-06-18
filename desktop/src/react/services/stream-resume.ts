@@ -9,7 +9,6 @@
 
 import { streamBufferManager } from '../hooks/use-stream-buffer';
 import { useStore } from '../stores';
-import { getWebSocket } from './websocket';
 import { clearChat } from '../stores/agent-actions';
 import { loadMessages } from '../stores/session-actions';
 import { registerStreamResumeMetaInvalidator } from '../stores/stream-invalidator';
@@ -22,6 +21,7 @@ let _applyStreamingStatus: ((
   identity?: { streamId?: string | null; turnId?: string | null },
   options?: { force?: boolean },
 ) => boolean | void) | null = null;
+let _getWebSocket: (() => WebSocket | null) | null = null;
 
 export function injectHandlers(
   handleServerMessage: (msg: any) => void,
@@ -34,6 +34,10 @@ export function injectHandlers(
 ): void {
   _handleServerMessage = handleServerMessage;
   _applyStreamingStatus = applyStreamingStatus;
+}
+
+export function injectWebSocketGetter(getWebSocket: () => WebSocket | null): void {
+  _getWebSocket = getWebSocket;
 }
 
 // ── 流恢复版本计数 ──
@@ -102,7 +106,7 @@ export function isStreamResumeRebuilding(): string | null {
 
 export function requestStreamResume(sessionPath?: string, opts: any = {}): void {
   const path = sessionPath || useStore.getState().currentSessionPath;
-  const ws = getWebSocket();
+  const ws = _getWebSocket?.() || null;
   if (!path || !ws || ws.readyState !== WebSocket.OPEN) return;
   const meta = getSessionStreamMeta(path) || { streamId: null, lastSeq: 0 };
   const fromStart = !!opts.fromStart;
@@ -240,7 +244,7 @@ async function rebuildSessionFromResume(msg: any, opts: { finishTurnBeforeHydrat
       streamId: msg.streamId || null,
     }, { force: shouldForceApplyRuntimeStreamingStatus(msg) });
 
-    const ws = getWebSocket();
+    const ws = _getWebSocket?.() || null;
     if (isCurrentSession && useStore.getState().currentSessionPath === sessionPath && ws?.readyState === WebSocket.OPEN && msg.isStreaming) {
       requestStreamResume(sessionPath);
     }

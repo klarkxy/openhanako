@@ -65,6 +65,40 @@ describe('process fold grouping', () => {
     expect(isProcessOnlyAssistantMessage(moodMessage)).toBe(false);
   });
 
+  it('does not throw or fold malformed tool_group blocks', () => {
+    const items: ChatListItem[] = [
+      user('u1'),
+      assistant('a1', [{ type: 'tool_group', collapsed: false } as unknown as ContentBlock]),
+      assistant('a2', [{ type: 'tool_group', tools: null, collapsed: false } as unknown as ContentBlock]),
+      assistant('a3', [toolGroup([tool('read')])]),
+    ];
+
+    expect(() => buildTranscriptRenderItems(items, { isStreaming: false })).not.toThrow();
+    expect(buildTranscriptRenderItems(items, { isStreaming: false }).map((item) => item.type)).toEqual([
+      'source',
+      'source',
+      'source',
+      'source',
+    ]);
+  });
+
+  it('does not throw on malformed text blocks without html/source', () => {
+    const items: ChatListItem[] = [
+      user('u1'),
+      assistant('a1', [
+        thinking(),
+        { type: 'text' } as unknown as ContentBlock,
+        toolGroup([tool('read')]),
+      ]),
+    ];
+
+    expect(() => buildTranscriptRenderItems(items, { isStreaming: false })).not.toThrow();
+    expect(buildTranscriptRenderItems(items, { isStreaming: false })[1]).toMatchObject({
+      type: 'source',
+      item: items[1],
+    });
+  });
+
   it('folds short process narration before the final answer', () => {
     const items: ChatListItem[] = [
       user('u1'),

@@ -4,9 +4,9 @@ import { createPluginConfigStore } from "./plugin-config.ts";
 
 /**
  * Create a PluginContext for a plugin.
- * @param {{ pluginId: string, pluginKey?: string, source?: string, pluginDir: string, dataDir: string, bus: object, accessLevel?: "full-access" | "restricted", permissions?: string[], capabilities?: string[] | null, sensitiveCapabilities?: string[] | null, registerSessionFile?: Function, configSchema?: object, logSink?: Function, runtimeContext?: object }} opts
+ * @param {{ pluginId: string, pluginKey?: string, source?: string, pluginDir: string, dataDir: string, bus: object, accessLevel?: "full-access" | "restricted", permissions?: string[], capabilities?: string[] | null, sensitiveCapabilities?: string[] | null, network?: object | null, fetchImpl?: Function, registerSessionFile?: Function, configSchema?: object, logSink?: Function, runtimeContext?: object }} opts
  */
-export function createPluginContext({ pluginId, pluginKey, source, pluginDir, dataDir, bus, accessLevel, permissions, capabilities, sensitiveCapabilities, registerSessionFile: registerSessionFileImpl, configSchema, logSink, runtimeContext }) {
+export function createPluginContext({ pluginId, pluginKey, source, pluginDir, dataDir, bus, accessLevel, permissions, capabilities, sensitiveCapabilities, network = null, fetchImpl = undefined, registerSessionFile: registerSessionFileImpl, configSchema, logSink, runtimeContext }) {
   const config = createPluginConfigStore({ dataDir, schema: configSchema });
   const runtimeScope = runtimeContext ? {
     serverId: runtimeContext.serverId,
@@ -24,6 +24,13 @@ export function createPluginContext({ pluginId, pluginKey, source, pluginDir, da
   const grantedPermissions = normalizePermissions(permissions);
   const declaredCapabilities = normalizeCapabilityList(capabilities);
   const declaredSensitiveCapabilities = normalizeCapabilityList(sensitiveCapabilities);
+  const pluginNetwork = createPluginNetwork({
+    pluginId,
+    network,
+    capabilities: declaredCapabilities,
+    sensitiveCapabilities: declaredSensitiveCapabilities,
+    fetchImpl,
+  });
   const pluginBus = resolvedAccess === "full-access"
     ? bus
     : createRestrictedBusProxy(bus, grantedPermissions);
@@ -92,6 +99,7 @@ export function createPluginContext({ pluginId, pluginKey, source, pluginDir, da
     capabilities: declaredCapabilities,
     sensitiveCapabilities: declaredSensitiveCapabilities,
     bus: pluginBus,
+    network: pluginNetwork,
     config,
     log,
     registerSessionFile,
@@ -176,4 +184,309 @@ function forbiddenBusError(type, action, permission) {
 function clonePlain(value) {
   if (value === undefined) return undefined;
   return JSON.parse(JSON.stringify(value));
+}
+
+const DEFAULT_NETWORK_TIMEOUT_MS = 15_000;
+const DEFAULT_NETWORK_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+
+function createPluginNetwork({ pluginId, network, capabilities, sensitiveCapabilities, fetchImpl }) {
+  const policy = normalizeNetworkPolicy(network);
+  const cache = new Map();
+
+  return Object.freeze({
+    async fetch(input, init: any = {}) {
+      const fetchFn = typeof fetchImpl === "function"
+        ? fetchImpl
+        : typeof globalThis.fetch === "function"
+          ? globalThis.fetch.bind(globalThis)
+          : null;
+      if (!fetchFn) {
+        throw pluginNetworkError(
+          "PLUGIN_NETWORK_FETCH_UNAVAILABLE",
+          "Plugin network fetch is unavailable in this runtime",
+          { pluginId },
+        );
+      }
+
+      assertNetworkCapability(pluginId, capabilities, sensitiveCapabilities);
+      const url = parseNetworkUrl(pluginId, input);
+      const method = normalizeHttpMethod(init?.method || requestMethodFromInput(input) || "GET");
+      validateNetworkTarget(pluginId, url, method, policy);
+
+      const requestInit = buildNetworkRequestInit(input, init, method);
+      const timeoutMs = normalizePositiveInteger(init?.timeoutMs ?? policy.defaultTimeoutMs, DEFAULT_NETWORK_TIMEOUT_MS);
+      const maxResponseBytes = normalizePositiveInteger(init?.maxResponseBytes ?? policy.maxResponseBytes, DEFAULT_NETWORK_MAX_RESPONSE_BYTES);
+      const cacheTtlMs = normalizeCacheTtl(init?.cacheTtlMs);
+      const cacheKey = method === "GET" && cacheTtlMs > 0 ? `${method} ${url.href}` : null;
+
+      if (cacheKey) {
+        const hit = cache.get(cacheKey);
+        if (hit && hit.expiresAt > Date.now()) {
+          return responseFromSnapshot(hit.response);
+        }
+        cache.delete(cacheKey);
+      }
+
+      const { init: timedInit, cleanup } = attachTimeoutSignal(requestInit, timeoutMs);
+      try {
+        const response = await fetchFn(url.href, timedInit);
+        const snapshot = await snapshotNetworkResponse(pluginId, response, maxResponseBytes);
+        if (cacheKey && response.ok) {
+          cache.set(cacheKey, {
+            expiresAt: Date.now() + cacheTtlMs,
+            response: snapshot,
+          });
+        }
+        return responseFromSnapshot(snapshot);
+      } finally {
+        cleanup();
+      }
+    },
+  });
+}
+
+function normalizeNetworkPolicy(network) {
+  const source = network && typeof network === "object" ? network : {};
+  return {
+    allowedHosts: normalizeAllowedHosts((source as any).allowedHosts || (source as any).hosts),
+    methods: normalizeHttpMethods((source as any).methods),
+    allowLocalhost: (source as any).allowLocalhost === true,
+    defaultTimeoutMs: normalizePositiveInteger((source as any).defaultTimeoutMs, DEFAULT_NETWORK_TIMEOUT_MS),
+    maxResponseBytes: normalizePositiveInteger((source as any).maxResponseBytes, DEFAULT_NETWORK_MAX_RESPONSE_BYTES),
+  };
+}
+
+function normalizeAllowedHosts(hosts) {
+  if (!Array.isArray(hosts)) return [];
+  return [...new Set(hosts
+    .filter((host) => typeof host === "string" && host.trim())
+    .map((host) => normalizeHostPattern(host.trim()))
+    .filter(Boolean))];
+}
+
+function normalizeHostPattern(pattern) {
+  const value = String(pattern || "").trim().toLowerCase();
+  if (!value) return "";
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    try {
+      return new URL(value).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  }
+  return value;
+}
+
+function normalizeHttpMethods(methods) {
+  if (!Array.isArray(methods) || methods.length === 0) return new Set(["GET"]);
+  const normalized = methods
+    .filter((method) => typeof method === "string" && method.trim())
+    .map((method) => normalizeHttpMethod(method));
+  return new Set(normalized.length ? normalized : ["GET"]);
+}
+
+function normalizeHttpMethod(method) {
+  return String(method || "GET").trim().toUpperCase();
+}
+
+function normalizePositiveInteger(value, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  return Math.floor(numeric);
+}
+
+function normalizeCacheTtl(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.floor(numeric);
+}
+
+function assertNetworkCapability(pluginId, capabilities, sensitiveCapabilities) {
+  if (
+    hasCapabilityDeclaration(capabilities, "network.fetch")
+    || hasCapabilityDeclaration(sensitiveCapabilities, "network.fetch")
+  ) {
+    return;
+  }
+  throw pluginNetworkError(
+    "PLUGIN_NETWORK_CAPABILITY_NOT_DECLARED",
+    'Plugin network.fetch requires manifest capability "network.fetch"',
+    { pluginId, capability: "network.fetch" },
+  );
+}
+
+function hasCapabilityDeclaration(capabilities, capability) {
+  if (!Array.isArray(capabilities)) return false;
+  if (capabilities.includes("*") || capabilities.includes(capability)) return true;
+  return capabilities.some((declared) => capability.startsWith(`${declared}.`));
+}
+
+function parseNetworkUrl(pluginId, input) {
+  const rawUrl = typeof input === "string" || input instanceof URL
+    ? String(input)
+    : input?.url;
+  try {
+    return new URL(rawUrl);
+  } catch {
+    throw pluginNetworkError(
+      "PLUGIN_NETWORK_URL_INVALID",
+      "Plugin network.fetch requires an absolute HTTP(S) URL",
+      { pluginId },
+    );
+  }
+}
+
+function requestMethodFromInput(input) {
+  if (input && typeof input === "object" && typeof input.method === "string") {
+    return input.method;
+  }
+  return null;
+}
+
+function buildNetworkRequestInit(input, init, method) {
+  const requestLike = input && typeof input === "object" && !(input instanceof URL) ? input : null;
+  const safeInit = { ...(init || {}) };
+  delete safeInit.cacheTtlMs;
+  delete safeInit.maxResponseBytes;
+  delete safeInit.timeoutMs;
+  return {
+    ...(requestLike?.headers && !safeInit.headers ? { headers: requestLike.headers } : {}),
+    ...(requestLike?.body && !safeInit.body && method !== "GET" && method !== "HEAD" ? { body: requestLike.body } : {}),
+    ...safeInit,
+    method,
+  };
+}
+
+function validateNetworkTarget(pluginId, url, method, policy) {
+  const host = url.hostname.toLowerCase();
+  const isHttpUrl = url.protocol === "http:" || url.protocol === "https:";
+  if (isHttpUrl && isPrivateNetworkHost(host) && !policy.allowLocalhost) {
+    throw pluginNetworkError(
+      "PLUGIN_NETWORK_PRIVATE_HOST_FORBIDDEN",
+      "Plugin network.fetch blocks localhost and private network targets unless allowLocalhost is declared",
+      { pluginId, host },
+    );
+  }
+
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && policy.allowLocalhost)) {
+    throw pluginNetworkError(
+      "PLUGIN_NETWORK_SCHEME_NOT_ALLOWED",
+      "Plugin network.fetch only allows HTTPS by default; HTTP is limited to explicitly declared localhost targets",
+      { pluginId, scheme: url.protocol.replace(":", "") },
+    );
+  }
+
+  if (!isAllowedNetworkHost(host, policy.allowedHosts)) {
+    throw pluginNetworkError(
+      "PLUGIN_NETWORK_HOST_NOT_ALLOWED",
+      `Plugin network.fetch host "${host}" is not declared in manifest network.allowedHosts`,
+      { pluginId, host, allowedHosts: policy.allowedHosts },
+    );
+  }
+
+  if (!policy.methods.has(method)) {
+    throw pluginNetworkError(
+      "PLUGIN_NETWORK_METHOD_NOT_ALLOWED",
+      `Plugin network.fetch method "${method}" is not declared in manifest network.methods`,
+      { pluginId, method, allowedMethods: [...policy.methods] },
+    );
+  }
+}
+
+function isAllowedNetworkHost(host, allowedHosts) {
+  return allowedHosts.some((pattern) => {
+    if (pattern.startsWith("*.")) {
+      const suffix = pattern.slice(1);
+      return host.endsWith(suffix) && host.length > suffix.length;
+    }
+    return host === pattern;
+  });
+}
+
+function isPrivateNetworkHost(host) {
+  if (!host) return true;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
+  if (host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return true;
+
+  const octets = host.split(".").map((part) => Number(part));
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+
+  const [a, b] = octets;
+  return a === 0
+    || a === 10
+    || a === 127
+    || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 168);
+}
+
+function attachTimeoutSignal(init, timeoutMs) {
+  if (typeof AbortController === "undefined" || !timeoutMs) {
+    return { init, cleanup: () => {} };
+  }
+
+  const controller = new AbortController();
+  const existingSignal = init.signal;
+  const abortFromExisting = () => {
+    try {
+      controller.abort(existingSignal?.reason);
+    } catch {
+      controller.abort();
+    }
+  };
+
+  if (existingSignal?.aborted) {
+    abortFromExisting();
+  } else if (existingSignal?.addEventListener) {
+    existingSignal.addEventListener("abort", abortFromExisting, { once: true });
+  }
+
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`Plugin network.fetch timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+  timer.unref?.();
+
+  return {
+    init: { ...init, signal: controller.signal },
+    cleanup: () => {
+      clearTimeout(timer);
+      existingSignal?.removeEventListener?.("abort", abortFromExisting);
+    },
+  };
+}
+
+async function snapshotNetworkResponse(pluginId, response, maxResponseBytes) {
+  const body = await response.arrayBuffer();
+  if (body.byteLength > maxResponseBytes) {
+    throw pluginNetworkError(
+      "PLUGIN_NETWORK_RESPONSE_TOO_LARGE",
+      `Plugin network.fetch response exceeded ${maxResponseBytes} bytes`,
+      { pluginId, maxResponseBytes, responseBytes: body.byteLength },
+    );
+  }
+  return {
+    body,
+    status: response.status,
+    statusText: response.statusText,
+    headers: Array.from(response.headers.entries()),
+  };
+}
+
+function responseFromSnapshot(snapshot) {
+  return new Response(snapshot.body.slice(0), {
+    status: snapshot.status,
+    statusText: snapshot.statusText,
+    headers: snapshot.headers,
+  });
+}
+
+function pluginNetworkError(code, message, details = {}) {
+  const err: any = new Error(message);
+  err.code = code;
+  Object.assign(err, details);
+  return err;
 }

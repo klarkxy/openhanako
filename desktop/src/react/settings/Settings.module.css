@@ -2333,6 +2333,12 @@
     background: var(--bg-hover, color-mix(in srgb, var(--bg-card) 90%, transparent));
 }
 
+.skills-list-item.skill-install-highlight,
+.skill-bundle-header.skill-bundle-highlight {
+    background: rgba(var(--accent-rgb), 0.085);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.22);
+}
+
 .skills-list-info {
     display: flex;
     flex-direction: column;

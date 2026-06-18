@@ -7,7 +7,7 @@
 
 
 import { handleServerMessage, applyStreamingStatus } from './ws-message-handler';
-import { requestStreamResume, injectHandlers } from './stream-resume';
+import { requestStreamResume, injectHandlers, injectWebSocketGetter } from './stream-resume';
 import { useStore } from '../stores';
 import { setStatus } from '../utils/ui-helpers';
 import {
@@ -32,6 +32,7 @@ let _wsRetryCount = 0;
 
 // 注入循环依赖的 handlers
 injectHandlers(handleServerMessage, applyStreamingStatus);
+injectWebSocketGetter(() => _ws);
 
 /** 获取当前 WebSocket 实例 */
 export function getWebSocket(): WebSocket | null {

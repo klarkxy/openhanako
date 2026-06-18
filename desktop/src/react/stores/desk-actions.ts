@@ -168,6 +168,42 @@ export async function applyStudioWorkspace(workspace: Pick<StudioWorkspace, 'mou
   await loadDeskFiles('', null, mountId);
 }
 
+export async function removeStudioWorkspace(mountId: string): Promise<boolean> {
+  const normalized = normalizeMountId(mountId);
+  const s = useStore.getState();
+  if (!normalized || !hasServerConnection(s)) return false;
+  useStore.setState((state: any) => ({
+    studioWorkspaces: (state.studioWorkspaces || [])
+      .filter((workspace: StudioWorkspace) => workspace.mountId !== normalized),
+  }));
+  try {
+    const res = await hanaFetch(`/api/studio/workspaces/${encodeURIComponent(normalized)}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(String(data.error));
+    const nextWorkspaces = await loadStudioWorkspaces();
+    const latest = useStore.getState();
+    if (latest.selectedWorkspaceMountId === normalized || latest.deskWorkspaceMountId === normalized) {
+      useStore.setState({
+        selectedWorkspaceMountId: null,
+        selectedWorkspaceLabel: null,
+      });
+      const defaultWorkspace = nextWorkspaces.find((workspace) => workspace.isDefault);
+      if (defaultWorkspace && defaultWorkspace.nativeRootPath) {
+        await activateWorkspaceDesk(defaultWorkspace.nativeRootPath, { mountId: null, reload: true });
+      } else {
+        await activateWorkspaceDesk(null, { mountId: null, reload: false });
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error('[workspace] remove studio workspace failed:', err);
+    await loadStudioWorkspaces();
+    return false;
+  }
+}
+
 function buildWorkspaceDeskState(s: ReturnType<typeof useStore.getState>): WorkspaceDeskState {
   const openTabs = [...(s.openTabs || [])];
   const activeTabId = s.activeTabId && openTabs.includes(s.activeTabId)
@@ -385,11 +421,6 @@ export async function loadDeskFiles(subdir?: string, overrideDir?: string | null
   } catch (err) {
     console.error('[jian-desk] load failed:', err);
     if (myVersion !== _deskLoadVersion) return;
-    const st = useStore.getState();
-    st.setDeskFiles([]);
-    st.setDeskCurrentPath('');
-    st.setDeskTreeFiles('', []);
-    st.setDeskJianContent(null);
     updateDeskContextBtn();
   }
 }
@@ -534,7 +565,6 @@ export async function loadDeskTreeFiles(subdir = '', options: { force?: boolean;
   } catch (err) {
     console.error('[desk-tree] load failed:', err);
     if (_deskTreeLoadVersion.get(key) !== myVersion) return;
-    useStore.getState().setDeskTreeFiles(normalizedSubdir, []);
   }
 }
 

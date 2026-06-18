@@ -25,9 +25,32 @@ Built-in plugins may use the same source patterns, but they should be checked ag
 
 Plugin server code is installed and loaded by the Studio server. Plugin iframe assets are also served by that server; the desktop renderer, Mobile PWA, or browser client may cache them, but client locality must not decide whether a plugin surface, provider, task, config, or tool exists. Declare true client-machine-only actions separately from server workspace actions.
 
+## Production Install Checklist
+
+A plugin installed under `${HANA_HOME}/plugins`, `${HANA_HOME}/plugins-dev`, or a marketplace release is imported from that plugin directory. Bare package imports in server-side plugin code resolve from the plugin package, not from the Hana repository, the desktop renderer, or the packaged server root. A `package.json` beside the plugin is only metadata unless the dependency files are also present or the code has been bundled.
+
+Before copying or zipping a plugin outside the monorepo, inspect every server-side entry point:
+
+- `index.js` / `index.ts`
+- `tools/*`
+- `routes/*`
+- `providers/*`
+- `extensions/*`
+- any helper file imported by those files
+
+If any of those files import `@hana/plugin-runtime`, `@hana/plugin-sdk`, `@hana/plugin-components`, or another bare package name, the installed plugin must satisfy that import without relying on workspace symlinks. Use one of these release shapes:
+
+- Bundle the server-side plugin code so the installed file no longer contains unresolved SDK imports.
+- Ship a plugin directory or release zip that already contains the installed dependencies needed by Node's resolver. Do not assume Hana will run `npm install` during plugin installation.
+- Avoid the SDK helper for that entry point and use the host objects already passed by the plugin manager, such as `ctx` for lifecycle, tool, and route code.
+
+`--sdk-mode workspace` is only for source development inside the Hana monorepo. Do not drag a workspace-mode plugin directory into `${HANA_HOME}/plugins` or publish it as a release package. `--sdk-mode bundled` copies SDK tarballs for the plugin's own install or build step; the final installed directory must still be smoke-tested as an extracted plugin, with no dependency on the repo root `node_modules`.
+
+The production smoke test is: install the exact folder or zip that users will receive, then check plugin diagnostics and server logs for `Cannot find package` or other import errors. A plugin that loads in the repo but fails from `${HANA_HOME}/plugins` has crossed the runtime boundary incorrectly.
+
 ## Plugin Shape Guide
 
-- Tool-only plugins usually need only `tools/*.js` and `@hana/plugin-runtime` helpers. They can stay `restricted`.
+- Tool-only plugins can stay `restricted`. No-build tools may export the static tool contract directly; tools that import `@hana/plugin-runtime` must still satisfy the production install checklist above.
 - Runtime plugins use `index.js` for lifecycle, EventBus handlers, background tasks, schedules, or dynamic tools. They require `trust: "full-access"`.
 - UI plugins use iframe routes plus `@hana/plugin-sdk` and, for React UI, `@hana/plugin-components`. They require `trust: "full-access"` and explicit `ui.hostCapabilities` grants for host calls such as `external.open` or `clipboard.writeText`.
 - Provider contribution plugins use `providers/*.js` declarations. They require `trust: "full-access"` and should declare `capabilities.chat` separately from `capabilities.media.*` so chat selectors stay clean while image, video, or speech tools discover media providers. Provider declarations are the long-term model discovery entrypoint; legacy `media-gen:*` adapter/runtime events remain compatibility-only for older image generation plugins.
@@ -64,13 +87,28 @@ hana.ui.resize({ height: 320 });
 await hana.toast.show({ message: 'Ready' });
 ```
 
+Use `hana.api.fetch(path, init)` for browser-side calls to this plugin's own dynamic route handlers. It derives the current plugin id from the iframe route and sends the `X-Hana-Plugin-Surface-Session` header that Hana issued with the iframe URL:
+
+```ts
+const res = await hana.api.fetch('api/translate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ domain: 'football' }),
+});
+```
+
+Website-to-plugin conversions should rewrite same-plugin `fetch('/api/...')` calls to `hana.api.fetch(...)`. Do not hard-code `/api/plugins/{pluginId}/...` in browser code, and do not reuse `pluginIframeTicket` for XHR/fetch calls; that ticket is only for the iframe document load.
+
+Browser-side code should not call third-party APIs directly. If a plugin needs live data from the public internet, call a same-plugin route with `hana.api.fetch(...)`; the route should use the runtime `ctx.network.fetch()` helper described below. This keeps API keys out of iframe assets and lets Hana diagnose missing host, method, timeout, and response-size declarations.
+
 Use `hana.assets.url(path)` for browser-side references to files bundled under the plugin's `assets/` directory:
 
 ```ts
 const logoUrl = hana.assets.url('images/logo.svg');
+const videoUrl = hana.assets.url('videos/background.mp4');
 ```
 
-Hana uses a VS Code-like webview resource boundary. The iframe entry route is authenticated by the host, then the host issues a short-lived, HttpOnly cookie scoped only to `/api/plugins/{pluginId}/assets/`. Static JS, CSS, fonts, images, JSON, and wasm files are served from the plugin's own `assets/` directory through that path. Do not rely on `?token` or `pluginIframeTicket` being copied to Vite chunks, `React.lazy()` imports, modulepreload links, or CSS requests.
+Hana uses a VS Code-like webview resource boundary. The iframe entry route is authenticated by the host, then the host issues a short-lived, HttpOnly cookie scoped only to `/api/plugins/{pluginId}/assets/`. Static JS, CSS, fonts, images, JSON, wasm, and browser-playable video files are served from the plugin's own `assets/` directory through that path. Video assets support HTTP byte ranges for `<video>` playback and seeking. Do not rely on `?token` or `pluginIframeTicket` being copied to Vite chunks, `React.lazy()` imports, modulepreload links, CSS requests, or media requests.
 
 For a built UI, put compiled files under `assets/` and point the shell at the host-served resource URL:
 
@@ -79,6 +117,8 @@ For a built UI, put compiled files under `assets/` and point the shell at the ho
 ```
 
 Keep source files, secrets, config, and private data outside `assets/`. The host rejects path traversal, dotfiles, source maps, and non-web asset extensions by default. Use plugin routes or SDK host requests for dynamic data.
+
+Agent-generated plugins and scaffold updates should not create custom routes only to serve static resources such as CSS, JS, images, fonts, or MP4 files. Existing plugins that already use static-file compatibility handlers remain loadable. The documented contract for new work is to put those resources in `assets/` and reference them through `hana.assets.url(...)` or the same host-served assets path in the route shell. Treat `pluginIframeTicket` as a document-load credential only; do not manually append it to asset URLs.
 
 Use `@hana/plugin-components` for iframe UI:
 
@@ -129,6 +169,51 @@ Scheduled automation plugin actions reuse plugin tools in v0. A cron executor sa
 Lifecycle plugins should declare `activationEvents` in `manifest.json` when they do not need to start on app launch. Existing lifecycle plugins without this field still activate on startup for compatibility.
 
 Long-running plugins should use the runtime task helpers (`registerTask`, `updateTask`, `completeTask`, `failTask`, `cancelTask`, `scheduleTask`) instead of hand-writing EventBus payloads.
+
+### Runtime External HTTP API
+
+Use `ctx.network.fetch()` for external HTTP APIs such as live scores, weather, prices, search, or third-party platform data. It is intentionally a runtime helper, not an iframe helper: iframe code calls a plugin route with `hana.api.fetch(...)`, and the route performs the outbound request.
+
+Manifest:
+
+```json
+{
+  "trust": "full-access",
+  "capabilities": ["network.fetch"],
+  "network": {
+    "allowedHosts": ["site.api.espn.com"],
+    "methods": ["GET"],
+    "defaultTimeoutMs": 8000,
+    "maxResponseBytes": 1048576
+  }
+}
+```
+
+Route:
+
+```js
+// routes/api.js
+route.get('/live-scores', async (c) => {
+  const ctx = c.get('pluginCtx');
+  const res = await ctx.network.fetch(
+    'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard',
+    { cacheTtlMs: 30_000 },
+  );
+  return c.json(await res.json());
+});
+```
+
+`ctx.network.fetch(input, init)` returns a standard `Response`. Extra options are:
+
+- `timeoutMs`: per-call timeout, defaulting to `network.defaultTimeoutMs` or 15 seconds
+- `cacheTtlMs`: in-memory GET cache TTL for this plugin context
+- `maxResponseBytes`: per-call response body cap, defaulting to `network.maxResponseBytes` or 5 MiB
+
+The host validates `network.fetch` capability declaration, `network.allowedHosts`, HTTP method, HTTPS scheme, private-network targets, timeout, cache, and response size. Direct Node `fetch()` in older plugins remains compatible, but new and refactored plugins should use `ctx.network.fetch()` so diagnostics can explain the missing manifest declaration instead of failing later in plugin code.
+
+Do not put API keys, bearer tokens, or cookies in `assets/` or browser JavaScript. Define configuration schema fields and read them from `ctx.config` inside the route or lifecycle code.
+
+Browser automation, login-backed websites, and turning a full external web app into a persistent plugin should use a separate future web-session capability rather than inventing ad hoc browser-control routes. Until that API exists, document the gap and keep ordinary data APIs on `ctx.network.fetch()`.
 
 ### Runtime Session and Agent API
 

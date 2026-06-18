@@ -630,6 +630,7 @@ export class PluginManager {
       permissions: entry.manifest?.permissions,
       capabilities: entry.capabilities,
       sensitiveCapabilities: entry.sensitiveCapabilities,
+      network: entry.manifest?.network,
     });
 
     // All plugins: declarative contributions

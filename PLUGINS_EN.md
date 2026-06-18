@@ -161,7 +161,7 @@ export const description = "...";       // required
 export const parameters = { ... };      // JSON Schema, optional
 export async function execute(input, toolCtx) {  // required
   // input: user-provided parameters
-  // toolCtx: { pluginId, pluginDir, dataDir, sessionPath, bus, config, log, registerSessionFile, stageFile }
+  // toolCtx: { pluginId, pluginDir, dataDir, sessionPath, bus, network, config, log, registerSessionFile, stageFile }
   return "result";
 }
 ```
@@ -220,6 +220,46 @@ Boundaries:
 - User uploads, Bridge inbound attachments, browser screenshots, and legacy `create_artifact` compatibility outputs are registered by the framework as `managed_cache`
 - Install sources such as `.skill`, plugin folders, or zip files are registered by install routes as `install_source`
 - Cards own interactive presentation; files remain resources. If a card needs a file, reference the `SessionFile` instead of embedding file bytes in the card payload
+
+#### External Data Access
+
+When a plugin needs live scores, weather, prices, external search results, or third-party platform data, new code should use the host-provided `ctx.network.fetch()` helper for outbound HTTP APIs. The iframe page calls only this plugin's own route, such as `hana.api.fetch("api/live-scores")`; the route handler then calls `ctx.network.fetch("https://...")`. This keeps iframe authentication, outbound host declarations, timeouts, caching, and response-size limits inside the host runtime boundary.
+
+`ctx.network.fetch()` requires an explicit `network.fetch` capability plus allowed hosts in the manifest:
+
+```json
+{
+  "trust": "full-access",
+  "capabilities": ["network.fetch"],
+  "network": {
+    "allowedHosts": ["site.api.espn.com"],
+    "methods": ["GET"],
+    "defaultTimeoutMs": 8000,
+    "maxResponseBytes": 1048576
+  }
+}
+```
+
+```js
+// routes/api.js
+route.get("/live-scores", async (c) => {
+  const ctx = c.get("pluginCtx");
+  const res = await ctx.network.fetch(
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard",
+    { cacheTtlMs: 30_000 },
+  );
+  return c.json(await res.json());
+});
+```
+
+Boundaries:
+
+- `allowedHosts` contains hostnames; `*.example.com` matches subdomains; an empty list rejects every external host
+- The default method set is `GET`; declare `POST`, `PUT`, or other methods in `network.methods` when needed
+- HTTPS is required by default; `http://127.0.0.1`, `localhost`, and private-network targets require `"allowLocalhost": true`
+- `timeoutMs`, `cacheTtlMs`, and `maxResponseBytes` may override manifest defaults per call
+- API keys, tokens, and cookies must not live in `assets/` or iframe JS; store them through configuration schema and read them on the route side
+- Older plugins that already call Node `fetch()` directly from routes remain compatible; new plugins, templates, and Agent-generated code should use `ctx.network.fetch()` so diagnostics can point to missing capability, host, method, or size declarations
 
 #### Scheduled Automation Actions
 
@@ -528,9 +568,19 @@ The host appends `hana-theme` and `hana-css` query parameters to the iframe URL.
 <link rel="stylesheet" href="${new URLSearchParams(location.search).get('hana-css')}">
 ```
 
-Static frontend resources belong under the plugin's `assets/` directory and are served by the Hana host at `/api/plugins/{pluginId}/assets/...`. This follows the same boundary idea as VS Code Webview resources: the entry route is opened with the local token or `pluginIframeTicket`; after a successful page response, the host issues a short-lived HttpOnly cookie scoped only to `/api/plugins/{pluginId}/assets/`. Vite split chunks, `React.lazy()` imports, CSS, fonts, images, JSON, wasm, and related static requests should not depend on `?token` or `pluginIframeTicket`.
+Static frontend resources belong under the plugin's `assets/` directory and are served by the Hana host at `/api/plugins/{pluginId}/assets/...`. This follows the same boundary idea as VS Code Webview resources: the entry route is opened with the local token or `pluginIframeTicket`; after a successful page response, the host issues a short-lived HttpOnly cookie scoped only to `/api/plugins/{pluginId}/assets/`. Vite split chunks, `React.lazy()` imports, CSS, fonts, images, JSON, wasm, and browser-playable video files such as MP4/WebM/MOV should not depend on `?token` or `pluginIframeTicket`. Video assets support HTTP byte ranges for `<video>` playback and seeking.
 
-When page scripts call the plugin's own dynamic route APIs (`/api/plugins/{pluginId}/...`), use the surface session credential the host appends to the iframe URL (query parameter `pluginSurfaceSession`) and send it back via the `X-Hana-Plugin-Surface-Session` header (or a query parameter of the same name):
+When page scripts call the plugin's own dynamic route APIs, prefer `hana.api.fetch()` from `@hana/plugin-sdk`. It derives the current plugin id from the iframe route and sends the surface session credential that the host appended to the iframe URL:
+
+```js
+import { hana } from '@hana/plugin-sdk';
+
+const res = await hana.api.fetch('create-session', {
+  method: 'POST',
+});
+```
+
+When converting a website into a plugin, rewrite same-plugin `fetch('/api/...')` calls to `hana.api.fetch(...)` instead of hard-coding `/api/plugins/{pluginId}/...` in browser code. The lower-level protocol is: the host appends the surface session as the `pluginSurfaceSession` query parameter, and page scripts send it back with the `X-Hana-Plugin-Surface-Session` header (or a query parameter of the same name):
 
 ```js
 const surfaceSession = new URLSearchParams(location.search).get('pluginSurfaceSession');
@@ -540,7 +590,7 @@ const res = await fetch('/api/plugins/my-plugin/create-session', {
 });
 ```
 
-This credential only authorizes the plugin's own proxied route paths and carries no host scopes; the host strips it from the request before forwarding to the plugin handler. `pluginIframeTicket` is a one-time document-load credential — do not reuse it for XHR.
+This credential only authorizes the plugin's own proxied route paths and carries no host scopes; the host strips it from the request before forwarding to the plugin handler. `pluginIframeTicket` is a one-time document-load credential. Do not reuse it for XHR or static resource URLs.
 
 Browser code should prefer the SDK helper:
 
@@ -548,6 +598,7 @@ Browser code should prefer the SDK helper:
 import { hana } from '@hana/plugin-sdk';
 
 const iconUrl = hana.assets.url('images/icon.svg');
+const bgVideoUrl = hana.assets.url('videos/background.mp4');
 ```
 
 The server-side shell can also point directly at the same host-served path:
@@ -557,6 +608,8 @@ The server-side shell can also point directly at the same host-served path:
 ```
 
 Treat `assets/` as a public static root. Put only built files and public media there. Do not put source files, secrets, private config, or runtime data in it. The host rejects path traversal, dotfiles, source maps, and non-web static extensions by default. Use plugin route APIs or SDK host requests for dynamic data.
+
+Agent-generated plugins and newly edited plugin UI should not register extra `/api/file`, `/api/video`, `/assets/*`, or similar routes only to serve CSS, JS, images, fonts, or MP4 files. Existing plugins that already use static-file compatibility handlers remain loadable. The documented contract for new work is to put those resources in `assets/` and reference them with `hana.assets.url(...)` or the official host-served assets path in the route shell.
 
 React plugin UIs should use `@hana/plugin-components`. It provides Button, IconButton, TextInput, Textarea, Select, Switch, SettingRow, CardShell, List, EmptyState, and related primitives that match Hana's current controls:
 
@@ -628,6 +681,7 @@ Most plugins don't need a manifest. Only required for:
 - Declaring `trust: "full-access"` for full permissions
 - Declaring iframe UI host capabilities (`ui.hostCapabilities`)
 - Declaring ordinary plugin capabilities (`capabilities`) or future user-granted sensitive capabilities (`sensitiveCapabilities`)
+- Declaring outbound HTTP data boundaries (`network.allowedHosts`, `network.methods`, etc.)
 - Configuration schema (JSON Schema declarations)
 - Plugin metadata (name, version, description for the management UI)
 - Soft dependency declarations
@@ -641,8 +695,14 @@ Most plugins don't need a manifest. Only required for:
   "description": "What this plugin does",
   "trust": "full-access",
   "activationEvents": ["onToolCall:search"],
-  "capabilities": ["session", "agent", "model.sample", "media.generate"],
+  "capabilities": ["session", "agent", "model.sample", "media.generate", "network.fetch"],
   "sensitiveCapabilities": ["filesystem.write"],
+  "network": {
+    "allowedHosts": ["api.example.com"],
+    "methods": ["GET", "POST"],
+    "defaultTimeoutMs": 8000,
+    "maxResponseBytes": 1048576
+  },
   "ui": {
     "hostCapabilities": ["external.open"]
   },
@@ -658,6 +718,8 @@ Most plugins don't need a manifest. Only required for:
 Without a manifest, `id` is derived from the directory name, other fields default to empty, and permission is restricted.
 
 `capabilities` are ordinary declarations and are exposed as `ctx.capabilities`; in the current version, declared ordinary capabilities can be used directly through the SDK or EventBus. `sensitiveCapabilities` records intent for the future user-granted permission system and is exposed as `ctx.sensitiveCapabilities`.
+
+`network` describes the outbound HTTP boundary only; it does not grant a capability by itself. Code that calls `ctx.network.fetch()` must still declare `network.fetch` in `capabilities` or `sensitiveCapabilities`. New plugins should fetch live data, third-party API payloads, search results, and dynamic website-conversion data from route code, then return sanitized JSON to the iframe. `network` is not a static resource serving config; packaged images, videos, CSS, and JS still belong under `assets/`.
 
 ### Activation Events
 
@@ -1022,7 +1084,7 @@ If the installed version is newer than the highest compatible marketplace versio
 
 ## Forward Compatibility
 
-The system ignores unrecognized directories and manifest fields. Old plugins always work on new systems; new plugins on old systems simply have new contribution types silently ignored. `manifestVersion` remains optional for compatibility; new iframe UI plugins that declare `ui.hostCapabilities` should use `manifestVersion: 1` to match the host and SDK docs, but old plugins do not need a migration.
+The system ignores unrecognized directories and manifest fields. Old plugins always work on new systems; new plugins on old systems simply have new contribution types silently ignored. `manifestVersion` remains optional for compatibility; new iframe UI plugins that declare `ui.hostCapabilities` should use `manifestVersion: 1` to match the host and SDK docs, but old plugins do not need a migration. Existing plugins that created static-resource compatibility handlers for earlier asset limitations also remain allowed; diagnostics and Agent rules should treat them as cleanup candidates, not load blockers.
 
 ## Error Isolation
 

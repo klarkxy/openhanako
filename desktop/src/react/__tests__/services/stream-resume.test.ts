@@ -27,14 +27,11 @@ vi.mock('../../stores/agent-actions', () => ({
   clearChat: mocks.clearChat,
 }));
 
-vi.mock('../../services/websocket', () => ({
-  getWebSocket: () => mocks.ws,
-}));
-
 import { useStore } from '../../stores';
 import { invalidateStreamResumeMeta } from '../../stores/stream-invalidator';
 import {
   injectHandlers,
+  injectWebSocketGetter,
   replayStreamResume,
   requestStreamResume,
   updateSessionStreamMeta,
@@ -56,6 +53,7 @@ describe('stream-resume', () => {
         '/background.jsonl': { items: [], hasMore: false, loadingMore: false },
       },
     } as never);
+    injectWebSocketGetter(() => mocks.ws as unknown as WebSocket);
   });
 
   it('hydrates a completed empty resume for background sessions instead of leaving them stuck streaming', async () => {

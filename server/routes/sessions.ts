@@ -1369,6 +1369,7 @@ export function createSessionsRoute(engine, hub = null) {
         thinkingLevel: normalizeSessionThinkingLevel(engine.getSessionThinkingLevel?.(newSessionPath) || engine.getThinkingLevel?.()),
         memoryModelUnavailableReason: engine.memoryModelUnavailableReason || null,
         compacted: result.compacted === true,
+        compactionError: result.compactionError || null,
       };
       hub?.eventBus?.emit?.({
         type: "session_created",
