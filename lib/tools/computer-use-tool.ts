@@ -73,9 +73,16 @@ function textResult(text, details = {}) {
 
 function resolveToolCtx(ctx, options) {
   const sessionPath = getToolSessionPath(ctx);
+  const ctxSessionId = typeof ctx?.sessionId === "string" && ctx.sessionId.trim()
+    ? ctx.sessionId.trim()
+    : null;
+  const resolvedSessionId = !ctxSessionId && typeof options.getSessionIdForPath === "function"
+    ? options.getSessionIdForPath(sessionPath)
+    : null;
+  const sessionId = ctxSessionId || (typeof resolvedSessionId === "string" && resolvedSessionId.trim() ? resolvedSessionId.trim() : null);
   const model = ctx?.model || options.getSessionModel?.(sessionPath) || null;
   const agentId = ctx?.agentId || options.getAgentId?.(sessionPath) || null;
-  return { sessionPath, agentId, model };
+  return { sessionId, sessionPath, agentId, model };
 }
 
 function actionTarget(params) {
@@ -221,8 +228,9 @@ function toConfirmationStatus(action) {
 
 function buildComputerAppGatewayRequest(approval, toolCtx, params: Record<string, any> = {}) {
   const appName = approval.appName || approval.appId;
+  const stableKey = toolCtx.sessionId || toolCtx.sessionPath || "session";
   return {
-    id: `${toolCtx.sessionPath || "session"}:computer_app_approval:${Date.now()}`,
+    id: `${stableKey}:computer_app_approval:${Date.now()}`,
     kind: "computer_app_approval",
     sessionPath: toolCtx.sessionPath,
     agentId: toolCtx.agentId || null,

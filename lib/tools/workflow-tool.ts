@@ -42,11 +42,26 @@ function usageTokens(usage) {
 }
 
 /** 按子节点 session 从 UsageLedger 汇总 token；无 ledger / 无记录返回 null（节点行不显示）。 */
-function sumNodeTokens(ledger, childSessionPath) {
-  if (!ledger?.list || !childSessionPath) return null;
-  const { entries } = ledger.list({ childSessionPath });
+function sumNodeTokens(ledger, { childSessionId = null, childSessionPath = null } = {}) {
+  if (!ledger?.list || (!childSessionId && !childSessionPath)) return null;
+  const filter = childSessionId ? { childSessionId } : { childSessionPath };
+  const { entries } = ledger.list(filter);
   if (!entries?.length) return null;
   return entries.reduce((sum, e) => sum + usageTokens(e.usage), 0);
+}
+
+function sessionIdForPath(deps, sessionPath) {
+  const sessionId = deps.getSessionIdForPath?.(sessionPath);
+  return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+}
+
+function sessionRefForPath(deps, sessionPath) {
+  const sessionId = sessionIdForPath(deps, sessionPath);
+  return sessionId ? { sessionId, sessionPath } : null;
+}
+
+function sessionInputForPath(deps, sessionPath) {
+  return sessionRefForPath(deps, sessionPath) || sessionPath;
 }
 
 /** 从 agent 数据目录派生 journal 存储路径。 */
@@ -82,6 +97,7 @@ function makeBudget(ledger, taskId, budgetTotal) {
  * @param {{
  *   executeIsolated: (prompt: string, isoOpts: object) => Promise<object>,
  *   getSessionPath?: () => string|null,
+ *   getSessionIdForPath?: (sessionPath: string|null) => string|null,
  *   getParentCwd?: () => string|null,
  *   getAgentId?: () => string|undefined,
  *   emitEvent?: (event: object, sessionPath: string|null) => void,
@@ -100,6 +116,8 @@ export function createWorkflowTool(deps) {
     parameters: buildParameters(),
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       const parentSessionPath = getToolSessionPath(ctx) || deps.getSessionPath?.() || null;
+      const parentSessionRef = sessionRefForPath(deps, parentSessionPath);
+      const parentSessionId = parentSessionRef?.sessionId || null;
       const cwd = getToolSessionCwd(ctx) || deps.getParentCwd?.() || null;
       const agentId = deps.getAgentId?.() || undefined;
 
@@ -132,9 +150,9 @@ export function createWorkflowTool(deps) {
       const hub = deps.getActivityHub?.();
       const startedAt = Date.now();
 
-      store.defer(taskId, parentSessionPath, { type: "workflow", interlude: true, summary });
-      runStore?.register?.(taskId, { parentSessionPath, summary });
-      hub?.upsert({ id: taskId, kind: "workflow", status: "running", sessionPath: parentSessionPath, agentId, summary, startedAt });
+      store.defer(taskId, sessionInputForPath(deps, parentSessionPath), { type: "workflow", interlude: true, summary });
+      runStore?.register?.(taskId, { parentSessionId, parentSessionPath, summary });
+      hub?.upsert({ id: taskId, kind: "workflow", status: "running", sessionId: parentSessionId, sessionPath: parentSessionPath, agentId, summary, startedAt });
 
       // ── journal：断点续跑 ──
       const jDir = deps.getJournalDir?.() || null;
@@ -165,11 +183,11 @@ export function createWorkflowTool(deps) {
       const runWorkflow = (childScript, childArgs) => {
         const childHostApi = createHostApi({
           executeIsolated: (prompt, isoOpts) => deps.executeIsolated(prompt, isoOpts),
-          baseIsoOpts: { agentId, cwd, parentSessionPath, subagentContext: true, subagentTaskId: taskId, emitEvents: true },
+          baseIsoOpts: { agentId, cwd, parentSessionId, parentSessionPath, subagentContext: true, subagentTaskId: taskId, emitEvents: true },
           limiter,
           signal: controller.signal,
           onProgress: (evt) => deps.emitEvent?.({ ...evt, type: "workflow_progress", taskId }, parentSessionPath),
-          onAgentEvent: buildAgentEventHandler({ taskId, parentSessionPath, summary, hub, threadStore, deps }),
+          onAgentEvent: buildAgentEventHandler({ taskId, parentSessionId, parentSessionPath, summary, hub, threadStore, deps }),
           budget,
           args: childArgs,
           resolveAgentId: deps.resolveAgentId,
@@ -184,11 +202,11 @@ export function createWorkflowTool(deps) {
 
       const hostApi = createHostApi({
         executeIsolated: (prompt, isoOpts) => deps.executeIsolated(prompt, isoOpts),
-        baseIsoOpts: { agentId, cwd, parentSessionPath, subagentContext: true, subagentTaskId: taskId, emitEvents: true },
+        baseIsoOpts: { agentId, cwd, parentSessionId, parentSessionPath, subagentContext: true, subagentTaskId: taskId, emitEvents: true },
         limiter,
         signal: controller.signal,
         onProgress: (evt) => deps.emitEvent?.({ ...evt, type: "workflow_progress", taskId }, parentSessionPath),
-        onAgentEvent: buildAgentEventHandler({ taskId, parentSessionPath, summary, hub, threadStore, deps }),
+        onAgentEvent: buildAgentEventHandler({ taskId, parentSessionId, parentSessionPath, summary, hub, threadStore, deps }),
         budget,
         args: params.args,
         resolveAgentId: deps.resolveAgentId,
@@ -234,7 +252,7 @@ export function createWorkflowTool(deps) {
  * 提取 onAgentEvent handler：节点级活动 → ActivityHub 子 entry + ThreadStore。
  * 主流程和嵌套 workflow 共用，避免重复。
  */
-function buildAgentEventHandler({ taskId, parentSessionPath, summary, hub, threadStore, deps }) {
+function buildAgentEventHandler({ taskId, parentSessionId, parentSessionPath, summary, hub, threadStore, deps }) {
   return (evt) => {
     const childId = `${taskId}::${evt.nodeId}`;
     if (evt.phase === "start") {
@@ -245,6 +263,7 @@ function buildAgentEventHandler({ taskId, parentSessionPath, summary, hub, threa
           kind: evt.threadKind || "workflow_node",
           parentTaskId: taskId,
           nodeId: evt.nodeId,
+          parentSessionId,
           parentSessionPath,
           agentId: evt.agentId || null,
           label: evt.label || null,
@@ -253,6 +272,7 @@ function buildAgentEventHandler({ taskId, parentSessionPath, summary, hub, threa
       }
       hub?.upsert({
         id: childId, kind, status: "running",
+        sessionId: parentSessionId,
         sessionPath: parentSessionPath, parentTaskId: taskId,
         threadId: isStep ? null : (evt.threadId || null),
         threadKind: isStep ? null : (evt.threadKind || null),
@@ -267,14 +287,24 @@ function buildAgentEventHandler({ taskId, parentSessionPath, summary, hub, threa
         threadStore?.attachSession?.(evt.threadId, evt.childSessionPath || null, {
           parentTaskId: taskId,
           nodeId: evt.nodeId,
+          parentSessionId,
+          parentSessionPath,
+          childSessionId: evt.childSessionId || null,
         });
       }
-      hub?.upsert({ id: childId, childSessionPath: evt.childSessionPath || null });
+      hub?.upsert({
+        id: childId,
+        childSessionId: evt.childSessionId || null,
+        childSessionPath: evt.childSessionPath || null,
+      });
     } else if (evt.phase === "done") {
       const isStep = typeof evt.stepKind === "string" && evt.stepKind;
       if (!isStep) {
         const node = hub?.get?.(childId);
-        const tokens = sumNodeTokens(deps.getUsageLedger?.(), node?.childSessionPath);
+        const tokens = sumNodeTokens(deps.getUsageLedger?.(), {
+          childSessionId: node?.childSessionId || null,
+          childSessionPath: node?.childSessionPath || null,
+        });
         if (evt.threadId) {
           threadStore?.finishRun?.(evt.threadId, { status: "resolved", close: true });
         }
@@ -297,9 +327,10 @@ async function _syncRun(deps, params, meta, { agentId, cwd, parentSessionPath })
   const limiter = makeLimiter();
   const ledger = deps.getUsageLedger?.();
   const budgetTotal = params.args?.budgetTokens ?? null;
+  const parentSessionId = sessionIdForPath(deps, parentSessionPath);
   const hostApi = createHostApi({
     executeIsolated: (prompt, isoOpts) => deps.executeIsolated(prompt, isoOpts),
-    baseIsoOpts: { agentId, cwd, parentSessionPath, subagentContext: true, emitEvents: true },
+    baseIsoOpts: { agentId, cwd, parentSessionId, parentSessionPath, subagentContext: true, emitEvents: true },
     limiter,
     signal: undefined,
     onProgress: (evt) => deps.emitEvent?.({ ...evt, type: "workflow_progress" }, parentSessionPath),

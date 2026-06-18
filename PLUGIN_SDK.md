@@ -242,8 +242,9 @@ const session = await createSession(ctx, {
   memoryEnabled: true,
   cwd: ctx.dataDir,
 });
+const sessionTarget = session.sessionRef ?? { sessionId: session.sessionId };
 
-await sendSessionMessage(ctx, session.sessionPath, {
+await sendSessionMessage(ctx, sessionTarget, {
   text: 'Hello',
   context: {
     beforeUser: [
@@ -253,7 +254,7 @@ await sendSessionMessage(ctx, session.sessionPath, {
   },
 });
 
-const off = subscribeSessionEvents(ctx, session.sessionPath, (event) => {
+const off = subscribeSessionEvents(ctx, sessionTarget, (event) => {
   ctx.log.debug('session event', event);
 });
 ```
@@ -280,7 +281,8 @@ Image/video helpers keep a stable top-level shape. Provider-specific controls go
 
 ```js
 const result = await generateImage(ctx, {
-  sessionPath,
+  sessionId: ctx.sessionId,
+  sessionRef: ctx.sessionRef,
   prompt: 'A handwritten character card on warm paper',
   referenceImages: [
     { kind: 'session_file', fileId: 'sf_reference_a' },
@@ -291,7 +293,7 @@ const result = await generateImage(ctx, {
 });
 ```
 
-For plugin-owned jobs that should not create chat history, Bridge delivery, or `SessionFile` records, pass `delivery: { mode: 'response' }` and omit `sessionPath`. The returned task can be polled through `GET /api/media/tasks/:taskId`; once it is done, read `task.files[]` and fetch each file from `GET /api/media/generated/:filename`.
+For plugin-owned jobs that should not create chat history, Bridge delivery, or `SessionFile` records, pass `delivery: { mode: 'response' }` and omit `sessionId`/`sessionPath`. The returned task can be polled through `GET /api/media/tasks/:taskId`; once it is done, read `task.files[]` and fetch each file from `GET /api/media/generated/:filename`.
 
 ```js
 const result = await generateImage(ctx, {
@@ -309,7 +311,7 @@ POST /api/media/video/generate
 POST /api/media/asr/transcribe
 ```
 
-The image/video endpoints require `prompt`; default `delivery.mode = "session"` also requires `sessionPath`. With `delivery.mode = "response"`, image/video requests may omit `sessionPath` and will not create `SessionFile` records. ASR still requires `sessionPath` and `fileId`. Image reference fields on the native facade accept only `SessionFile` references such as `{ "kind": "session_file", "fileId": "sf_..." }`; raw local paths are reserved for legacy/internal image-gen calls. These routes require chat-scope host credentials and forward into the same native Media Manager task pipeline as the SDK helpers.
+The image/video endpoints require `prompt`; default `delivery.mode = "session"` also requires `sessionId` or legacy `sessionPath`. With `delivery.mode = "response"`, image/video requests may omit both and will not create `SessionFile` records. ASR requires `sessionId` or legacy `sessionPath` plus `fileId`. Image reference fields on the native facade accept only `SessionFile` references such as `{ "kind": "session_file", "fileId": "sf_..." }`; raw local paths are reserved for legacy/internal image-gen calls. These routes require chat-scope host credentials and forward into the same native Media Manager task pipeline as the SDK helpers.
 
 For Agent-assisted development, plugins can declare `manifest.dev.scenarios`. These are not runtime features; they are smoke-test instructions for Hana's dev loop and should only describe repeatable checks such as invoking a tool, expecting text in the result, or opening a declared UI surface.
 

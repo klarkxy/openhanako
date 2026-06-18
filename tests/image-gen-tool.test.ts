@@ -147,6 +147,37 @@ describe("generate-video tool — metadata", () => {
       tasks: [{ taskId: "task-video" }],
     });
   });
+
+  it("passes sessionId-first ownership to the universal video media bus", async () => {
+    const mod = await import("../plugins/image-gen/tools/generate-video.ts");
+    const request = vi.fn(async () => ({
+      ok: true,
+      kind: "video",
+      batchId: "batch-video",
+      prompt: "a moonlit room",
+      delivery: { mode: "session" },
+      tasks: [{ taskId: "task-video" }],
+    }));
+    const ctx = {
+      ...makeCtx(makeMediaGen(), { request }),
+      sessionId: "sess_video_tool",
+      sessionRef: {
+        sessionId: "sess_video_tool",
+        sessionPath: "/sessions/test.jsonl",
+      },
+    };
+
+    await mod.execute({ prompt: "a moonlit room" }, ctx);
+
+    expect(request).toHaveBeenCalledWith("media:generate-video", expect.objectContaining({
+      sessionId: "sess_video_tool",
+      sessionPath: "/sessions/test.jsonl",
+      sessionRef: {
+        sessionId: "sess_video_tool",
+        sessionPath: "/sessions/test.jsonl",
+      },
+    }));
+  });
 });
 
 describe("describe-media-options tool", () => {
@@ -616,6 +647,48 @@ describe("generate-image tool — single submit returns media placeholder metada
     expect(call.prompt).toBe("mountains");
     expect(call.adapterTaskId).toBeNull();
     expect(call.submitState).toBe("submitting");
+  });
+
+  it("records sessionId-first ownership in store and background bus requests", async () => {
+    const { registry, store, poller } = makeMediaGen({
+      submit: vi.fn(async () => ({ taskId: "t-session-id" })),
+    });
+    const busRequest = vi.fn(async () => ({}));
+    const ctx = {
+      ...makeCtx({ registry, store, poller }, { request: busRequest }),
+      sessionId: "sess_image_tool",
+      sessionRef: {
+        sessionId: "sess_image_tool",
+        sessionPath: "/sessions/test.jsonl",
+      },
+    };
+
+    await execute({ prompt: "lantern" }, ctx);
+
+    const taskCall = store.add.mock.calls[0][0];
+    const deferredCall = (busRequest.mock.calls as any).find(([type]: any) => type === "deferred:register");
+    const taskRegisterCall = (busRequest.mock.calls as any).find(([type]: any) => type === "task:register");
+
+    expect(taskCall).toMatchObject({
+      sessionId: "sess_image_tool",
+      sessionPath: "/sessions/test.jsonl",
+      sessionRef: {
+        sessionId: "sess_image_tool",
+        sessionPath: "/sessions/test.jsonl",
+      },
+    });
+    expect(deferredCall![1]).toMatchObject({
+      sessionId: "sess_image_tool",
+      sessionPath: "/sessions/test.jsonl",
+      sessionRef: {
+        sessionId: "sess_image_tool",
+        sessionPath: "/sessions/test.jsonl",
+      },
+    });
+    expect(taskRegisterCall![1]).toMatchObject({
+      sessionId: "sess_image_tool",
+      parentSessionPath: "/sessions/test.jsonl",
+    });
   });
 
   it("registers task with deferred:register", async () => {

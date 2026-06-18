@@ -549,6 +549,57 @@ describe("Poller", () => {
     poller.stop();
   });
 
+  it("registers completed generated files with sessionId when the path locator is absent", async () => {
+    const registerSessionFile = vi.fn(({ sessionId, sessionRef, sessionPath, filePath, label, origin, storageKind }) => ({
+      id: "sf_generated",
+      fileId: "sf_generated",
+      sessionId,
+      sessionRef,
+      sessionPath,
+      filePath,
+      label,
+      origin,
+      storageKind,
+    }));
+    const mockAdapter = makeAdapter({
+      query: vi.fn(async () => ({
+        status: "success",
+        files: ["id-only.png"],
+      })),
+    });
+    const { poller, mockStore } = makePoller({
+      adapter: mockAdapter,
+      registerSessionFile,
+    });
+
+    mockStore.get.mockReturnValue({
+      taskId: "task1",
+      adapterId: "test-adapter",
+      status: "pending",
+      files: [],
+      sessionId: "sess_image_task",
+      sessionRef: { sessionId: "sess_image_task" },
+      sessionPath: null,
+      createdAt: new Date().toISOString(),
+    });
+
+    poller.start();
+    poller.add("task1");
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(registerSessionFile).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "sess_image_task",
+      sessionRef: { sessionId: "sess_image_task" },
+      filePath: path.join("/tmp/image-gen-generated", "id-only.png"),
+      label: "id-only.png",
+      origin: "plugin_output",
+      storageKind: "plugin_data",
+    }));
+
+    poller.stop();
+  });
+
   it("keeps response delivery results out of SessionFile and DeferredResult delivery", async () => {
     const registerSessionFile = vi.fn();
     const mockAdapter = makeAdapter({

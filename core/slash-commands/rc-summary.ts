@@ -56,7 +56,7 @@ export async function summarizeSessionForRc(engine, agent, sessionPath) {
       api: utilConfig.api, model: utilConfig.utility,
       apiKey: utilConfig.api_key, baseUrl: utilConfig.base_url,
       usageLedger: utilConfig.usageLedger ?? engine.usageLedger,
-      usageContext: usageContextForRc(agent, sessionPath, "rc_summary_utility"),
+      usageContext: usageContextForRc(engine, agent, sessionPath, "rc_summary_utility"),
       messages,
       lengthContract,
     }, "utility");
@@ -69,7 +69,7 @@ export async function summarizeSessionForRc(engine, agent, sessionPath) {
       api: utilConfig.large_api, model: utilConfig.utility_large,
       apiKey: utilConfig.large_api_key, baseUrl: utilConfig.large_base_url,
       usageLedger: utilConfig.usageLedger ?? engine.usageLedger,
-      usageContext: usageContextForRc(agent, sessionPath, "rc_summary_utility_large"),
+      usageContext: usageContextForRc(engine, agent, sessionPath, "rc_summary_utility_large"),
       messages,
       lengthContract,
     }, "utility_large");
@@ -86,7 +86,7 @@ export async function summarizeSessionForRc(engine, agent, sessionPath) {
           api: resolved.api, model: resolved.model,
           apiKey: resolved.api_key, baseUrl: resolved.base_url,
           usageLedger: engine.usageLedger,
-          usageContext: usageContextForRc(agent, sessionPath, "rc_summary_chat"),
+          usageContext: usageContextForRc(engine, agent, sessionPath, "rc_summary_chat"),
           messages,
           lengthContract,
         }, "chat");
@@ -100,7 +100,8 @@ export async function summarizeSessionForRc(engine, agent, sessionPath) {
   return null;
 }
 
-function usageContextForRc(agent, sessionPath, operation) {
+function usageContextForRc(engine, agent, sessionPath, operation) {
+  const sessionId = sessionPath ? engine?.getSessionIdForPath?.(sessionPath) || null : null;
   return {
     source: {
       subsystem: "phone",
@@ -109,7 +110,12 @@ function usageContextForRc(agent, sessionPath, operation) {
       trigger: "user",
     },
     attribution: sessionPath
-      ? { kind: "session", sessionPath, agentId: agent?.id ?? null }
+      ? {
+          kind: "session",
+          ...(sessionId ? { sessionId } : {}),
+          sessionPath,
+          agentId: agent?.id ?? null,
+        }
       : { kind: "utility", agentId: agent?.id ?? null },
   };
 }

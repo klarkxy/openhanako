@@ -18,7 +18,7 @@
  * @param {string} [opts.clientMessageId]
  * @param {(delta: string, accumulated: string) => void} [opts.onDelta]
  * @param {object} [opts.displayMessage]
- * @param {Array<{fileId?:string, sessionPath?:string, label?:string, kind?:string}>} [opts.sessionFileRefs]
+ * @param {Array<{fileId?:string, sessionId?:string, sessionPath?:string, label?:string, kind?:string}>} [opts.sessionFileRefs]
  * @param {object|null|undefined} [opts.uiContext]
  * @param {object|null|undefined} [opts.context]
  * @returns {Promise<{ text: string | null, toolMedia: string[] }>}
@@ -83,7 +83,7 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
   clientMessageId?: string;
   onDelta?: (delta: string, accumulated: string) => void;
   displayMessage?: any;
-  sessionFileRefs?: Array<{ fileId?: string; sessionPath?: string; label?: string; kind?: string }>;
+  sessionFileRefs?: Array<{ fileId?: string; sessionId?: string; sessionPath?: string; label?: string; kind?: string }>;
   uiContext?: any;
   context?: any;
 } = {}) {
@@ -110,14 +110,16 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
   }
   if (!sessionPath) throw new Error("desktop-session-submit: sessionPath is required");
   if (!text && !images?.length && !videos?.length && !audios?.length) throw new Error("desktop-session-submit: text, images, videos, or audios required");
-  if (pendingDesktopSessionSubmissions.has(sessionPath)) {
+  const sessionId = resolveSessionIdForPath(engine, sessionPath);
+  const submissionKey = sessionId || sessionPath;
+  if (pendingDesktopSessionSubmissions.has(submissionKey)) {
     throw new Error("session_busy");
   }
   if (typeof engine.isSessionStreaming === "function" && engine.isSessionStreaming(sessionPath)) {
     throw new Error("session_busy");
   }
 
-  pendingDesktopSessionSubmissions.add(sessionPath);
+  pendingDesktopSessionSubmissions.add(submissionKey);
   try {
     const session = await engine.ensureSessionLoaded(sessionPath);
     if (!session) throw new Error(`desktop-session-submit: failed to load session ${sessionPath}`);
@@ -131,7 +133,7 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
     let promptAudioAttachmentPaths = audioAttachmentPaths || [];
     let displayAttachments = displayMessage?.attachments;
     let promptText = text || "";
-    let promptSessionFileRefs = normalizeSessionFileRefs(sessionFileRefs, sessionPath);
+    let promptSessionFileRefs = normalizeSessionFileRefs(sessionFileRefs, sessionPath, sessionId);
 
     if (displayAttachments?.length) {
       const registeredDisplay = registerDisplayAttachments({
@@ -157,13 +159,14 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
       }
       promptSessionFileRefs = mergeSessionFileRefs(
         promptSessionFileRefs,
-        sessionFileRefsFromAttachments(displayAttachments, sessionPath),
+        sessionFileRefsFromAttachments(displayAttachments, sessionPath, sessionId),
       );
     }
 
     if (inboundFiles?.length) {
       const materialized = await materializeBridgeInboundFiles({
         hanakoHome: engine.hanakoHome,
+        sessionId,
         sessionPath,
         files: inboundFiles,
         registerSessionFile: engine.registerSessionFile?.bind(engine),
@@ -179,7 +182,7 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
       ];
       promptSessionFileRefs = mergeSessionFileRefs(
         promptSessionFileRefs,
-        sessionFileRefsFromAttachments(materialized.displayAttachments, sessionPath),
+        sessionFileRefsFromAttachments(materialized.displayAttachments, sessionPath, sessionId),
       );
     }
 
@@ -255,7 +258,7 @@ export async function submitDesktopSessionMessage(engine: any, opts: {
       toolMedia,
     };
   } finally {
-    pendingDesktopSessionSubmissions.delete(sessionPath);
+    pendingDesktopSessionSubmissions.delete(submissionKey);
   }
 }
 
@@ -271,7 +274,7 @@ export async function submitDesktopSessionInterjection(engine: any, opts: {
   inboundFiles?: Array<{ type: string; filename?: string; mimeType?: string; buffer: any }>;
   clientMessageId?: string;
   displayMessage?: any;
-  sessionFileRefs?: Array<{ fileId?: string; sessionPath?: string; label?: string; kind?: string }>;
+  sessionFileRefs?: Array<{ fileId?: string; sessionId?: string; sessionPath?: string; label?: string; kind?: string }>;
   uiContext?: any;
   context?: any;
 } = {}) {
@@ -306,6 +309,7 @@ export async function submitDesktopSessionInterjection(engine: any, opts: {
   if (!session) {
     throw new Error(`desktop-session-submit: failed to load session ${sessionPath}`);
   }
+  const sessionId = resolveSessionIdForPath(engine, sessionPath);
 
   if (uiContext !== undefined) {
     engine.setUiContext?.(sessionPath, uiContext ?? null);
@@ -316,7 +320,7 @@ export async function submitDesktopSessionInterjection(engine: any, opts: {
   let promptAudioAttachmentPaths = audioAttachmentPaths || [];
   let displayAttachments = displayMessage?.attachments;
   let promptText = text || "";
-  let promptSessionFileRefs = normalizeSessionFileRefs(sessionFileRefs, sessionPath);
+  let promptSessionFileRefs = normalizeSessionFileRefs(sessionFileRefs, sessionPath, sessionId);
 
   if (displayAttachments?.length) {
     const registeredDisplay = registerDisplayAttachments({
@@ -342,13 +346,14 @@ export async function submitDesktopSessionInterjection(engine: any, opts: {
     }
     promptSessionFileRefs = mergeSessionFileRefs(
       promptSessionFileRefs,
-      sessionFileRefsFromAttachments(displayAttachments, sessionPath),
+      sessionFileRefsFromAttachments(displayAttachments, sessionPath, sessionId),
     );
   }
 
   if (inboundFiles?.length) {
     const materialized = await materializeBridgeInboundFiles({
       hanakoHome: engine.hanakoHome,
+      sessionId,
       sessionPath,
       files: inboundFiles,
       registerSessionFile: engine.registerSessionFile?.bind(engine),
@@ -363,7 +368,7 @@ export async function submitDesktopSessionInterjection(engine: any, opts: {
     ];
     promptSessionFileRefs = mergeSessionFileRefs(
       promptSessionFileRefs,
-      sessionFileRefsFromAttachments(materialized.displayAttachments, sessionPath),
+      sessionFileRefsFromAttachments(materialized.displayAttachments, sessionPath, sessionId),
     );
   }
 
@@ -554,16 +559,34 @@ function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set((paths || []).filter(Boolean)));
 }
 
-function normalizeSessionFileRefs(refs, fallbackSessionPath) {
+function resolveSessionIdForPath(engine, sessionPath) {
+  try {
+    const sessionId = engine?.getSessionIdForPath?.(sessionPath);
+    return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSessionFileRefs(refs, fallbackSessionPath, fallbackSessionId = null) {
   if (!Array.isArray(refs)) return [];
   const normalized = [];
+  const seen = new Set();
   for (const ref of refs) {
     if (!ref || typeof ref !== "object") continue;
     const fileId = typeof ref.fileId === "string" && ref.fileId.trim() ? ref.fileId.trim() : null;
     if (!fileId) continue;
+    const sessionId = typeof ref.sessionId === "string" && ref.sessionId.trim()
+      ? ref.sessionId.trim()
+      : fallbackSessionId;
+    const sessionPath = typeof ref.sessionPath === "string" && ref.sessionPath ? ref.sessionPath : fallbackSessionPath;
+    const dedupeKey = `${sessionId || sessionPath || ""}:${fileId}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     normalized.push({
       fileId,
-      sessionPath: typeof ref.sessionPath === "string" && ref.sessionPath ? ref.sessionPath : fallbackSessionPath,
+      ...(sessionId ? { sessionId } : {}),
+      sessionPath,
       label: typeof ref.label === "string" && ref.label ? ref.label : fileId,
       kind: typeof ref.kind === "string" && ref.kind ? ref.kind : "attachment",
     });
@@ -571,13 +594,14 @@ function normalizeSessionFileRefs(refs, fallbackSessionPath) {
   return normalized;
 }
 
-function sessionFileRefsFromAttachments(attachments, sessionPath) {
+function sessionFileRefsFromAttachments(attachments, sessionPath, sessionId = null) {
   return normalizeSessionFileRefs((attachments || []).map((attachment) => ({
     fileId: attachment?.fileId,
+    sessionId: attachment?.sessionId || sessionId,
     sessionPath,
     label: attachment?.name || attachment?.label || attachment?.path,
     kind: attachment?.isDir ? "directory" : "attachment",
-  })), sessionPath);
+  })), sessionPath, sessionId);
 }
 
 function mergeSessionFileRefs(primary, secondary) {
@@ -585,7 +609,7 @@ function mergeSessionFileRefs(primary, secondary) {
   const seen = new Set();
   for (const ref of [...(primary || []), ...(secondary || [])]) {
     if (!ref?.fileId) continue;
-    const key = `${ref.sessionPath || ""}:${ref.fileId}`;
+    const key = `${ref.sessionId || ref.sessionPath || ""}:${ref.fileId}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(ref);
@@ -600,6 +624,7 @@ function addSessionFileRefMarkers(text, refs) {
     .map((ref) => `[SessionFile] ${JSON.stringify({
       fileId: ref.fileId,
       sessionPath: ref.sessionPath || null,
+      ...(ref.sessionId ? { sessionId: ref.sessionId } : {}),
       label: ref.label,
       kind: ref.kind,
     })}`)

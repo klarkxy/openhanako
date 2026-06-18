@@ -797,6 +797,24 @@ describe('subagent', () => {
     expect(blocks[0].label).toBeNull();
   });
 
+  it("subagent: 新 details 保留 child sessionId，同时兼容 streamKey path", () => {
+    const blocks = (extractBlocks as any)("subagent", {
+      taskId: "t-session-id",
+      task: "任务：整理桌面\n\n请独立完成",
+      taskTitle: "任务：整理桌面",
+      sessionId: "sess_child_block",
+      sessionPath: "/s/moved-child.jsonl",
+      streamStatus: "running",
+    });
+
+    expect(blocks[0]).toMatchObject({
+      type: "subagent",
+      taskId: "t-session-id",
+      sessionId: "sess_child_block",
+      streamKey: "/s/moved-child.jsonl",
+    });
+  });
+
   it("subagent: 展示 label 透传到块，旧 reuseInstance 可兼容映射", () => {
     const blocks = (extractBlocks as any)("subagent", {
       taskId: "t1", taskTitle: "x", sessionPath: "/s/t.jsonl",

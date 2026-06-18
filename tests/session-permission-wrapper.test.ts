@@ -162,6 +162,7 @@ describe("session permission wrapper", () => {
       getPermissionMode: () => "auto",
       getConfirmStore: () => confirmStore,
       getApprovalGateway: () => approvalGateway,
+      getSessionIdForPath: (sessionPath) => sessionPath === "/tmp/session.jsonl" ? "sess_tool_permission" : null,
       emitEvent: vi.fn(),
     });
 
@@ -169,6 +170,7 @@ describe("session permission wrapper", () => {
 
     expect(approvalGateway.review).toHaveBeenCalledWith(
       expect.objectContaining({
+        id: expect.stringMatching(/^sess_tool_permission:write:/),
         kind: "tool_action",
         sessionPath: "/tmp/session.jsonl",
         toolName: "write",

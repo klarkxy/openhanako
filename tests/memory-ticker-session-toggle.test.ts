@@ -74,7 +74,7 @@ function writeResetMarker(memoryDir, resetAt) {
   fs.writeFileSync(path.join(memoryDir, "reset.json"), JSON.stringify({ compiledResetAt: resetAt }, null, 2), "utf-8");
 }
 
-function makeTicker(tmpDir, isSessionMemoryEnabled) {
+function makeTicker(tmpDir, isSessionMemoryEnabled, overrides: any = {}) {
   const summaryManager = {
     rollingSummary: vi.fn().mockResolvedValue("summary"),
     getSummary: vi.fn().mockReturnValue(null),
@@ -88,6 +88,7 @@ function makeTicker(tmpDir, isSessionMemoryEnabled) {
     getResolvedMemoryModel: () => ({ model: "test-model", provider: "test", api: "openai-completions", api_key: "test-key", base_url: "http://localhost:1234" }),
     getMemoryMasterEnabled: () => true,
     isSessionMemoryEnabled,
+    ...overrides,
     getTimezone: () => "Asia/Shanghai",
     onCompiled: vi.fn(),
     sessionDir: path.join(tmpDir, "sessions"),
@@ -127,6 +128,22 @@ describe("memory ticker respects session-level memory toggle", () => {
     expect(summaryManager.rollingSummary).not.toHaveBeenCalled();
     expect(compileToday).not.toHaveBeenCalled();
     expect(assemble).not.toHaveBeenCalled();
+  });
+
+  it("keys rolling summaries by stable sessionId when the manifest resolver can provide it", async () => {
+    const { ticker, summaryManager } = makeTicker(tmpDir, () => true, {
+      getSessionIdForPath: () => "sess_memory_1",
+    });
+
+    ticker.notifyTurn(sessionPath);
+    await ticker.notifySessionEnd(sessionPath);
+
+    expect(summaryManager.rollingSummary).toHaveBeenCalledWith(
+      "sess_memory_1",
+      expect.any(Array),
+      expect.any(Object),
+      expect.any(Object),
+    );
   });
 
   it("never summarizes agent phone sessions even if session memory is enabled", async () => {

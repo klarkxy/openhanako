@@ -68,7 +68,8 @@ export default definePlugin({
     }));
 
     await requestBus(ctx, 'session:send', {
-      sessionPath: '/absolute/path/to/session.jsonl',
+      sessionId: ctx.sessionId,
+      sessionRef: ctx.sessionRef,
       text: 'Plugin loaded',
     }, { timeout: 5000 });
   },
@@ -156,7 +157,9 @@ export default definePlugin({
       maxTokens: 80,
     });
 
-    await sendSessionMessage(ctx, (session as any).sessionPath, {
+    const sessionTarget = (session as any).sessionRef ?? { sessionId: (session as any).sessionId };
+
+    await sendSessionMessage(ctx, sessionTarget, {
       text: 'I push the door open.',
       context: {
         beforeUser: [
@@ -166,12 +169,13 @@ export default definePlugin({
       },
     });
 
-    register(subscribeSessionEvents(ctx, (session as any).sessionPath, (event) => {
+    register(subscribeSessionEvents(ctx, sessionTarget, (event) => {
       ctx.log.info('session event', event);
     }));
 
     await generateImage(ctx, {
-      sessionPath: (session as any).sessionPath,
+      sessionId: (session as any).sessionId,
+      sessionRef: (session as any).sessionRef,
       prompt: 'A handwritten character card on warm paper',
       referenceImages: [
         { kind: 'session_file', fileId: 'sf_reference_a' },
@@ -182,12 +186,14 @@ export default definePlugin({
 
     await generateMedia(ctx, {
       kind: 'video',
-      sessionPath: (session as any).sessionPath,
+      sessionId: (session as any).sessionId,
+      sessionRef: (session as any).sessionRef,
       prompt: 'A slow page-turn animation on warm paper',
     });
 
     const transcription = await transcribeAudio(ctx, {
-      sessionPath: (session as any).sessionPath,
+      sessionId: (session as any).sessionId,
+      sessionRef: (session as any).sessionRef,
       fileId: 'session-file-id',
     });
     ctx.log.info('transcription', transcription);
@@ -197,7 +203,7 @@ export default definePlugin({
 
 For backend code, prefer these helpers so permission checks and delivery semantics stay explicit. Plugin pages or plugin route handlers that already have host HTTP credentials can call the native facade directly: `POST /api/media/image/generate`, `POST /api/media/video/generate`, `POST /api/media/generate`, and `POST /api/media/asr/transcribe`. The submit routes require chat scope, image references must use `SessionFile` references such as `{ kind: 'session_file', fileId }`, and all requests forward into the same native Media Manager pipeline. Image and video models must declare reference-image support on the selected mode through `modes[].inputLimits.referenceImages`, such as `{ min: 0, max: 0 }` for text-only generation or `{ min: 1, max: 1 }` for a single-reference mode.
 
-Image and video generation default to `delivery: { mode: 'session' }`, which requires `sessionPath` and delivers completed files as `SessionFile` records. For plugin-owned jobs that only need a generated artifact, use `delivery: { mode: 'response' }` and omit `sessionPath`; poll `GET /api/media/tasks/:taskId` until `task.status === 'done'`, then fetch filenames from `task.files[]` via `GET /api/media/generated/:filename`.
+Image and video generation default to `delivery: { mode: 'session' }`, which requires `sessionId` or legacy `sessionPath` and delivers completed files as `SessionFile` records. For plugin-owned jobs that only need a generated artifact, use `delivery: { mode: 'response' }` and omit session identity; poll `GET /api/media/tasks/:taskId` until `task.status === 'done'`, then fetch filenames from `task.files[]` via `GET /api/media/generated/:filename`.
 
 ```ts
 const result = await generateImage(ctx, {
@@ -230,7 +236,7 @@ export default definePlugin({
     ctx.log.info('usage records', usage.entries.length);
 
     register(subscribeUsageEvents(ctx, (entry, meta) => {
-      ctx.log.info('new usage entry', entry.requestId, meta.sessionPath);
+      ctx.log.info('new usage entry', entry.requestId, meta.sessionId, meta.sessionPath);
     }));
   },
 });
@@ -251,7 +257,8 @@ export const renderImage = defineTool({
   description: 'Render an image',
   async execute(_input, ctx) {
     const staged = ctx.stageFile?.({
-      sessionPath: ctx.sessionPath,
+      sessionId: ctx.sessionId,
+      sessionRef: ctx.sessionRef,
       filePath: '/absolute/path/to/image.png',
       label: 'image.png',
     });

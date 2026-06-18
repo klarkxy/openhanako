@@ -34,6 +34,24 @@ let _wsRetryCount = 0;
 injectHandlers(handleServerMessage, applyStreamingStatus);
 injectWebSocketGetter(() => _ws);
 
+export function resolveStreamingSessionResumeTargets(state: {
+  streamingSessions?: string[];
+  sessionLocatorsById?: Record<string, { path?: string | null }>;
+}): string[] {
+  const locators = state.sessionLocatorsById || {};
+  const targets = new Set<string>();
+  for (const key of state.streamingSessions || []) {
+    if (!key) continue;
+    if (Object.prototype.hasOwnProperty.call(locators, key)) {
+      const path = locators[key]?.path;
+      if (typeof path === 'string' && path.trim()) targets.add(path);
+      continue;
+    }
+    targets.add(key);
+  }
+  return Array.from(targets);
+}
+
 /** 获取当前 WebSocket 实例 */
 export function getWebSocket(): WebSocket | null {
   return _ws;
@@ -67,7 +85,7 @@ export function connectWebSocket(port?: string, token?: string): void {
     useStore.setState({ wsState: 'connected', wsReconnectAttempt: 0, compactingSessions: [] });
 
     const s = useStore.getState();
-    const streamingPaths = Array.from(new Set((s.streamingSessions || []).filter(Boolean)));
+    const streamingPaths = resolveStreamingSessionResumeTargets(s);
     if (streamingPaths.length > 0) {
       const myVersion = ++_wsResumeVersion;
       Promise.resolve().then(async () => {
@@ -84,7 +102,11 @@ export function connectWebSocket(port?: string, token?: string): void {
     // 期内到达、服务端重启、长时间挂起后唤醒等所有可能造成 context 数据
     // 与后端实际状态偏离的场景。不依赖 _pendingContextRefresh 队列。
     if (s.currentSessionPath && _ws?.readyState === WebSocket.OPEN) {
-      _ws.send(JSON.stringify({ type: 'context_usage', sessionPath: s.currentSessionPath }));
+      _ws.send(JSON.stringify({
+        type: 'context_usage',
+        sessionPath: s.currentSessionPath,
+        ...(s.currentSessionId ? { sessionId: s.currentSessionId } : {}),
+      }));
     }
   };
 

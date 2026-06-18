@@ -86,6 +86,7 @@ describe("session_folders tool", () => {
     const sessionPath = "/tmp/agents/hana/sessions/s1.jsonl";
     const folder = path.resolve("/external/assets");
     const engine = {
+      getSessionIdForPath: vi.fn((candidate) => candidate === sessionPath ? "sess_session_folders" : null),
       getSessionPermissionMode: vi.fn(() => "auto"),
       addSessionAuthorizedFolder: vi.fn(async () => ({
         sessionPath,
@@ -116,6 +117,7 @@ describe("session_folders tool", () => {
 
     expect(approvalGateway.review).toHaveBeenCalledWith(
       expect.objectContaining({
+        id: expect.stringMatching(/^sess_session_folders:session_folders:/),
         kind: "session_folders",
         sessionPath,
         toolName: "session_folders",

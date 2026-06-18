@@ -1517,6 +1517,52 @@ describe("plugin management API", () => {
       });
     });
 
+    it("passes sessionId-first config scopes through HTTP routes", async () => {
+      const getConfig = vi.fn(() => ({
+        pluginId: "demo",
+        schema: { properties: { sessionMode: { type: "string", scope: "per-session" } } },
+        values: { sessionMode: "modern" },
+      }));
+      const setConfig = vi.fn(() => ({
+        pluginId: "demo",
+        schema: { properties: { sessionMode: { type: "string", scope: "per-session" } } },
+        values: { sessionMode: "modern" },
+      }));
+      const engine = mockEngine({ getConfig, setConfig });
+      const app = createApp(engine);
+
+      const getRes = await app.request(
+        "/api/plugins/demo/config?scope=per-session&sessionId=sess_http&sessionPath=%2Fsessions%2Flegacy.jsonl",
+      );
+      const putRes = await app.request("/api/plugins/demo/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: "per-session",
+          sessionId: "sess_http",
+          sessionPath: "/sessions/legacy.jsonl",
+          values: { sessionMode: "modern" },
+        }),
+      });
+
+      expect(getRes.status).toBe(200);
+      expect(putRes.status).toBe(200);
+      expect(getConfig).toHaveBeenCalledWith("demo", {
+        scope: "per-session",
+        agentId: undefined,
+        sessionId: "sess_http",
+        sessionPath: "/sessions/legacy.jsonl",
+        legacySessionPath: undefined,
+      });
+      expect(setConfig).toHaveBeenCalledWith("demo", { sessionMode: "modern" }, {
+        scope: "per-session",
+        agentId: undefined,
+        sessionId: "sess_http",
+        sessionPath: "/sessions/legacy.jsonl",
+        legacySessionPath: undefined,
+      });
+    });
+
     it("rejects image-gen default image models whose protocol has no registered adapter", async () => {
       const setConfig = vi.fn();
       const engine = mockEngine({

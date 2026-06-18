@@ -18,6 +18,9 @@ export function createPluginContext({ pluginId, pluginKey, source, pluginDir, da
     platformAccountId: runtimeContext.platformAccountId ?? null,
     officialServiceKind: runtimeContext.officialServiceKind ?? null,
     executionBoundary: clonePlain(runtimeContext.executionBoundary),
+    sessionId: textOrNull(runtimeContext.sessionId),
+    sessionPath: textOrNull(runtimeContext.sessionPath),
+    sessionRef: normalizeSessionRef(runtimeContext.sessionRef, runtimeContext),
   } : {};
 
   const resolvedAccess = accessLevel || "restricted";
@@ -55,14 +58,23 @@ export function createPluginContext({ pluginId, pluginKey, source, pluginDir, da
     if (typeof registerSessionFileImpl !== "function") {
       throw new Error("plugin session file registry unavailable");
     }
-    const { sessionPath, filePath, label, origin = "plugin_output" } = entry;
+    const sessionId = textOrNull(entry.sessionId) || textOrNull(runtimeScope.sessionId);
+    const sessionPath = textOrNull(entry.sessionPath) || textOrNull(runtimeScope.sessionPath);
+    const sessionRef = normalizeSessionRef(entry.sessionRef, {
+      ...(runtimeScope.sessionRef || {}),
+      sessionId,
+      sessionPath,
+    }) || runtimeScope.sessionRef || null;
+    const { filePath, label, origin = "plugin_output" } = entry;
     const storageKind = origin === "plugin_output" ? "plugin_data" : "external";
-    if (!sessionPath) throw new Error("plugin registerSessionFile requires sessionPath");
+    if (!sessionId && !sessionPath) throw new Error("plugin registerSessionFile requires sessionId or sessionPath");
     if (!filePath || !path.isAbsolute(filePath)) {
       throw new Error("plugin registerSessionFile requires an absolute filePath");
     }
     return serializeSessionFile(registerSessionFileImpl({
+      ...(sessionId ? { sessionId } : {}),
       sessionPath,
+      ...(sessionRef ? { sessionRef } : {}),
       filePath,
       label,
       origin,
@@ -74,6 +86,7 @@ export function createPluginContext({ pluginId, pluginKey, source, pluginDir, da
     return {
       type: "session_file",
       fileId: file.fileId || file.id,
+      sessionId: file.sessionId || file.sessionRef?.sessionId,
       sessionPath: file.sessionPath,
       filePath: file.filePath,
       label: file.label || file.displayName || file.filename,
@@ -184,6 +197,22 @@ function forbiddenBusError(type, action, permission) {
 function clonePlain(value) {
   if (value === undefined) return undefined;
   return JSON.parse(JSON.stringify(value));
+}
+
+function textOrNull(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeSessionRef(value, fallback: any = {}) {
+  const sessionId = textOrNull(value?.sessionId) || textOrNull(fallback.sessionId);
+  if (!sessionId) return null;
+  const sessionPath = textOrNull(value?.sessionPath) || textOrNull(value?.path) || textOrNull(fallback.sessionPath);
+  const legacySessionPath = textOrNull(value?.legacySessionPath) || textOrNull(fallback.legacySessionPath);
+  return {
+    sessionId,
+    ...(sessionPath ? { sessionPath } : {}),
+    ...(legacySessionPath ? { legacySessionPath } : {}),
+  };
 }
 
 const DEFAULT_NETWORK_TIMEOUT_MS = 15_000;

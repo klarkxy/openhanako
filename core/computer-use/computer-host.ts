@@ -27,8 +27,13 @@ const CAPABILITY_ALLOWED_VALUES = new Set([
 const FOREGROUND_CAPABILITY_VALUES = new Set(["foreground"]);
 
 function sameLeaseOwner(lease, ctx: any = {}) {
-  return lease?.sessionPath === (ctx?.sessionPath || null)
-    && lease?.agentId === (ctx?.agentId || null);
+  if (!lease) return false;
+  if ((lease.agentId || null) !== (ctx?.agentId || null)) return false;
+  const ctxSessionId = ctx?.sessionId || null;
+  const ctxSessionPath = ctx?.sessionPath || null;
+  if (ctxSessionId && lease.sessionId) return lease.sessionId === ctxSessionId;
+  if (ctxSessionId && !lease.sessionId && ctxSessionPath) return lease.sessionPath === ctxSessionPath;
+  return !!ctxSessionPath && lease.sessionPath === ctxSessionPath;
 }
 
 function targetAppId( target: any = {}) {
@@ -120,6 +125,7 @@ export class ComputerHost {
       providers,
       activeLease: activeLease ? {
         leaseId: activeLease.leaseId,
+        ...(activeLease.sessionId ? { sessionId: activeLease.sessionId } : {}),
         sessionPath: activeLease.sessionPath,
         agentId: activeLease.agentId,
         providerId: activeLease.providerId,
@@ -255,6 +261,7 @@ export class ComputerHost {
         provider = null;
       }
       const leaseCtx = {
+        ...(activeLease.sessionId ? { sessionId: activeLease.sessionId } : {}),
         sessionPath: activeLease.sessionPath || null,
         agentId: activeLease.agentId || null,
       };
@@ -283,8 +290,8 @@ export class ComputerHost {
     }
   }
 
-  abortSession(sessionPath) {
-    this._leases.releaseBySession(sessionPath);
+  abortSession(sessionRef) {
+    this._leases.releaseBySession(sessionRef);
   }
 
   async requestPermissions( ctx: any = {}, providerId = null) {
@@ -372,6 +379,7 @@ export class ComputerHost {
       return;
     }
     const leaseCtx = {
+      ...(lease.sessionId ? { sessionId: lease.sessionId } : {}),
       sessionPath: lease.sessionPath || null,
       agentId: lease.agentId || null,
     };

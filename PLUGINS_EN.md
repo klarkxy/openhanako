@@ -161,7 +161,7 @@ export const description = "...";       // required
 export const parameters = { ... };      // JSON Schema, optional
 export async function execute(input, toolCtx) {  // required
   // input: user-provided parameters
-  // toolCtx: { pluginId, pluginDir, dataDir, sessionPath, bus, network, config, log, registerSessionFile, stageFile }
+  // toolCtx: { pluginId, pluginDir, dataDir, sessionId, sessionRef, sessionPath, bus, network, config, log, registerSessionFile, stageFile }
   return "result";
 }
 ```
@@ -198,7 +198,8 @@ When a tool needs to deliver files, first stage the local file as a `SessionFile
 import { createMediaDetails } from "@hana/plugin-runtime";
 
 const staged = toolCtx.stageFile({
-  sessionPath: toolCtx.sessionPath,
+  sessionId: toolCtx.sessionId,
+  sessionRef: toolCtx.sessionRef,
   filePath: "/path/to/image.png",
   label: "image.png",
 });
@@ -211,7 +212,7 @@ return {
 
 The framework automatically extracts `details.media` and delivers files according to context: desktop renders file cards, Bridge sends through the target platform, and Mobile PWA / remote frontends read through the same `SessionFile` / Resource identity. The new protocol prefers structured `session_file` entries in `details.media.items`; `mediaUrls` remains only as a compatibility field for old tools and remote URLs. Local files must not bypass `stageFile()` / `stage_files` through `MEDIA:/path`, `file://`, or `mediaUrls`; register them as `session_file` entries first. Do not create private plugin file cards as a substitute for `SessionFile`.
 
-When a plugin produces local files directly, call `toolCtx.stageFile({ sessionPath, filePath, label })` to attach them to the current session and obtain a ready-to-return media item. `registerSessionFile` remains available as a lower-level compatibility API, but new plugins should use `stageFile` so file ownership and media delivery stay coupled. `sessionPath` is explicit and `filePath` must be absolute. Hana records these files as `storageKind: "plugin_data"`, so they are treated as plugin data or generated output and are not removed by the session temporary-cache cleaner. Plugins should not assign temporary-cache lifecycle to arbitrary local paths; that lifecycle belongs to the framework.
+When a plugin produces local files directly, call `toolCtx.stageFile({ sessionId, sessionRef, filePath, label })` to attach them to the current session and obtain a ready-to-return media item. `registerSessionFile` remains available as a lower-level compatibility API, but new plugins should use `stageFile` so file ownership and media delivery stay coupled. `sessionId` / `sessionRef` are the preferred identity fields; `sessionPath` remains only as a legacy compatibility locator. `filePath` must be absolute. Hana records these files as `storageKind: "plugin_data"`, so they are treated as plugin data or generated output and are not removed by the session temporary-cache cleaner. Plugins should not assign temporary-cache lifecycle to arbitrary local paths; that lifecycle belongs to the framework.
 
 Boundaries:
 
@@ -318,7 +319,7 @@ export const name = "focus";
 export const description = "Start focus mode";
 export async function execute(args, cmdCtx) {
   // args: user input text
-  // cmdCtx: { sessionPath, agentId, bus, config, log }
+  // cmdCtx: { sessionId, sessionRef, sessionPath, agentId, bus, config, log }
 }
 ```
 
@@ -348,7 +349,8 @@ export default function (app, ctx) {
     const { text } = await c.req.json();
     const result = await ctx.bus.request("session:send", {
       text,
-      sessionPath: "/path/to/session.jsonl",  // required
+      sessionId: ctx.sessionId,
+      sessionRef: ctx.sessionRef,
     });
     return c.json(result);
   });
@@ -377,7 +379,7 @@ export function register(app, ctx) {
 }
 ```
 
-All three patterns are backward-compatible: plugins that don't use ctx need no changes. `ctx.bus` can directly call built-in session operations: `session:create`, `session:get`, `session:update`, `session:send`, `session:abort`, `session:history`, `session:list`, `agent:list`, `agent:profile`, `agent:create`, and `agent:update`. Operations against an existing session must include a `sessionPath` parameter. See the Route Context and Session Bus Handlers sections below for the full API.
+All three patterns are backward-compatible: plugins that don't use ctx need no changes. `ctx.bus` can directly call built-in session operations: `session:create`, `session:get`, `session:update`, `session:send`, `session:abort`, `session:history`, `session:list`, `agent:list`, `agent:profile`, `agent:create`, and `agent:update`. Operations against an existing session must include `sessionId` or `sessionRef`; `sessionPath` remains a legacy compatibility input. See the Route Context and Session Bus Handlers sections below for the full API.
 
 #### Request-level context (pluginRequestContext)
 
@@ -895,7 +897,7 @@ Plugins should prefer the typed helpers from `@hana/plugin-runtime`. They map to
 | `media:generate-image` | Submit an image generation task through the built-in media task pipeline; completed files are delivered as `SessionFile` records by default, while `delivery.mode="response"` returns task/file results only |
 | `media:generate` / `media:generate-video` / `media:transcribe-audio` | Submit generic media tasks, video generation, or audio transcription through the native Media Manager |
 
-Plugin backend code should prefer the `@hana/plugin-runtime` helpers. Plugin pages or route handlers that already hold host HTTP credentials can also use the native facade: `POST /api/media/generate`, `POST /api/media/image/generate`, `POST /api/media/video/generate`, and `POST /api/media/asr/transcribe`. These endpoints require chat scope. Image/video requests must include `prompt`; the default `delivery.mode="session"` also requires `sessionPath` and registers completed files as `SessionFile` records. For plugin-owned artifacts, pass `delivery: { mode: "response" }` and omit `sessionPath`; poll `GET /api/media/tasks/:taskId`, then fetch `task.files[]` through `GET /api/media/generated/:filename`. ASR requests still require `sessionPath` and `fileId`; image references must use `SessionFile` references such as `{ kind: "session_file", fileId }`. All of them forward into the same Media Manager task pipeline. Image adapters accept multiple reference images by default; adapters that only support one reference should declare `maxReferenceImages: 1`, and the pipeline rejects oversized requests before enqueueing.
+Plugin backend code should prefer the `@hana/plugin-runtime` helpers. Plugin pages or route handlers that already hold host HTTP credentials can also use the native facade: `POST /api/media/generate`, `POST /api/media/image/generate`, `POST /api/media/video/generate`, and `POST /api/media/asr/transcribe`. These endpoints require chat scope. Image/video requests must include `prompt`; the default `delivery.mode="session"` also requires `sessionId` or `sessionRef` and registers completed files as `SessionFile` records. For plugin-owned artifacts, pass `delivery: { mode: "response" }` and omit session identity; poll `GET /api/media/tasks/:taskId`, then fetch `task.files[]` through `GET /api/media/generated/:filename`. ASR requests require `sessionId` or legacy `sessionPath` plus `fileId`; image references must use `SessionFile` references such as `{ kind: "session_file", fileId }`. All of them forward into the same Media Manager task pipeline. Image adapters accept multiple reference images by default; adapters that only support one reference should declare `maxReferenceImages: 1`, and the pipeline rejects oversized requests before enqueueing.
 
 `session:send.context` is injected only into the current provider request. It does not rewrite the visible user message and does not persist as user text. A plugin can run its own RAG, world-state, mood, or character-state system, then attach those snippets when sending:
 
@@ -922,6 +924,7 @@ const session = await createSession(ctx, {
   visibility: "plugin_private",
   cwd: ctx.dataDir,
 });
+const sessionTarget = session.sessionRef ?? { sessionId: session.sessionId };
 
 const query = await sampleText(ctx, {
   operation: "tavern-rag-query",
@@ -929,7 +932,7 @@ const query = await sampleText(ctx, {
   maxTokens: 80,
 });
 
-await sendSessionMessage(ctx, session.sessionPath, {
+await sendSessionMessage(ctx, sessionTarget, {
   text: "I push the door open.",
   context: {
     beforeUser: [
@@ -940,7 +943,8 @@ await sendSessionMessage(ctx, session.sessionPath, {
 });
 
 await generateImage(ctx, {
-  sessionPath: session.sessionPath,
+  sessionId: session.sessionId,
+  sessionRef: session.sessionRef,
   prompt: "A handwritten character card on warm paper",
   referenceImages: [
     { kind: "session_file", fileId: "sf_reference_a" },
@@ -951,7 +955,8 @@ await generateImage(ctx, {
 
 await generateMedia(ctx, {
   kind: "video",
-  sessionPath: session.sessionPath,
+  sessionId: session.sessionId,
+  sessionRef: session.sessionRef,
   prompt: "A slow page-turn animation on warm paper",
 });
 
@@ -962,7 +967,8 @@ const artifactOnly = await generateImage(ctx, {
 // Later poll /api/media/tasks/{artifactOnly.tasks[0].taskId}
 
 const transcription = await transcribeAudio(ctx, {
-  sessionPath: session.sessionPath,
+  sessionId: session.sessionId,
+  sessionRef: session.sessionRef,
   fileId: "session-file-id",
 });
 // transcription = { ok: true, transcription: { status, text, ... } }
@@ -1096,24 +1102,25 @@ The system ignores unrecognized directories and manifest fields. Old plugins alw
 
 Hana supports multiple sessions and multiple agents running in parallel. Keep the following in mind when developing plugins:
 
-- All EventBus operations against an existing session (`session:get`, `session:update`, `session:send`, `session:abort`, `session:history`, etc.) must include a `sessionPath` parameter to identify the target session
-- Tools obtain the current session path via `toolCtx.sessionPath`
+- All EventBus operations against an existing session (`session:get`, `session:update`, `session:send`, `session:abort`, `session:history`, etc.) must include `sessionId` or `sessionRef` to identify the target session; `sessionPath` is a legacy compatibility input
+- Tools obtain the current session identity via `toolCtx.sessionId` / `toolCtx.sessionRef`; `toolCtx.sessionPath` is only the current locator
 - Do not use `engine.currentSessionPath` or `engine.currentAgentId` (these are UI focus pointers and do not represent the currently executing session)
 
 ```js
-// Correct: explicitly specify sessionPath and attach per-turn context if needed
+// Correct: explicitly specify sessionId/sessionRef and attach per-turn context if needed
 await bus.request("session:send", {
   text: "Hello",
-  sessionPath: "/path/to/session.jsonl",
+  sessionId: toolCtx.sessionId,
+  sessionRef: toolCtx.sessionRef,
   context: {
     beforeUser: [{ label: "world", text: "The character is in a quiet archive." }],
   },
 });
 
 await bus.request("session:abort", {
-  sessionPath: "/path/to/session.jsonl",
+  sessionId: toolCtx.sessionId,
 });
 
-// Wrong: omitting sessionPath may target the wrong session under concurrency
+// Wrong: omitting session identity cannot target the right session under concurrency
 await bus.request("session:send", { text: "Hello" });
 ```

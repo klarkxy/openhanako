@@ -152,6 +152,58 @@ function getDynamicToolInvocationStyle( toolDef: any = {}) {
   return style === "pi_tool" ? "pi_tool" : "sdk_tool";
 }
 
+function textOrNull(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeToolSessionRef(runtimeCtx: any = {}, fallbackSessionPath = null) {
+  const rawRef = runtimeCtx?.sessionRef && typeof runtimeCtx.sessionRef === "object"
+    ? runtimeCtx.sessionRef
+    : null;
+  const sessionId = textOrNull(runtimeCtx?.sessionId) || textOrNull(rawRef?.sessionId);
+  const sessionPath = textOrNull(runtimeCtx?.sessionPath)
+    || textOrNull(rawRef?.sessionPath)
+    || textOrNull(rawRef?.path)
+    || textOrNull(fallbackSessionPath);
+  const legacySessionPath = textOrNull(runtimeCtx?.legacySessionPath) || textOrNull(rawRef?.legacySessionPath);
+  if (!sessionId) {
+    return {
+      ...(sessionPath ? { sessionPath } : {}),
+    };
+  }
+  const sessionRef = {
+    sessionId,
+    ...(sessionPath ? { sessionPath } : {}),
+    ...(legacySessionPath ? { legacySessionPath } : {}),
+  };
+  return {
+    sessionId,
+    ...(sessionPath ? { sessionPath } : {}),
+    sessionRef,
+  };
+}
+
+function withInvocationSessionHelpers(ctx, sessionCtx) {
+  const hasSessionRef = sessionCtx?.sessionId || sessionCtx?.sessionPath || sessionCtx?.sessionRef;
+  if (!hasSessionRef) return {};
+  return {
+    registerSessionFile: typeof ctx.registerSessionFile === "function"
+      ? (entry: any = {}) => ctx.registerSessionFile({
+        ...sessionCtx,
+        ...entry,
+        sessionRef: entry.sessionRef || sessionCtx.sessionRef,
+      })
+      : undefined,
+    stageFile: typeof ctx.stageFile === "function"
+      ? (entry: any = {}) => ctx.stageFile({
+        ...sessionCtx,
+        ...entry,
+        sessionRef: entry.sessionRef || sessionCtx.sessionRef,
+      })
+      : undefined,
+  };
+}
+
 export class PluginManager {
   declare _agentTemplates: any;
   declare _appVersion: any;
@@ -763,14 +815,15 @@ export class PluginManager {
           execute: async (_toolCallId, params, signalOrRuntimeCtx, _onUpdate, piCtx) => {
             await this.activatePlugin(entry.id, { event: `onToolCall:${mod.name}`, toolName: mod.name }, { pluginKey: entry.pluginKey });
             const { ctx: runtimeCtx, hasExplicitCtx } = normalizeToolRuntimeContext(signalOrRuntimeCtx, piCtx);
-            const sessionPath = runtimeCtx?.sessionPath
+            const fallbackSessionPath = runtimeCtx?.sessionPath
               || getToolSessionPath(runtimeCtx)
               || (!hasExplicitCtx ? this._getSessionPath?.() : null)
               || null;
-            const sessionCtx = { sessionPath };
+            const sessionCtx = normalizeToolSessionRef(runtimeCtx, fallbackSessionPath);
+            const helperCtx = withInvocationSessionHelpers(ctx, sessionCtx);
             const mergedCtx = hasExplicitCtx
-              ? { ...ctx, ...runtimeCtx, ...sessionCtx }
-              : { ...ctx, ...sessionCtx };
+              ? { ...ctx, ...runtimeCtx, ...sessionCtx, ...helperCtx }
+              : { ...ctx, ...sessionCtx, ...helperCtx };
             const raw = await origExecute(params, mergedCtx);
             return normalizePluginToolResult(raw, ctx.pluginId);
           },
@@ -802,8 +855,9 @@ export class PluginManager {
       parameters: toolDef.parameters || { type: "object", properties: {} },
       execute: async (toolCallId, params, signalOrRuntimeCtx, onUpdate, piCtx) => {
         const { ctx: runtimeCtx } = normalizeToolRuntimeContext(signalOrRuntimeCtx, piCtx);
-        const sessionPath = runtimeCtx?.sessionPath || getToolSessionPath(runtimeCtx) || null;
-        const mergedCtx = sessionPath ? { ...runtimeCtx, sessionPath } : runtimeCtx;
+        const fallbackSessionPath = runtimeCtx?.sessionPath || getToolSessionPath(runtimeCtx) || null;
+        const sessionCtx = normalizeToolSessionRef(runtimeCtx, fallbackSessionPath);
+        const mergedCtx = { ...runtimeCtx, ...sessionCtx };
         const raw = invocationStyle === "pi_tool"
           ? origExecute.length >= 5
             ? await origExecute(toolCallId, params, signalOrRuntimeCtx, onUpdate, mergedCtx)

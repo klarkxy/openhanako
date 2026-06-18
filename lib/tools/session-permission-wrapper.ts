@@ -10,11 +10,22 @@ import { t } from "../i18n.ts";
 function findRuntimeCtx(args: any[]) {
   for (let i = args.length - 1; i >= 2; i--) {
     const value = args[i];
-    if (value && typeof value === "object" && (value.sessionManager || value.sessionPath || value.agentId || value.model)) {
+    if (value && typeof value === "object" && (value.sessionManager || value.sessionId || value.sessionPath || value.agentId || value.model)) {
       return value;
     }
   }
   return null;
+}
+
+function stableSessionKey(sessionPath: any, deps: any, ctx: any = null) {
+  const ctxSessionId = typeof ctx?.sessionId === "string" && ctx.sessionId.trim()
+    ? ctx.sessionId.trim()
+    : null;
+  const resolved = !ctxSessionId && typeof deps.getSessionIdForPath === "function"
+    ? deps.getSessionIdForPath(sessionPath)
+    : null;
+  const sessionId = ctxSessionId || (typeof resolved === "string" && resolved.trim() ? resolved.trim() : null);
+  return sessionId || sessionPath || "session";
 }
 
 function buildToolApprovalRequest(confirmId: any, toolName: any, params: any) {
@@ -39,11 +50,11 @@ function buildToolApprovalRequest(confirmId: any, toolName: any, params: any) {
   };
 }
 
-function buildToolApprovalGatewayRequest(tool: any, toolName: any, params: any, sessionPath: any) {
+function buildToolApprovalGatewayRequest(tool: any, toolName: any, params: any, sessionPath: any, stableKey: any) {
   const target = approvalTargetForTool(toolName, params);
   const sideEffect = approvalSideEffectForTool(tool, params);
   return {
-    id: `${sessionPath || "session"}:${toolName}:${Date.now()}`,
+    id: `${stableKey || "session"}:${toolName}:${Date.now()}`,
     kind: "tool_action",
     sessionPath,
     agentId: null,
@@ -117,7 +128,7 @@ async function askForToolApproval(toolName: any, params: any, sessionPath: any, 
   };
 }
 
-async function reviewToolApproval(tool: any, toolName: any, params: any, sessionPath: any, deps: any) {
+async function reviewToolApproval(tool: any, toolName: any, params: any, sessionPath: any, deps: any, ctx: any = null) {
   const gateway = deps.getApprovalGateway?.() || deps.approvalGateway || null;
   if (!gateway || typeof gateway.review !== "function") {
     return {
@@ -126,7 +137,7 @@ async function reviewToolApproval(tool: any, toolName: any, params: any, session
       reason: "approval-gateway-unavailable",
     };
   }
-  const request = buildToolApprovalGatewayRequest(tool, toolName, params, sessionPath);
+  const request = buildToolApprovalGatewayRequest(tool, toolName, params, sessionPath, stableSessionKey(sessionPath, deps, ctx));
   const decision = await gateway.review(request, {
     sessionPath,
     permissionContext: deps.permissionContext || null,
@@ -190,7 +201,7 @@ export function wrapWithSessionPermission(tools: any[] = [], deps: any = {}) {
           });
         }
         if (decision.action === "review") {
-          const review = await reviewToolApproval(tool, tool.name, params, sessionPath, deps);
+          const review = await reviewToolApproval(tool, tool.name, params, sessionPath, deps, ctx);
           if (review.allowed) {
             return tool.execute(...args);
           }

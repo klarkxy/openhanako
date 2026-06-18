@@ -205,7 +205,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
   let disconnectAbortTimer = null;
   const disconnectAbortGraceMs = resolveDisconnectAbortGraceMs();
   const turnStallAbortMs = resolveTurnStallAbortMs();
-  const sessionState = new Map(); // sessionPath -> shared stream state
+  const sessionState = new Map(); // sessionId || legacy sessionPath -> shared stream state
 
   function cancelDisconnectAbort() {
     if (disconnectAbortTimer) {
@@ -247,15 +247,34 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
     wsSend(ws, { type: "error", message: "agent_deleted", sessionPath });
   }
 
+  function sessionIdForPath(sessionPath) {
+    if (!sessionPath) return null;
+    try {
+      const sessionId = engine.getSessionIdForPath?.(sessionPath);
+      return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function sessionStateKey(sessionPath) {
+    return sessionIdForPath(sessionPath) || sessionPath;
+  }
+
   function getState(sessionPath) {
     if (!sessionPath) return null;
-    if (!sessionState.has(sessionPath)) {
+    const key = sessionStateKey(sessionPath);
+    if (key !== sessionPath && sessionState.has(sessionPath) && !sessionState.has(key)) {
+      sessionState.set(key, sessionState.get(sessionPath));
+      sessionState.delete(sessionPath);
+    }
+    if (!sessionState.has(key)) {
       // 超过上限时，循环淘汰非流式的最久未访问 entry
       while (sessionState.size >= MAX_SESSION_STATES) {
         let oldest = null;
         let oldestTime = Infinity;
         for (const [sp, ss] of sessionState) {
-          if (!ss.isStreaming && sp !== sessionPath && ss.lastAccessed < oldestTime) {
+          if (!ss.isStreaming && sp !== key && ss.lastAccessed < oldestTime) {
             oldest = sp;
             oldestTime = ss.lastAccessed;
           }
@@ -263,7 +282,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         if (oldest) sessionState.delete(oldest);
         else break; // 全是流式 session，无法淘汰
       }
-      sessionState.set(sessionPath, {
+      sessionState.set(key, {
         thinkTagParser: new ThinkTagParser(),
         moodParser: new MoodParser(),
         cardParser: new CardParser(),
@@ -286,7 +305,8 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         ...createSessionStreamState(),
       });
     }
-    const ss = sessionState.get(sessionPath);
+    const ss = sessionState.get(key);
+    ss.sessionPath = sessionPath;
     ss.lastAccessed = Date.now();
     return ss;
   }
@@ -391,6 +411,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
     // Phase 4: 始终广播所有事件，前端按 sessionPath 路由到对应 panel
     broadcast(createSessionStreamEventWsMessage({
       sessionPath,
+      sessionId: sessionIdForPath(sessionPath),
       sessionEvent: event,
       streamId: entry.streamId,
       seq: entry.seq,
@@ -1235,6 +1256,9 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
             // session 切回时，前端请求补发离屏期间的流式内容
             if (msg.type === "resume_stream") {
               const currentPath = requireSessionPath(msg, ws); if (!currentPath) return;
+              const currentSessionId = typeof msg.sessionId === "string" && msg.sessionId.trim()
+                ? msg.sessionId.trim()
+                : engine.getSessionIdForPath?.(currentPath) || null;
               const ss = sessionState.get(currentPath);
               const runtimeIsStreaming = typeof engine.isSessionStreaming === "function"
                 ? !!engine.isSessionStreaming(currentPath)
@@ -1246,6 +1270,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
                 });
                 wsSend(ws, createStreamResumeWsMessage({
                   sessionPath: currentPath,
+                  ...(currentSessionId ? { sessionId: currentSessionId } : {}),
                   streamId: resumed.streamId,
                   sinceSeq: resumed.sinceSeq,
                   nextSeq: resumed.nextSeq,
@@ -1258,6 +1283,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
               } else {
                 wsSend(ws, createStreamResumeWsMessage({
                   sessionPath: currentPath,
+                  ...(currentSessionId ? { sessionId: currentSessionId } : {}),
                   streamId: null,
                   sinceSeq: Number.isFinite(msg.sinceSeq) ? Math.max(0, Math.floor(msg.sinceSeq)) : 0,
                   nextSeq: 1,

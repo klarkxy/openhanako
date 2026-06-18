@@ -82,6 +82,7 @@ export function createMemoryTicker(opts) {
     memoryReflectionRunner,
     buildSessionCacheSnapshot,
     getSessionStreamFn,
+    getSessionIdForPath,
     memoryDir = path.dirname(memoryMdPath),
   } = opts;
   const _memoryReflectionRunner = memoryReflectionRunner || { runMemoryReflection: defaultRunMemoryReflection };
@@ -95,13 +96,20 @@ export function createMemoryTicker(opts) {
     && (!isSessionMemoryEnabled || isSessionMemoryEnabled(sessionPath));
   const _getCompiledResetAt = () => readCompiledResetAt(memoryDir);
   const _getTimezone = () => getTimezone?.() || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const _sessionIdentityForPath = (sessionPath) => {
+    try {
+      const sessionId = getSessionIdForPath?.(sessionPath);
+      if (typeof sessionId === "string" && sessionId.trim()) return sessionId.trim();
+    } catch {}
+    return sessionIdFromFilename(path.basename(sessionPath));
+  };
   const _getCacheSnapshotReflectionMode = () => {
     const mode = String(getCacheSnapshotReflectionMode?.() || "off");
     return CACHE_SNAPSHOT_REFLECTION_MODES.has(mode) ? mode : "off";
   };
   const _createSourceTimeRangeResolver = () => {
     const filesById = new Map(
-      listSessionFiles(sessionDir).map((entry) => [entry.sessionId, entry.filePath]),
+      listSessionFiles(sessionDir).map((entry) => [_sessionIdentityForPath(entry.filePath), entry.filePath]),
     );
     return (sessionId) => {
       const filePath = filesById.get(sessionId);
@@ -134,7 +142,7 @@ export function createMemoryTicker(opts) {
   let _lastDailyJobDate = null;
   let _dailyStepsDate = null;               // 当天已完成步骤所属日期
   const _dailyStepsCompleted = new Set();    // 当天已完成的步骤名（断点续跑）
-  const _turnCounts = new Map();             // sessionPath → turn count
+  const _turnCounts = new Map();             // stable session identity → turn count
   const _summaryInProgress = new Set();      // 正在跑滚动摘要的 session
 
   // ── 错误 dedup：相同根因（如凭证持续无效）只在 console 打一次，避免每轮对话都刷屏 ──
@@ -411,14 +419,14 @@ export function createMemoryTicker(opts) {
   }
 
   async function _doRollingSummary(sessionPath, trigger = "threshold") {
-    if (_summaryInProgress.has(sessionPath)) return; // 并发保护
-    _summaryInProgress.add(sessionPath);
+    const sessionId = _sessionIdentityForPath(sessionPath);
+    if (_summaryInProgress.has(sessionId)) return; // 并发保护
+    _summaryInProgress.add(sessionId);
     try {
       const resetAt = _getCompiledResetAt();
       const { messages } = readSessionMessages(sessionPath, { since: resetAt });
       if (messages.length === 0) return;
 
-      const sessionId = sessionIdFromFilename(path.basename(sessionPath));
       const rollingOptions: { resetAt: any; timeZone: string; memoryReflectionSnapshot?: any } = {
         resetAt,
         timeZone: _getTimezone(),
@@ -472,7 +480,7 @@ export function createMemoryTicker(opts) {
         throw err;
       }
     } finally {
-      _summaryInProgress.delete(sessionPath);
+      _summaryInProgress.delete(sessionId);
     }
   }
 
@@ -629,8 +637,9 @@ export function createMemoryTicker(opts) {
    */
   function notifyTurn(sessionPath) {
     if (_stopped) return;
-    const count = (_turnCounts.get(sessionPath) || 0) + 1;
-    _turnCounts.set(sessionPath, count);
+    const sessionKey = _sessionIdentityForPath(sessionPath);
+    const count = (_turnCounts.get(sessionKey) || 0) + 1;
+    _turnCounts.set(sessionKey, count);
 
     const memoryOn = _isSessionMemoryOn(sessionPath);
 
@@ -666,8 +675,9 @@ export function createMemoryTicker(opts) {
   function notifySessionEnd(sessionPath) {
     if (_stopped) return Promise.resolve();
     if (!sessionPath) return Promise.resolve();
-    const count = _turnCounts.get(sessionPath) || 0;
-    _turnCounts.delete(sessionPath);
+    const sessionKey = _sessionIdentityForPath(sessionPath);
+    const count = _turnCounts.get(sessionKey) || 0;
+    _turnCounts.delete(sessionKey);
     if (count === 0) return Promise.resolve();
     if (!_isSessionMemoryOn(sessionPath)) return Promise.resolve();
     return _trackJob(_doRollingSummary(sessionPath, "session_end")
@@ -714,7 +724,7 @@ export function createMemoryTicker(opts) {
       if (mtime.getTime() < cutoff) continue;
       if (resetMs && mtime.getTime() <= resetMs) continue;
       if (!_isSessionMemoryOn(filePath)) continue;
-      const sessionId = sessionIdFromFilename(path.basename(filePath));
+      const sessionId = _sessionIdentityForPath(filePath);
       const existing = summaryManager.getSummary(sessionId);
       const existingSummaryAt = existing?.updated_at ? new Date(existing.updated_at).getTime() : 0;
       const summaryAt = resetMs ? Math.max(existingSummaryAt, resetMs) : existingSummaryAt;
@@ -770,7 +780,7 @@ export function createMemoryTicker(opts) {
       log.error(`notifyPromoted 失败: ${err.message}`);
     }
     // 注册 turn count = 1，后续 notifySessionEnd 不会因 count===0 跳过
-    _turnCounts.set(sessionPath, 1);
+    _turnCounts.set(_sessionIdentityForPath(sessionPath), 1);
   }
 
   /**
@@ -797,7 +807,7 @@ export function createMemoryTicker(opts) {
     if (!_isSessionMemoryOn(sessionPath)) return;
     await _doRollingSummary(sessionPath, "manual");
     await _doCompileTodayAndAssemble();
-    _turnCounts.delete(sessionPath);
+    _turnCounts.delete(_sessionIdentityForPath(sessionPath));
   }
 
   /**

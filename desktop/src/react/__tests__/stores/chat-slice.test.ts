@@ -3,14 +3,14 @@ import { createChatSlice, type ChatSlice } from '../../stores/chat-slice';
 import type { ChatListItem, SessionModel } from '../../stores/chat-types';
 import { registerStreamBufferInvalidator, registerStreamResumeMetaInvalidator } from '../../stores/stream-invalidator';
 
-function makeSlice(): ChatSlice {
-  let state: ChatSlice;
+function makeSlice(initial: Record<string, unknown> = {}): ChatSlice {
+  let state: ChatSlice & Record<string, unknown>;
   const set = (partial: Partial<ChatSlice> | ((s: ChatSlice) => Partial<ChatSlice>)) => {
     const patch = typeof partial === 'function' ? partial(state) : partial;
     state = { ...state, ...patch };
   };
   const get = () => state;
-  state = createChatSlice(set as never, get);
+  state = { ...createChatSlice(set as never, get), ...initial };
   return new Proxy({} as ChatSlice, {
     get: (_, key: string) => (state as unknown as Record<string, unknown>)[key],
   });
@@ -50,6 +50,35 @@ describe('chat-slice', () => {
     expect(slice.chatSessions).toEqual({});
     expect(slice.sessionModelsByPath).toEqual({});
     expect(slice._loadMessagesVersion).toEqual({});
+  });
+
+  it('有 sessionId locator 时，消息、模型、registry 和清理都使用 sessionId key', () => {
+    slice = makeSlice({
+      currentSessionId: 'sess_chat',
+      currentSessionPath: '/sessions/moved.jsonl',
+      sessions: [{ sessionId: 'sess_chat', path: '/sessions/moved.jsonl' }],
+      sessionLocatorsById: { sess_chat: { path: '/sessions/moved.jsonl' } },
+    });
+
+    slice.initSession('/sessions/moved.jsonl', [], false);
+    slice.updateSessionModel('/sessions/moved.jsonl', MODEL);
+    slice.setSessionRegistryFiles('/sessions/moved.jsonl', [{
+      fileId: 'sf_1',
+      filePath: '/tmp/out.md',
+      label: 'out.md',
+      mime: 'text/markdown',
+      status: 'available',
+    }]);
+
+    expect(slice.chatSessions.sess_chat).toBeDefined();
+    expect(slice.chatSessions['/sessions/moved.jsonl']).toBeUndefined();
+    expect(slice.sessionModelsByPath.sess_chat).toEqual(MODEL);
+    expect(slice.sessionRegistryFilesByPath.sess_chat).toHaveLength(1);
+
+    slice.clearSession('/sessions/moved.jsonl');
+    expect(slice.chatSessions.sess_chat).toBeUndefined();
+    expect(slice.sessionModelsByPath.sess_chat).toBeUndefined();
+    expect(slice.sessionRegistryFilesByPath.sess_chat).toBeUndefined();
   });
 
   describe('updateSessionModel', () => {

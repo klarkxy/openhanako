@@ -78,6 +78,37 @@ describe("VisionBridge", () => {
     expect(injected.messages[0].content[0].text).toContain(VISION_CONTEXT_END);
   });
 
+  it("records auxiliary vision usage against sessionId while keeping the path locator", async () => {
+    const sessionPath = "/tmp/session.jsonl";
+    const sessionId = "sess_vision_usage";
+    const callText = vi.fn(async () => "image_overview: A screenshot.");
+    const bridge = new VisionBridge({
+      resolveVisionConfig: () => ({
+        model: { id: "qwen-vl", provider: "dashscope", input: ["text", "image"] },
+        api: "openai-completions",
+        api_key: "sk-test",
+        base_url: "https://example.test/v1",
+      }),
+      callText,
+      getSessionIdForPath: (candidate) => candidate === sessionPath ? sessionId : null,
+    });
+
+    await bridge.prepare({
+      sessionPath,
+      targetModel: { id: "deepseek-chat", provider: "deepseek", input: ["text"] },
+      text: `[attached_image: ${pathA}]\nwhat is this?`,
+      images: [image],
+      imageAttachmentPaths: [pathA],
+    });
+
+    const request = (callText.mock.calls as any)[0][0];
+    expect(request.usageContext.attribution).toMatchObject({
+      kind: "session",
+      sessionId,
+      sessionPath,
+    });
+  });
+
   it("restores vision notes from the session sidecar after the in-memory bridge is gone", async () => {
     const dir = makeTempDir();
     const sessionPath = path.join(dir, "session.jsonl");
@@ -152,6 +183,62 @@ describe("VisionBridge", () => {
       note: expect.stringContaining("image_overview"),
       visionModel: { id: "qwen-vl", provider: "dashscope" },
       targetModel: { id: "deepseek-chat", provider: "deepseek" },
+    });
+  });
+
+  it("keeps persisted resource notes attached to the session id when the session path moves", async () => {
+    const dir = makeTempDir();
+    const originalSessionPath = path.join(dir, "original.jsonl");
+    const movedSessionPath = path.join(dir, "archived", "renamed.jsonl");
+    const sessionId = "sess_vision_notes_stable";
+    const resourceKey = "visual-resource:browser-shot-moved";
+    const getSessionIdForPath = (sessionPath) => (
+      sessionPath === originalSessionPath || sessionPath === movedSessionPath
+        ? sessionId
+        : null
+    );
+    const callText = vi.fn(async () => "image_overview: moved path screenshot.");
+    const bridge = new VisionBridge({
+      resolveVisionConfig: () => ({
+        model: { id: "qwen-vl", provider: "dashscope", input: ["text", "image"] },
+        api: "openai-completions",
+        api_key: "sk-test",
+        base_url: "https://example.test/v1",
+      }),
+      callText,
+      getSessionIdForPath,
+    });
+
+    await bridge.prepareResources({
+      sessionPath: originalSessionPath,
+      targetModel: { id: "deepseek-chat", provider: "deepseek", input: ["text"] },
+      userRequest: "review the moved browser screenshot",
+      resources: [{
+        key: resourceKey,
+        label: "browser screenshot",
+        image,
+      }],
+    });
+
+    const sidecar = JSON.parse(fs.readFileSync(path.join(dir, "session-vision-notes.json"), "utf-8"));
+    expect(sidecar.sessions[sessionId].images[resourceKey]).toMatchObject({
+      imagePath: resourceKey,
+      sessionId,
+    });
+    expect(sidecar.sessions[path.basename(originalSessionPath)]).toBeUndefined();
+
+    const restored = new VisionBridge({
+      resolveVisionConfig: () => null,
+      callText: vi.fn(),
+      getSessionIdForPath,
+    });
+    const entry = restored.lookupNote(movedSessionPath, resourceKey);
+
+    expect(entry).toMatchObject({
+      imagePath: resourceKey,
+      sessionId,
+      sessionPath: movedSessionPath,
+      note: "image_overview: moved path screenshot.",
     });
   });
 

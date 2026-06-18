@@ -60,6 +60,7 @@ export interface SessionCapabilityDrift {
 
 export interface Session {
   path: string;
+  sessionId?: string | null;
   title: string | null;
   firstMessage: string;
   modified: string;
@@ -432,14 +433,6 @@ export interface PlatformApi {
   onMaximizeChange?(callback: (maximized: boolean) => void): void;
 
   // ── Browser viewer ──
-  updateBrowserViewer?(data: {
-    running?: boolean;
-    url?: string | null;
-    thumbnail?: string | null;
-    thumbnailCapturedAt?: number | null;
-    thumbnailUrl?: string | null;
-    thumbnailFresh?: boolean;
-  }): void;
   onBrowserUpdate?(callback: (data: BrowserViewerUpdate) => void): void | (() => void);
   closeBrowserViewer?(): void;
   closeBrowser?(): void;

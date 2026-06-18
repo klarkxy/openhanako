@@ -43,6 +43,7 @@ import { parseSkillMetadata } from "../lib/skills/skill-metadata.ts";
 import { safeConversationStem } from "../lib/conversations/agent-phone-projection.ts";
 import { DEFAULT_DISABLED_TOOL_NAMES } from "../shared/tool-categories.ts";
 import { ProviderCatalogStore } from "./provider-catalog.ts";
+import { sessionIdFromFilename } from "../lib/session-jsonl.ts";
 
 const moduleLog = createModuleLogger("migrations");
 
@@ -1920,6 +1921,7 @@ function backfillLegacySessionFiles(ctx) {
   let skipped = 0;
 
   for (const sessionPath of sessionPaths) {
+    const sessionId = sessionIdFromFilename(path.basename(sessionPath));
     let lines;
     try {
       lines = fs.readFileSync(sessionPath, "utf-8").split("\n").filter(Boolean);
@@ -1941,7 +1943,7 @@ function backfillLegacySessionFiles(ctx) {
       if (entry?.type !== "message" || msg?.role !== "toolResult") continue;
 
       for (const ref of legacySessionFileRefs(msg)) {
-        const ok = registerLegacySessionFile({ registry, sessionPath, ref, hanakoHome, log });
+        const ok = registerLegacySessionFile({ registry, sessionId, sessionPath, ref, hanakoHome, log });
         if (ok) registered++;
         else skipped++;
       }
@@ -1951,6 +1953,7 @@ function backfillLegacySessionFiles(ctx) {
         try {
           persistBrowserScreenshotFileSync({
             hanakoHome,
+            sessionId,
             sessionPath,
             base64: screenshot.base64,
             mimeType: screenshot.mimeType || "image/png",
@@ -2941,12 +2944,13 @@ function pushLegacyFileRef(refs, candidate, defaults: any = {}) {
   });
 }
 
-function registerLegacySessionFile({ registry, sessionPath, ref, hanakoHome, log }) {
+function registerLegacySessionFile({ registry, sessionId = null, sessionPath, ref, hanakoHome, log }) {
   if (!ref?.filePath || !path.isAbsolute(ref.filePath)) return false;
   if (!fs.existsSync(ref.filePath)) return false;
 
   try {
     registry.registerFile({
+      ...(sessionId ? { sessionId } : {}),
       sessionPath,
       filePath: ref.filePath,
       label: ref.label || path.basename(ref.filePath),

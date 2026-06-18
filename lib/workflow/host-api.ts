@@ -10,7 +10,7 @@ import { WorkflowJournal } from "./journal.ts";
  *   limiter: { run: (thunk: () => Promise<any>) => Promise<any> },
  *   signal?: AbortSignal,
  *   onProgress?: (evt: object) => void,
- *   onAgentEvent?: (evt: { phase: 'start'|'session'|'done'|'fail', nodeId: string, threadId?: string|null, threadKind?: string|null, label?: string|null, agentId?: string|null, phaseLabel?: string|null, childSessionPath?: string|null }) => void,
+ *   onAgentEvent?: (evt: { phase: 'start'|'session'|'done'|'fail', nodeId: string, threadId?: string|null, threadKind?: string|null, label?: string|null, agentId?: string|null, phaseLabel?: string|null, childSessionId?: string|null, childSessionPath?: string|null }) => void,
  *   budget?: { total: number|null, spent: () => number, remaining: () => number },
  *   args?: any,
  *   resolveAgentId?: (agentType?: string) => string|undefined,
@@ -74,8 +74,15 @@ export function createHostApi(deps) {
 
       // 节点级活动上报（→ workflow-tool → ActivityHub 子 entry，右侧 WorkflowCard 的每个 agent 节点行）。
       onAgentEvent({ phase: "start", nodeId, threadId, threadKind, label, agentId: nodeAgentId, phaseLabel: currentPhase });
-      // 子 session 创建后回补 childSessionPath（节点行展开看实时流用）。
-      isoOpts.onSessionReady = (sp) => onAgentEvent({ phase: "session", nodeId, threadId, threadKind, childSessionPath: sp });
+      // 子 session 创建后回补稳定身份 + locator：ID 用于内部归属，path 用于实时流定位。
+      isoOpts.onSessionReady = (sp, meta: any = {}) => onAgentEvent({
+        phase: "session",
+        nodeId,
+        threadId,
+        threadKind,
+        childSessionId: typeof meta?.sessionId === "string" && meta.sessionId.trim() ? meta.sessionId.trim() : null,
+        childSessionPath: sp,
+      });
 
       let structured = null;
       let finalPrompt = prompt;

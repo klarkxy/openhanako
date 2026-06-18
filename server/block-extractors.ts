@@ -132,6 +132,7 @@ export const BLOCK_EXTRACTORS = {
       requestedAgentName,
       executorAgentId: details.executorAgentId || executor?.agentId || null,
       executorAgentNameSnapshot: details.executorAgentNameSnapshot || executor?.agentName || null,
+      sessionId: details.sessionId || null,
       streamKey: details.sessionPath || "",
       streamStatus: details.streamStatus || "running",
       summary: details.summary || null,

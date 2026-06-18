@@ -10,6 +10,8 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor } from '@tiptap/core';
 import { useStore } from '../stores';
 import { selectPreviewItems, selectActiveTabId } from '../stores/preview-slice';
+import { sessionScopedListIncludes, sessionScopedValue } from '../stores/session-slice';
+import { isSessionCompacting } from '../stores/context-slice';
 import { selectSessionFiles } from '../stores/selectors/file-refs';
 import { isImageFile, isVideoFile } from '../utils/format';
 import { isAudioFileName } from '../utils/file-kind';
@@ -296,7 +298,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const { t, locale } = useI18n();
 
   // Zustand state
-  const isStreaming = useStore(s => s.streamingSessions.includes(s.currentSessionPath || ''));
+  const isStreaming = useStore(s => sessionScopedListIncludes(s, s.streamingSessions, s.currentSessionPath));
   const connected = useStore(s => s.connected);
   const pendingNewSession = useStore(s => s.pendingNewSession);
   const pendingSessionSwitchPath = useStore(s => s.pendingSessionSwitchPath);
@@ -307,10 +309,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     ? s.sessions.find(session => session.path === s.currentSessionPath)
     : null);
   const deletedAgentReadOnly = currentSessionProjection?.agentDeleted === true;
-  const compacting = useStore(s => currentSessionPath ? s.compactingSessions.includes(currentSessionPath) : false);
+  const compacting = useStore(s => isSessionCompacting(s, currentSessionPath));
   const screenshotBusy = useStore(s => s.screenshotTaskCount > 0);
   const screenshotProgress = useStore(s => s.screenshotProgress);
-  const inlineError = useStore(s => s.inlineErrors[s.currentSessionPath || ''] ?? null);
+  const inlineError = useStore(s => s.currentSessionPath ? (sessionScopedValue(s, s.inlineErrors, s.currentSessionPath) ?? null) : null);
   const sessionFiles = useStore(s => (s.currentSessionPath ? selectSessionFiles(s, s.currentSessionPath) : EMPTY_FILE_REFS));
   const attachedFiles = useStore(s => s.attachedFiles);
   const docContextAttached = useStore(s => s.docContextAttached);
@@ -329,15 +331,15 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const removeToast = useStore(s => s.removeToast);
 
   const globalModelInfo = useMemo(() => models.find(m => m.isCurrent), [models]);
-  const sessionModel = useStore(s => s.currentSessionPath ? s.sessionModelsByPath[s.currentSessionPath] : undefined);
+  const sessionModel = useStore(s => s.currentSessionPath ? sessionScopedValue(s, s.sessionModelsByPath, s.currentSessionPath) : undefined);
   const sessionModelInfo = useMemo(() => {
     if (!sessionModel) return undefined;
     const full = models.find(m => m.id === sessionModel.id && m.provider === sessionModel.provider);
     return full ? { ...full, ...sessionModel } : sessionModel;
   }, [models, sessionModel]);
   // #1624：当前 session 的工具能力漂移提示（服务端 restore 时算好，前端只消费）
-  const capabilityDrift = useStore(s => s.currentSessionPath ? (s.capabilityDriftBySession[s.currentSessionPath] ?? null) : null);
-  const capabilityRefreshing = useStore(s => s.currentSessionPath ? s.capabilityRefreshingSessions.includes(s.currentSessionPath) : false);
+  const capabilityDrift = useStore(s => s.currentSessionPath ? (sessionScopedValue(s, s.capabilityDriftBySession, s.currentSessionPath) ?? null) : null);
+  const capabilityRefreshing = useStore(s => sessionScopedListIncludes(s, s.capabilityRefreshingSessions, s.currentSessionPath));
   const currentModelInfo = sessionModelInfo || globalModelInfo;
   const availableThinkingLevels = useMemo(
     () => getModelThinkingLevels(currentModelInfo),
@@ -351,9 +353,9 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     [currentModelInfo, models],
   );
   const modelSwitching = useStore(s => s.modelSwitching);
-  const currentSessionItems = useStore(s => s.currentSessionPath ? s.chatSessions[s.currentSessionPath]?.items : undefined);
+  const currentSessionItems = useStore(s => s.currentSessionPath ? sessionScopedValue(s, s.chatSessions, s.currentSessionPath)?.items : undefined);
   const storedSessionConfirmation = useStore(s => s.currentSessionPath
-    ? s.pendingSessionConfirmationsByPath[s.currentSessionPath] || null
+    ? sessionScopedValue(s, s.pendingSessionConfirmationsByPath, s.currentSessionPath) || null
     : null);
   const pendingSessionConfirmation = useMemo(() => {
     return findLatestInputSessionConfirmation(currentSessionItems, undefined, true)
@@ -637,7 +639,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     const ws = getWebSocket();
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     const _s = useStore.getState();
-    if (_s.streamingSessions.includes(_s.currentSessionPath || '')) return false;
+    if (sessionScopedListIncludes(_s, _s.streamingSessions, _s.currentSessionPath)) return false;
     if (_s.pendingSessionSwitchPath) return false;
 
     if (pendingNewSession) {
@@ -1160,7 +1162,8 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   // 切换 session 时恢复草稿
   useEffect(() => {
     if (!editor || !currentSessionPath) return;
-    const draft = useStore.getState().drafts[currentSessionPath] || '';
+    const state = useStore.getState();
+    const draft = sessionScopedValue(state, state.drafts, currentSessionPath) || '';
     const current = editor.getText();
     if (draft !== current) {
       if (!draft) {
@@ -1411,8 +1414,8 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       const guardState = useStore.getState();
       const guardPath = guardState.currentSessionPath;
       if (guardPath && (
-        guardState.capabilityRefreshingSessions.includes(guardPath)
-        || guardState.compactingSessions.includes(guardPath)
+        sessionScopedListIncludes(guardState, guardState.capabilityRefreshingSessions, guardPath)
+        || isSessionCompacting(guardState, guardPath)
       )) return;
     }
     setSending(true);

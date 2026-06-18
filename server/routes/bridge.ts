@@ -512,7 +512,12 @@ export function createBridgeRoute(engine: any, bridgeManagerRef: any) {
       await manager.sendMediaItem(
         platform,
         chatId,
-        { type: "session_file", fileId: sessionFile.id, sessionPath },
+        {
+          type: "session_file",
+          fileId: sessionFile.id,
+          ...(sessionFile.sessionId ? { sessionId: sessionFile.sessionId } : {}),
+          sessionPath,
+        },
         agent.id,
       );
       return c.json({ ok: true, fileId: sessionFile.id });

@@ -309,4 +309,64 @@ describe("install_skill global skill-pool installation", () => {
     expect(resolveSessionFile).toHaveBeenCalledWith("sf_uploaded_skill", { sessionPath });
     expect(onInstalled).toHaveBeenCalledWith("phone-skill");
   });
+
+  it("installs an uploaded skill package by sessionId-first fileId source", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-install-skill-tool-"));
+    const agentDir = path.join(tmpDir, "agents", "agent-session-id-file");
+    const userSkillsDir = path.join(tmpDir, "user-skills");
+    const packageDir = path.join(tmpDir, "package");
+    const sessionId = "sess_skill_upload";
+    const sessionPath = "/sessions/skill-upload-moved.jsonl";
+    fs.mkdirSync(path.join(packageDir, "id-skill"), { recursive: true });
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(packageDir, "id-skill", "SKILL.md"), "---\nname: id-skill\n---\n# ID\n", "utf-8");
+    const zipPath = path.join(tmpDir, "id-skill.zip");
+    await writeZipFromDirectory(packageDir, zipPath);
+    const resolveSessionFile = vi.fn((fileId, options) => {
+      if (fileId !== "sf_uploaded_skill" || options?.sessionId !== sessionId) return null;
+      return {
+        id: "sf_uploaded_skill",
+        fileId: "sf_uploaded_skill",
+        sessionId,
+        sessionPath,
+        filePath: zipPath,
+        realPath: zipPath,
+        filename: "id-skill.zip",
+        label: "id-skill.zip",
+        mime: "application/zip",
+        kind: "archive",
+        status: "available",
+      };
+    });
+
+    const onInstalled = vi.fn();
+    const tool = createInstallSkillTool({
+      agentDir,
+      getUserSkillsDir: () => userSkillsDir,
+      getConfig: () => ({
+        capabilities: {
+          learn_skills: {
+            enabled: true,
+            safety_review: false,
+          },
+        },
+      }),
+      resolveUtilityConfig: () => null,
+      onInstalled,
+      registerSessionFile: vi.fn(),
+      resolveSessionFile,
+    });
+
+    const result = await tool.execute("call-1", {
+      fileId: "sf_uploaded_skill",
+      sessionId,
+      reason: "test uploaded package",
+    }, null, null, {
+      sessionManager: { getSessionFile: () => "/sessions/current.jsonl" },
+    });
+
+    expect((result as any).details.skillName).toBe("id-skill");
+    expect(resolveSessionFile).toHaveBeenCalledWith("sf_uploaded_skill", { sessionId });
+    expect(onInstalled).toHaveBeenCalledWith("id-skill");
+  });
 });

@@ -26,6 +26,7 @@ interface SubagentCardProps {
     requestedAgentName?: string;
     executorAgentId?: string;
     executorAgentNameSnapshot?: string;
+    sessionId?: string | null;
     streamKey: string;
     streamStatus: 'running' | 'done' | 'failed' | 'aborted';
     summary?: string;

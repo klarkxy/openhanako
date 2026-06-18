@@ -36,6 +36,7 @@ function makeEngine({ utilConfig, chatCreds }: any = {}) {
     resolveModelWithCredentials: chatCreds === undefined
       ? vi.fn(() => { throw new Error("chat not resolved"); })
       : vi.fn(() => chatCreds),
+    getSessionIdForPath: vi.fn(() => "sess_rc_summary"),
   };
 }
 
@@ -78,6 +79,29 @@ describe("summarizeSessionForRc — 3-tier fallback", () => {
     expect(r).toBe("utility summary");
     expect(callText).toHaveBeenCalledTimes(1);
     expect((callText as any).mock.calls[0][0]).not.toHaveProperty("maxTokens");
+  });
+
+  it("records rc summary usage against sessionId while keeping the path locator", async () => {
+    const p = writeSessionFile([makeUserMsg("hi"), makeAssistantMsg("hello")]);
+    (callText as any).mockResolvedValueOnce("utility summary");
+    const engine = makeEngine({
+      utilConfig: {
+        utility: "gpt-4o-mini",
+        api_key: "k",
+        base_url: "https://x",
+        api: "openai",
+      },
+    });
+
+    await summarizeSessionForRc(engine, makeAgent(), p);
+
+    expect(engine.getSessionIdForPath).toHaveBeenCalledWith(p);
+    expect((callText as any).mock.calls[0][0].usageContext.attribution).toMatchObject({
+      kind: "session",
+      agentId: null,
+      sessionId: "sess_rc_summary",
+      sessionPath: p,
+    });
   });
 
   it("Tier 1 fails → falls back to Tier 2 (utility_large)", async () => {

@@ -653,6 +653,17 @@ export class BridgeManager {
     return agentId ? `${platform}:${agentId}` : platform;
   }
 
+  _sessionIdentityKeyForPath(sessionPath) {
+    if (!sessionPath) return null;
+    try {
+      const sessionId = this.engine?.getSessionIdForPath?.(sessionPath);
+      if (typeof sessionId === "string" && sessionId.trim()) return sessionId.trim();
+    } catch {
+      // Legacy path fallback keeps bridge behavior working when the manifest index is unavailable.
+    }
+    return sessionPath;
+  }
+
   _collectMediaAllowedRoots(agentId = null) {
     return collectBridgeMediaAllowedRoots(this.engine, { agentId });
   }
@@ -2223,7 +2234,8 @@ export class BridgeManager {
         messageThreadId: target.messageThreadId,
         replyContext,
       });
-      this._rcMirrorStreams.set(sessionPath, {
+      const streamKey = this._sessionIdentityKeyForPath(sessionPath);
+      this._rcMirrorStreams.set(streamKey, {
         ...target,
         delivery,
         replyContext,
@@ -2233,7 +2245,9 @@ export class BridgeManager {
       return;
     }
 
-    const state = this._rcMirrorStreams.get(sessionPath);
+    const streamKey = this._sessionIdentityKeyForPath(sessionPath);
+    const state = this._rcMirrorStreams.get(streamKey)
+      || (streamKey !== sessionPath ? this._rcMirrorStreams.get(sessionPath) : null);
     if (!state) return;
 
     if (event.type === "message_update") {
@@ -2260,7 +2274,8 @@ export class BridgeManager {
     }
 
     if (event.type === "session_status" && event.isStreaming === false) {
-      this._rcMirrorStreams.delete(sessionPath);
+      this._rcMirrorStreams.delete(streamKey);
+      if (streamKey !== sessionPath) this._rcMirrorStreams.delete(sessionPath);
       const cleaned = this._cleanReplyForPlatform(state.text || "");
       if (!cleaned) return;
 

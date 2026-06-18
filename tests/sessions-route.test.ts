@@ -127,6 +127,53 @@ describe("sessions route", () => {
     expect(data.currentModelAudioTransportSupported).toBe(true);
   });
 
+  it("switches sessions by sessionId and treats path as a legacy locator", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const app = new Hono();
+    const currentPath = "/tmp/agents/a/sessions/current.jsonl";
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: "/tmp/agents/a/sessions/old.jsonl",
+      memoryEnabled: true,
+      planMode: false,
+      memoryModelUnavailableReason: null,
+      cwd: "/tmp/workspace",
+      currentAgentId: "a",
+      currentModel: { id: "m", provider: "test", input: ["text"] },
+      getSessionManifest: vi.fn((sessionId) => (
+        sessionId === "sess_switch"
+          ? { sessionId, currentLocator: { path: currentPath } }
+          : null
+      )),
+      isSessionStreaming: vi.fn(() => false),
+      switchSession: vi.fn(async () => {}),
+      getSessionByPath: vi.fn(() => ({ messages: [] })),
+      getSessionMemoryEnabled: vi.fn(() => true),
+      getSessionThinkingLevel: vi.fn(() => "medium"),
+      getSessionWorkspaceFolders: vi.fn(() => []),
+      getSessionAuthorizedFolders: vi.fn(() => []),
+      getAgent: vi.fn(() => ({ agentName: "Agent A" })),
+      agentIdFromSessionPath: vi.fn(() => "a"),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "sess_switch",
+        path: "/tmp/agents/a/sessions/stale.jsonl",
+        currentSessionPath: "/tmp/agents/a/sessions/old.jsonl",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(engine.switchSession).toHaveBeenCalledWith(currentPath);
+    expect(browserManagerMock.resumeForSession).toHaveBeenCalledWith(currentPath);
+  });
+
   it("passes workspaceFolders when creating a new session and returns the normalized scope", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.ts");
     const app = new Hono();
@@ -141,7 +188,11 @@ describe("sessions route", () => {
       memoryEnabled: true,
       planMode: false,
       memoryModelUnavailableReason: null,
-      createSession: vi.fn(async () => ({ sessionPath: "/tmp/agents/hana/sessions/new.jsonl", agentId: "hana" })),
+      createSession: vi.fn(async () => ({
+        sessionPath: "/tmp/agents/hana/sessions/new.jsonl",
+        sessionId: "sess_route_new",
+        agentId: "hana",
+      })),
       createSessionForAgent: vi.fn(),
       persistSessionMeta: vi.fn(),
       updateConfig: vi.fn(async (patch) => Object.assign(engine.config, patch)),
@@ -168,10 +219,15 @@ describe("sessions route", () => {
       { workspaceFolders: [extra], visibleInSessionList: true, thinkingLevel: "high" },
     );
     expect(data.workspaceFolders).toEqual([extra]);
+    expect(data.sessionId).toBe("sess_route_new");
     expect(hub.eventBus.emit).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "session_created",
-        session: expect.objectContaining({ path: "/tmp/agents/hana/sessions/new.jsonl", thinkingLevel: "high" }),
+        session: expect.objectContaining({
+          path: "/tmp/agents/hana/sessions/new.jsonl",
+          sessionId: "sess_route_new",
+          thinkingLevel: "high",
+        }),
       }),
       "/tmp/agents/hana/sessions/new.jsonl",
     );
@@ -461,6 +517,7 @@ describe("sessions route", () => {
         cwd: "/tmp/work",
         agentId: "hana",
         agentName: "Hana",
+        sessionId: "sess_route_list",
         pinnedAt,
       }]),
       rcState: null,
@@ -472,6 +529,7 @@ describe("sessions route", () => {
     const data = await res.json();
 
     expect(res.status).toBe(200);
+    expect(data[0].sessionId).toBe("sess_route_list");
     expect(data[0].pinnedAt).toBe(pinnedAt);
   });
 
@@ -892,6 +950,9 @@ describe("sessions route", () => {
     };
 
     const engine = {
+      getSessionIdForPath: vi.fn((sessionPath) => (
+        sessionPath.endsWith("has-summary.jsonl") ? "sess_has_summary" : "sess_no_summary"
+      )),
       listSessions: vi.fn(async () => [
         {
           path: "/tmp/agents/hana/sessions/has-summary.jsonl",
@@ -919,6 +980,11 @@ describe("sessions route", () => {
     };
 
     app.route("/api", createSessionsRoute(engine));
+    summaryManager.getSummary.mockImplementation((sessionId) => (
+      sessionId === "sess_has_summary"
+        ? { session_id: sessionId, summary: "### 重要事实\n- 用户在做记忆系统。" }
+        : null
+    ));
 
     const res = await app.request("/api/sessions");
     const data = await res.json();
@@ -928,8 +994,8 @@ describe("sessions route", () => {
       ["/tmp/agents/hana/sessions/has-summary.jsonl", true],
       ["/tmp/agents/hana/sessions/no-summary.jsonl", false],
     ]);
-    expect(summaryManager.getSummary).toHaveBeenCalledWith("has-summary");
-    expect(summaryManager.getSummary).toHaveBeenCalledWith("no-summary");
+    expect(summaryManager.getSummary).toHaveBeenCalledWith("sess_has_summary");
+    expect(summaryManager.getSummary).toHaveBeenCalledWith("sess_no_summary");
   });
 
   it("replays the latest user message through the branch-aware action", async () => {
@@ -1037,6 +1103,7 @@ describe("sessions route", () => {
     const engine = {
       agentsDir: "/tmp/agents",
       setSessionPinned: vi.fn(async (_sessionPath, pinned) => pinned ? pinnedAt : null),
+      getSessionIdForPath: vi.fn(() => "sess_route_pin"),
     };
 
     app.route("/api", createSessionsRoute(engine));
@@ -1049,8 +1116,10 @@ describe("sessions route", () => {
     const pinData = await pinRes.json();
 
     expect(pinRes.status).toBe(200);
-    expect(engine.setSessionPinned).toHaveBeenCalledWith("/tmp/agents/hana/sessions/a.jsonl", true);
-    expect(pinData).toEqual({ ok: true, pinnedAt });
+    expect(engine.setSessionPinned).toHaveBeenCalledWith({
+      sessionPath: "/tmp/agents/hana/sessions/a.jsonl",
+    }, true);
+    expect(pinData).toEqual({ ok: true, pinnedAt, sessionId: "sess_route_pin" });
 
     const unpinRes = await app.request("/api/sessions/pin", {
       method: "POST",
@@ -1060,8 +1129,48 @@ describe("sessions route", () => {
     const unpinData = await unpinRes.json();
 
     expect(unpinRes.status).toBe(200);
-    expect(engine.setSessionPinned).toHaveBeenLastCalledWith("/tmp/agents/hana/sessions/a.jsonl", false);
-    expect(unpinData).toEqual({ ok: true, pinnedAt: null });
+    expect(engine.setSessionPinned).toHaveBeenLastCalledWith({
+      sessionPath: "/tmp/agents/hana/sessions/a.jsonl",
+    }, false);
+    expect(unpinData).toEqual({ ok: true, pinnedAt: null, sessionId: "sess_route_pin" });
+  });
+
+  it("pins sessions by sessionId and treats path as a legacy locator", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const app = new Hono();
+    const pinnedAt = "2026-04-29T08:00:00.000Z";
+    const currentPath = "/tmp/agents/hana/sessions/current.jsonl";
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      getSessionManifest: vi.fn((sessionId) => (
+        sessionId === "sess_route_pin"
+          ? { sessionId, currentLocator: { path: currentPath } }
+          : null
+      )),
+      setSessionPinned: vi.fn(async (_sessionPath, pinned) => pinned ? pinnedAt : null),
+      getSessionIdForPath: vi.fn(() => "sess_route_pin"),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "sess_route_pin",
+        path: "/tmp/agents/hana/sessions/stale.jsonl",
+        pinned: true,
+      }),
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(engine.setSessionPinned).toHaveBeenCalledWith({
+      sessionId: "sess_route_pin",
+      sessionPath: currentPath,
+    }, true);
+    expect(data).toEqual({ ok: true, pinnedAt, sessionId: "sess_route_pin" });
   });
 
   it("clears pinned state before archiving a session", async () => {
@@ -1092,6 +1201,48 @@ describe("sessions route", () => {
     expect(data).toEqual({ ok: true });
     expect(engine.setSessionPinned).toHaveBeenCalledWith(sessionPath, false);
     expect(fs.existsSync(path.join(path.dirname(sessionPath), "archived", path.basename(sessionPath)))).toBe(true);
+  });
+
+  it("suppresses deferred and confirm state by sessionId during archive cleanup", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const app = new Hono();
+    const agentsDir = path.join(tmpDir, "agents");
+    const sessionPath = path.join(agentsDir, "hana", "sessions", "a.jsonl");
+    const archivedPath = path.join(path.dirname(sessionPath), "archived", path.basename(sessionPath));
+    fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+    fs.writeFileSync(sessionPath, "{}\n", "utf-8");
+
+    const deferredSuppressBySession = vi.fn();
+    const confirmAbortBySession = vi.fn();
+    const engine = {
+      agentsDir,
+      closeSession: vi.fn(async () => {}),
+      setSessionPinned: vi.fn(async () => null),
+      getSessionIdForPath: vi.fn((targetPath) => (
+        targetPath === sessionPath || targetPath === archivedPath ? "sess_archive_cleanup" : null
+      )),
+      deferredResults: { suppressBySession: deferredSuppressBySession },
+      confirmStore: { abortBySession: confirmAbortBySession },
+      rcState: null,
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: sessionPath }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(deferredSuppressBySession).toHaveBeenCalledWith(
+      { sessionId: "sess_archive_cleanup", sessionPath },
+      "parent session archived",
+    );
+    expect(confirmAbortBySession).toHaveBeenCalledWith({
+      sessionId: "sess_archive_cleanup",
+      sessionPath,
+    });
   });
 
   it("marks current todos completed and removed through an explicit session route", async () => {
@@ -1203,6 +1354,61 @@ describe("sessions route", () => {
     });
   });
 
+  it("hydrates legacy path-only subagent blocks with sessionId and current manifest locator", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const legacyChildPath = "/tmp/agents/hanako/subagent-sessions/child-old.jsonl";
+    const movedChildPath = "/tmp/agents/hanako/subagent-sessions/archive/child-new.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "parent says hi", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "parent says hi" },
+      {
+        role: "toolResult",
+        toolName: "subagent",
+        details: {
+          taskId: "subagent-legacy",
+          task: "do work",
+          sessionPath: legacyChildPath,
+          streamStatus: "done",
+        },
+      },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      deferredResults: null,
+      getSessionIdForPath: vi.fn((sp) => (
+        sp === legacyChildPath || sp === movedChildPath ? "sess_child_legacy" : null
+      )),
+      getSessionManifest: vi.fn((id) => (
+        id === "sess_child_legacy"
+          ? { sessionId: id, currentLocator: { path: movedChildPath } }
+          : null
+      )),
+      agentIdFromSessionPath: vi.fn((sp) => {
+        const rel = path.relative("/tmp/agents", sp);
+        return rel.split(path.sep)[0] || null;
+      }),
+      getAgent: vi.fn((id) => (id === "hanako" ? { agentName: "Hanako" } : null)),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/messages");
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.blocks[0]).toMatchObject({
+      type: "subagent",
+      taskId: "subagent-legacy",
+      sessionId: "sess_child_legacy",
+      streamKey: movedChildPath,
+    });
+  });
+
   it("restores deferred subagent result as an interlude block", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.ts");
     const msgUtils = await import("../core/message-utils.ts");
@@ -1268,6 +1474,39 @@ describe("sessions route", () => {
       detailMarkdown: "子助手完整回复",
     });
     expect(interlude.text).not.toContain("长任务说明");
+  });
+
+  it("loads session messages by sessionId and treats path as a legacy locator", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const currentPath = "/tmp/agents/hana/sessions/current.jsonl";
+
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: "/tmp/agents/hana/sessions/focus.jsonl",
+      getSessionManifest: vi.fn((sessionId) => (
+        sessionId === "sess_messages"
+          ? { sessionId, currentLocator: { path: currentPath } }
+          : null
+      )),
+      agentIdFromSessionPath: vi.fn(() => "hana"),
+      getAgent: vi.fn(() => ({ agentName: "Hana" })),
+      getSessionFile: vi.fn(() => null),
+      getSessionFileByPath: vi.fn(() => null),
+      listSessionFiles: vi.fn(() => []),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request(
+      `/api/sessions/messages?sessionId=sess_messages&path=${encodeURIComponent("/tmp/agents/hana/sessions/stale.jsonl")}`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(msgUtils.loadSessionHistoryMessages).toHaveBeenCalledWith(engine, currentPath);
   });
 
   it("reload 时从 runStore 回填 workflow inline 块终态（running→done + 补 finishedAt）", async () => {
@@ -2233,6 +2472,81 @@ describe("sessions route", () => {
       streamStatus: "done",
       summary: "child finished",
     });
+  });
+
+  it("deduplicates subagent summary reads by sessionId while resolving stale paths to the current locator", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const staleChildPath = "/tmp/agents/hanako/subagent-sessions/stale-child.jsonl";
+    const currentChildPath = "/tmp/agents/hanako/subagent-sessions/current-child.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "parent says hi", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "parent says hi" },
+      {
+        role: "toolResult",
+        toolName: "subagent",
+        details: {
+          taskId: "subagent-stale",
+          task: "old child",
+          sessionPath: staleChildPath,
+          streamStatus: "running",
+        },
+      },
+      {
+        role: "toolResult",
+        toolName: "subagent",
+        details: {
+          taskId: "subagent-current",
+          task: "current child",
+          sessionPath: currentChildPath,
+          streamStatus: "running",
+        },
+      },
+    ]);
+    vi.mocked(msgUtils.loadLatestAssistantSummaryFromSessionFile).mockClear();
+    vi.mocked(msgUtils.loadLatestAssistantSummaryFromSessionFile)
+      .mockResolvedValueOnce("child finished once");
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      deferredResults: {
+        query: vi.fn((taskId) => ({
+          status: "resolved",
+          result: "deferred result",
+          meta: {
+            sessionPath: taskId === "subagent-stale" ? staleChildPath : currentChildPath,
+          },
+        })),
+      },
+      getSessionIdForPath: vi.fn((sp) => (
+        sp === staleChildPath || sp === currentChildPath ? "sess_child" : null
+      )),
+      getSessionManifest: vi.fn((sessionId) => (
+        sessionId === "sess_child"
+          ? { sessionId, currentLocator: { path: currentChildPath } }
+          : null
+      )),
+      agentIdFromSessionPath: vi.fn((sp) => {
+        const rel = path.relative("/tmp/agents", sp);
+        return rel.split(path.sep)[0] || null;
+      }),
+      getAgent: vi.fn((id) => (id === "hanako" ? { agentName: "Hanako" } : null)),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/messages");
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.blocks).toHaveLength(2);
+    expect(msgUtils.loadLatestAssistantSummaryFromSessionFile).toHaveBeenCalledTimes(1);
+    expect(msgUtils.loadLatestAssistantSummaryFromSessionFile).toHaveBeenCalledWith(currentChildPath);
+    expect(data.blocks[0]).toMatchObject({ streamStatus: "done", summary: "child finished once" });
+    expect(data.blocks[1]).toMatchObject({ streamStatus: "done", summary: "child finished once" });
   });
 
   it("hydrates running subagent block from durable run store when deferred delivery state is gone", async () => {

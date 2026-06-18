@@ -50,7 +50,9 @@ export async function execute(input, ctx) {
   let result;
   try {
     result = await ctx.bus.request("media:generate-video", {
+      ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
       sessionPath: ctx.sessionPath,
+      ...(ctx.sessionRef ? { sessionRef: ctx.sessionRef } : {}),
       input: videoInput,
       ...(ctx.bridgeContext ? { bridgeContext: ctx.bridgeContext } : {}),
       ...(ctx.pluginId ? { pluginId: ctx.pluginId } : {}),

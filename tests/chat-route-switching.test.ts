@@ -116,6 +116,62 @@ describe("chat route model switch guard", () => {
     });
   });
 
+  it("keeps shared stream state attached to the session id when the session path moves", () => {
+    let createHandlers;
+    let subscriber;
+    const originalPath = "/tmp/original-stream.jsonl";
+    const movedPath = "/tmp/archived/renamed-stream.jsonl";
+    const sessionId = "sess_chat_stream";
+    const upgradeWebSocket = vi.fn((factory) => {
+      createHandlers = factory;
+      return () => new Response(null);
+    });
+    const hub = {
+      subscribe: vi.fn((fn) => {
+        subscriber = fn;
+      }),
+      send: vi.fn(async () => {}),
+    };
+    const engine = {
+      agentName: "Hana",
+      abortAllStreaming: vi.fn(async () => {}),
+      getSessionByPath: vi.fn(() => ({ entries: [] })),
+      getSessionIdForPath: vi.fn((sessionPath) => (
+        sessionPath === originalPath || sessionPath === movedPath ? sessionId : null
+      )),
+      isSessionStreaming: vi.fn(() => false),
+      isSessionSwitching: vi.fn(() => false),
+      steerSession: vi.fn(() => false),
+      slashDispatcher: null,
+    };
+
+    createChatRoute(engine, hub, { upgradeWebSocket });
+    const handlers = createHandlers({});
+    const ws = { readyState: 1, send: vi.fn() };
+    handlers.onOpen({}, ws);
+
+    subscriber?.({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "一" },
+    }, originalPath);
+    subscriber?.({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "二" },
+    }, movedPath);
+
+    const deltas = ws.send.mock.calls
+      .map(([raw]) => JSON.parse(raw))
+      .filter((payload) => payload.type === "text_delta");
+
+    expect(deltas.map((payload) => payload.seq)).toEqual([1, 2]);
+    expect(deltas[1]).toMatchObject({
+      sessionPath: movedPath,
+      streamId: deltas[0].streamId,
+    });
+
+    handlers.onClose({}, ws);
+  });
+
   it("reports engine runtime streaming separately when resume replay state is missing", async () => {
     let createHandlers;
     const upgradeWebSocket = vi.fn((factory) => {
@@ -130,6 +186,7 @@ describe("chat route model switch guard", () => {
       agentName: "Hana",
       abortAllStreaming: vi.fn(async () => {}),
       getSessionByPath: vi.fn(() => ({ entries: [] })),
+      getSessionIdForPath: vi.fn(() => "sess_running"),
       isSessionStreaming: vi.fn((sessionPath) => sessionPath === "/tmp/running-session.jsonl"),
       isSessionSwitching: vi.fn(() => false),
       steerSession: vi.fn(() => false),
@@ -148,6 +205,7 @@ describe("chat route model switch guard", () => {
       data: JSON.stringify({
         type: "resume_stream",
         sessionPath: "/tmp/running-session.jsonl",
+        sessionId: "sess_running",
         sinceSeq: 42,
       }),
     }, ws);
@@ -157,6 +215,8 @@ describe("chat route model switch guard", () => {
     expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
       type: "stream_resume",
       sessionPath: "/tmp/running-session.jsonl",
+      sessionId: "sess_running",
+      sessionRefVersion: 2,
       streamId: null,
       sinceSeq: 42,
       nextSeq: 1,

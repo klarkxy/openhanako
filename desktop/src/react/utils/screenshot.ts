@@ -1,6 +1,7 @@
 // desktop/src/react/utils/screenshot.ts
 import { useStore } from '../stores';
 import { selectSelectedIdsBySession } from '../stores/session-selectors';
+import { sessionScopedValue } from '../stores/session-slice';
 import { extractScreenshotPayload, buildThemeName, type ScreenshotPayload } from './screenshot-extract';
 import { readScreenshotSegmentVisibleCharLimit, splitScreenshotMessages } from './screenshot-segments';
 import { resolveScreenshotFontFamily } from './font-presets';
@@ -180,7 +181,7 @@ export async function takeScreenshot(targetMessageId: string, sessionPath: strin
   const messageIds = ids.length > 0 ? ids : [targetMessageId];
 
   // 1. 从 store 提取消息数据
-  const session = state.chatSessions[sessionPath];
+  const session = sessionScopedValue(state, state.chatSessions, sessionPath);
   if (!session) return;
 
   const messages: ChatMessage[] = [];

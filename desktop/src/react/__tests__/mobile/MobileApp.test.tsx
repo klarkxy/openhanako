@@ -212,6 +212,7 @@ describe('MobileApp', () => {
       chatModel: { id: 'deepseek-chat', provider: 'deepseek' },
     });
     expect(useStore.getState().sessions.some(session => session.path === '/hana/sessions/one.jsonl')).toBe(true);
+    expect(useStore.getState().sessionLocatorsById.sess_mobile_one).toEqual({ path: '/hana/sessions/one.jsonl' });
     fireEvent.click(screen.getByTitle('sidebar.jian'));
     expect(await screen.findByText('note.md')).toBeInTheDocument();
   });
@@ -807,7 +808,7 @@ function jsonResponseForMobile(
   }
   if (url.includes('/api/sessions')) {
     return [
-      { path: '/hana/sessions/one.jsonl', title: '日常记录', firstMessage: '', modified: '2026-05-16T00:00:00.000Z', messageCount: 2, agentId: 'hana', agentName: 'Hana', cwd: '/workspace' },
+      { path: '/hana/sessions/one.jsonl', sessionId: 'sess_mobile_one', title: '日常记录', firstMessage: '', modified: '2026-05-16T00:00:00.000Z', messageCount: 2, agentId: 'hana', agentName: 'Hana', cwd: '/workspace' },
     ];
   }
   return {};

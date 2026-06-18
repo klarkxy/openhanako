@@ -58,6 +58,8 @@ declare _createBackend: any;
 
 declare _emitEvent: any;
 
+declare _getSessionIdForPath: any;
+
 declare _now: any;
 
 declare _terminals: any;
@@ -68,12 +70,14 @@ declare root: any;
   constructor({
     hanakoHome,
     createBackend = createDefaultBackend,
+    getSessionIdForPath = null,
     now = defaultNow,
     emitEvent = null,
   }: any = {}) {
     this.hanakoHome = asNonEmptyString(hanakoHome, "hanakoHome");
     this.root = path.join(this.hanakoHome, TERMINAL_ROOT);
     this._createBackend = createBackend;
+    this._getSessionIdForPath = typeof getSessionIdForPath === "function" ? getSessionIdForPath : () => null;
     this._now = now;
     this._emitEvent = emitEvent;
     this._backendPromise = null;
@@ -134,7 +138,7 @@ declare root: any;
       this._emit("terminal_started", entry);
     } catch (err) {
       this._terminals.delete(id);
-      this._bySession.get(normalizedSessionPath)?.delete(id);
+      this._bySession.get(this._sessionKeyForPath(normalizedSessionPath))?.delete(id);
       throw err;
     }
     return { ...publicEntry(entry), output: "" };
@@ -189,7 +193,7 @@ declare root: any;
 
   closeForSession(sessionPath) {
     const normalizedSessionPath = asNonEmptyString(sessionPath, "sessionPath");
-    const ids = [...(this._bySession.get(normalizedSessionPath) || [])];
+    const ids = [...(this._bySession.get(this._sessionKeyForPath(normalizedSessionPath)) || [])];
     return ids.map((id) => this.close({
       sessionPath: normalizedSessionPath,
       terminalId: id,
@@ -209,11 +213,13 @@ declare root: any;
 
   list(sessionPath) {
     const normalizedSessionPath = asNonEmptyString(sessionPath, "sessionPath");
-    const ids = this._bySession.get(normalizedSessionPath) || new Set();
+    const ids = this._bySession.get(this._sessionKeyForPath(normalizedSessionPath)) || new Set();
     const terminals = [...ids]
       .map((id) => this._terminals.get(id))
       .filter(Boolean)
-      .map(publicEntry)
+      .map((entry) => this._entryMatchesSessionPath(entry, normalizedSessionPath)
+        ? publicEntry({ ...entry, sessionPath: normalizedSessionPath })
+        : publicEntry(entry))
       .sort((a, b) => a.createdAt - b.createdAt);
     return { sessionPath: normalizedSessionPath, terminals };
   }
@@ -230,17 +236,31 @@ declare root: any;
     const normalizedSessionPath = asNonEmptyString(sessionPath, "sessionPath");
     const entry = this._terminals.get(id);
     if (!entry) throw new Error(`terminal ${id} not found`);
-    if (entry.sessionPath !== normalizedSessionPath) {
+    if (!this._entryMatchesSessionPath(entry, normalizedSessionPath)) {
       throw new Error(`terminal ${id} belongs to another session`);
+    }
+    if (entry.sessionPath !== normalizedSessionPath) {
+      entry.sessionPath = normalizedSessionPath;
+      this._persist(entry);
     }
     return entry;
   }
 
+  _sessionKeyForPath(sessionPath) {
+    const sessionId = this._getSessionIdForPath?.(sessionPath);
+    return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : sessionPath;
+  }
+
+  _entryMatchesSessionPath(entry, sessionPath) {
+    return this._sessionKeyForPath(entry.sessionPath) === this._sessionKeyForPath(sessionPath);
+  }
+
   _index(entry) {
-    if (!this._bySession.has(entry.sessionPath)) {
-      this._bySession.set(entry.sessionPath, new Set());
+    const key = this._sessionKeyForPath(entry.sessionPath);
+    if (!this._bySession.has(key)) {
+      this._bySession.set(key, new Set());
     }
-    this._bySession.get(entry.sessionPath).add(entry.terminalId);
+    this._bySession.get(key).add(entry.terminalId);
   }
 
   _metadataPath(id) {

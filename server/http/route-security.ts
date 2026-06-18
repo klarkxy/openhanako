@@ -120,6 +120,9 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   if (routePath === "/api/preferences/sidebar-ui") {
     return (verb === "GET" || verb === "PUT") ? scoped("chat") : LOCAL_ONLY;
   }
+  if (routePath === "/api/preferences/session-permission-default") {
+    return (verb === "GET" || verb === "PUT") ? scoped("chat") : LOCAL_ONLY;
+  }
   if (isSettingsReadRoute(verb, routePath)) return scoped("settings.read");
   if (isSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
   if (isSkillSettingsReadRoute(verb, routePath)) return scoped("settings.read");

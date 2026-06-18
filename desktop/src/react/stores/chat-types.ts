@@ -239,6 +239,7 @@ export type RichBlock =
     status?: 'success' | 'failed' | 'aborted' | string;
     sourceKind?: 'subagent' | 'workflow' | 'tool' | string;
     sourceLabel?: string;
+    previewSessionId?: string;
     previewSessionPath?: string;
     previewAgentId?: string;
     text: string;
@@ -255,6 +256,7 @@ export type RichBlock =
     requestedAgentName?: string;
     executorAgentId?: string;
     executorAgentNameSnapshot?: string;
+    sessionId?: string | null;
     streamKey: string;
     streamStatus: 'running' | 'done' | 'failed' | 'aborted';
     summary?: string;

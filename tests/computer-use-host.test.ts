@@ -391,6 +391,38 @@ describe("ComputerHost", () => {
     expect(createLeaseCalls).toBe(1);
   });
 
+  it("reuses a sessionId-keyed active lease when the session path moved", async () => {
+    const provider = createMockComputerProvider({ providerId: "mock" });
+    let createLeaseCalls = 0;
+    const originalCreateLease = provider.createLease;
+    provider.createLease = async (...args) => {
+      createLeaseCalls += 1;
+      return originalCreateLease(...args);
+    };
+    const { host } = makeHost(provider);
+    const sessionId = "sess_computer_host_stable";
+
+    const first = await host.createLease({
+      ...ctx,
+      sessionId,
+      sessionPath: "/tmp/original-session.jsonl",
+    }, { appId: "app.notes" });
+    const second = await host.createLease({
+      ...ctx,
+      sessionId,
+      sessionPath: "/tmp/moved-session.jsonl",
+    }, { appId: "app.notes" });
+    const snapshot = await host.getAppState({
+      ...ctx,
+      sessionId,
+      sessionPath: "/tmp/moved-session.jsonl",
+    }, first.leaseId);
+
+    expect(second.leaseId).toBe(first.leaseId);
+    expect(snapshot.leaseId).toBe(first.leaseId);
+    expect(createLeaseCalls).toBe(1);
+  });
+
   it("resolves missing lease and snapshot ids from the current session lease", async () => {
     const { host, provider } = makeHost();
     const lease = await host.createLease(ctx, { appId: "app.notes" });

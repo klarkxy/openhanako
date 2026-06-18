@@ -690,6 +690,68 @@ describe("tool loading", () => {
     }]);
   });
 
+  it("passes sessionId-first runtime context into plugin tools and staged files", async () => {
+    const registerSessionFile = vi.fn(({ sessionId, sessionPath, sessionRef, filePath, label, origin, storageKind }) => ({
+      id: "sf_plugin_identity",
+      sessionId,
+      sessionPath,
+      sessionRef,
+      filePath,
+      label,
+      origin,
+      storageKind,
+    }));
+    const dir = path.join(pluginsDir, "stage-id-plugin");
+    fs.mkdirSync(path.join(dir, "tools"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "tools", "stage.js"), `
+      export const name = "stage";
+      export const description = "Stage plugin output";
+      export const parameters = {};
+      export async function execute(input, ctx) {
+        const staged = ctx.stageFile({
+          filePath: "/tmp/plugin-output.png",
+          label: ctx.sessionId + ":" + ctx.sessionRef.sessionId,
+        });
+        return {
+          content: [{ type: "text", text: "done" }],
+          details: { media: { items: [staged.mediaItem] } },
+        };
+      }
+    `);
+    const pm = new PluginManager({ pluginsDir, dataDir, bus: await makeBus(), registerSessionFile } as any);
+    pm.scan();
+    await pm.loadAll();
+
+    const tool = pm.getAllTools()[0];
+    const result = await tool.execute("call-1", {}, {
+      sessionId: "sess_plugin_tool",
+      sessionPath: "/sessions/plugin.jsonl",
+      sessionRef: {
+        sessionId: "sess_plugin_tool",
+        sessionPath: "/sessions/plugin.jsonl",
+        legacySessionPath: "/sessions/legacy.jsonl",
+      },
+      sessionManager: { getSessionFile: () => "/sessions/ignored.jsonl" },
+    });
+
+    expect(registerSessionFile).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "sess_plugin_tool",
+      sessionPath: "/sessions/plugin.jsonl",
+      sessionRef: {
+        sessionId: "sess_plugin_tool",
+        sessionPath: "/sessions/plugin.jsonl",
+        legacySessionPath: "/sessions/legacy.jsonl",
+      },
+      label: "sess_plugin_tool:sess_plugin_tool",
+    }));
+    expect(result.details.media.items[0]).toMatchObject({
+      type: "session_file",
+      fileId: "sf_plugin_identity",
+      sessionId: "sess_plugin_tool",
+      sessionPath: "/sessions/plugin.jsonl",
+    });
+  });
+
   it("skips tool files with invalid exports", async () => {
     const dir = path.join(pluginsDir, "bad-tool");
     fs.mkdirSync(path.join(dir, "tools"), { recursive: true });

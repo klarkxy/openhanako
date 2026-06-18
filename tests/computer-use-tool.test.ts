@@ -195,6 +195,7 @@ function makeCleanElementOnlyTool() {
 function makeApprovalTool(confirmAction = "confirmed", {
   permissionMode = "ask",
   approvalGateway = null,
+  sessionId = null,
 } = {}) {
   const provider = createMockComputerProvider({ providerId: "mock" });
   provider.capabilities.isolated = false;
@@ -233,6 +234,7 @@ function makeApprovalTool(confirmAction = "confirmed", {
   });
   const ctx = {
     sessionManager: { getSessionFile: () => "/tmp/session.jsonl" },
+    ...(sessionId ? { sessionId } : {}),
     agentId: "hana",
     model,
   };
@@ -645,6 +647,7 @@ describe("computer tool", () => {
     const { tool, ctx, confirmStore, approve } = makeApprovalTool("confirmed", {
       permissionMode: "auto",
       approvalGateway,
+      sessionId: "sess_computer_approval",
     });
 
     const result = await tool.execute("call-approval", {
@@ -656,6 +659,7 @@ describe("computer tool", () => {
 
     expect(approvalGateway.review).toHaveBeenCalledWith(
       expect.objectContaining({
+        id: expect.stringMatching(/^sess_computer_approval:computer_app_approval:/),
         kind: "computer_app_approval",
         sessionPath: "/tmp/session.jsonl",
         toolName: "computer",

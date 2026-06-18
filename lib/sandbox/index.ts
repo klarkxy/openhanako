@@ -52,6 +52,7 @@ import { serializeSessionFile } from "../session-files/session-file-response.ts"
  * @param {() => boolean} [opts.getSandboxNetworkEnabled]  动态沙盒联网开关（仅沙盒开启时生效）
  * @param {() => string[]} [opts.getExternalReadPaths]  当前 session 用户显式给过的外部只读路径
  * @param {() => string|null} [opts.getSessionPath]  当前工具调用归属的 sessionPath
+ * @param {(sessionPath: string) => string|null} [opts.getSessionIdForPath]  sessionPath locator → sessionId
  * @param {(fileId: string, options?: {sessionPath?: string|null}) => object|null} [opts.resolveSessionFile]  SessionFile resolver
  * @param {(entry: object) => void} [opts.recordFileOperation]  记录 write/edit 触达的 session file
  * @param {() => object|null} [opts.getVisionBridge]  辅助视觉桥
@@ -70,6 +71,7 @@ export function createSandboxedTools(cwd, customTools, {
   getSandboxNetworkEnabled,
   getExternalReadPaths,
   getSessionPath,
+  getSessionIdForPath,
   resolveSessionFile,
   recordFileOperation,
   getVisionBridge,
@@ -136,11 +138,13 @@ export function createSandboxedTools(cwd, customTools, {
   const readTool = wrapSessionFilePathTool(wrapReadImageWithVisionBridge(wrapReadOfficeMedia(createReadTool(cwd, { operations: readOps }), cwd, {
     hanakoHome,
     getSessionPath,
+    getSessionIdForPath,
     recordFileOperation,
     getVisionBridge,
     isVisionAuxiliaryEnabled,
   }), cwd, {
     getSessionPath,
+    getSessionIdForPath,
     recordFileOperation,
     getVisionBridge,
     isVisionAuxiliaryEnabled,

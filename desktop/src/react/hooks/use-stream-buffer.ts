@@ -10,6 +10,7 @@
 
 import type { ChatListItem, ChatMessage, ContentBlock } from '../stores/chat-types';
 import { useStore } from '../stores';
+import { sessionScopedKey, sessionScopedValue } from '../stores/session-slice';
 import { renderMarkdown } from '../utils/markdown';
 import { cleanMoodText } from '../utils/message-parser';
 import { findOpenToolIndex, toolCallFromStartEvent, toolCallIdFromEvent } from '../utils/tool-call-identity';
@@ -69,6 +70,17 @@ function createBuffer(sessionPath: string): Buffer {
   };
 }
 
+function normalizeSessionId(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function bufferKeyForSession(sessionPath: string, sessionId: string | null = null): string {
+  const explicitSessionId = normalizeSessionId(sessionId);
+  if (explicitSessionId) return explicitSessionId;
+  const state = useStore.getState();
+  return sessionScopedKey(state, sessionPath) || sessionPath;
+}
+
 function resolveSessionYuan(sessionPath: string): string {
   const state = useStore.getState();
   const sessionAgentId = state.sessions.find((session: any) => session.path === sessionPath)?.agentId ?? null;
@@ -78,14 +90,61 @@ function resolveSessionYuan(sessionPath: string): string {
 
 class StreamBufferManager {
   private buffers = new Map<string, Buffer>();
+  private bufferKeysByPath = new Map<string, string>();
+
+  private adoptBufferKey(fromKey: string, toKey: string, buf: Buffer): void {
+    if (fromKey === toKey) return;
+    this.buffers.delete(fromKey);
+    this.buffers.set(toKey, buf);
+    for (const [pathKey, bufferKey] of this.bufferKeysByPath) {
+      if (bufferKey === fromKey) this.bufferKeysByPath.set(pathKey, toKey);
+    }
+  }
+
+  private deleteBufferKey(key: string): void {
+    this.buffers.delete(key);
+    for (const [pathKey, bufferKey] of [...this.bufferKeysByPath]) {
+      if (bufferKey === key) this.bufferKeysByPath.delete(pathKey);
+    }
+  }
+
+  private lookupBuffer(sessionPath: string, sessionId: string | null = null): Buffer | null {
+    const key = bufferKeyForSession(sessionPath, sessionId);
+    let buf = this.buffers.get(key) || null;
+    if (buf) return buf;
+
+    const aliasKey = this.bufferKeysByPath.get(sessionPath) || null;
+    if (aliasKey) {
+      buf = this.buffers.get(aliasKey) || null;
+      if (buf) {
+        this.adoptBufferKey(aliasKey, key, buf);
+        this.bufferKeysByPath.set(sessionPath, key);
+        return buf;
+      }
+    }
+
+    if (key !== sessionPath) {
+      buf = this.buffers.get(sessionPath) || null;
+      if (buf) {
+        this.adoptBufferKey(sessionPath, key, buf);
+        this.bufferKeysByPath.set(sessionPath, key);
+        return buf;
+      }
+    }
+
+    return null;
+  }
 
   /** 获取或创建 session buffer */
-  private getBuffer(sessionPath: string): Buffer {
-    let buf = this.buffers.get(sessionPath);
+  private getBuffer(sessionPath: string, sessionId: string | null = null): Buffer {
+    const key = bufferKeyForSession(sessionPath, sessionId);
+    let buf = this.lookupBuffer(sessionPath, sessionId);
     if (!buf) {
       buf = createBuffer(sessionPath);
-      this.buffers.set(sessionPath, buf);
+      this.buffers.set(key, buf);
     }
+    buf.sessionPath = sessionPath;
+    this.bufferKeysByPath.set(sessionPath, key);
     return buf;
   }
 
@@ -132,7 +191,7 @@ class StreamBufferManager {
   /** 确保 store 中已存在当前 turn 绑定的 assistant message */
   private ensureMessage(buf: Buffer): void {
     const store = useStore.getState();
-    const session = store.chatSessions[buf.sessionPath];
+    const session = sessionScopedValue(store, store.chatSessions, buf.sessionPath);
     if (!session) return; // session 未初始化（loadMessages 尚未完成）
 
     const targetId = buf.messageId || trailingDeferredTextRebindTargetId(session.items);
@@ -280,7 +339,8 @@ class StreamBufferManager {
       console.warn('[ws] stream event missing sessionPath:', msg.type);
       return;
     }
-    const buf = this.getBuffer(sessionPath);
+    const sessionId = normalizeSessionId(msg.sessionId);
+    const buf = this.getBuffer(sessionPath, sessionId);
 
     switch (msg.type) {
       case 'text_delta':
@@ -468,23 +528,28 @@ class StreamBufferManager {
   }
 
   /** 服务端确认新 turn 开始：释放任何遗留的本地 turn 绑定。 */
-  beginTurn(sessionPath: string): void {
-    const buf = this.getBuffer(sessionPath);
+  beginTurn(sessionPath: string, sessionId: string | null = null): void {
+    const buf = this.getBuffer(sessionPath, sessionId);
     this.finishBufferTurn(buf);
   }
 
   /** 服务端确认当前 turn 结束或被中止：flush 可见内容，然后释放 turn-local 绑定。 */
-  finishTurn(sessionPath: string): void {
-    const buf = this.buffers.get(sessionPath);
+  finishTurn(sessionPath: string, sessionId: string | null = null): void {
+    const buf = this.lookupBuffer(sessionPath, sessionId);
     if (!buf) return;
+    buf.sessionPath = sessionPath;
     this.finishBufferTurn(buf);
   }
 
   /** 清理指定 session 的 buffer */
-  clear(sessionPath: string): void {
-    const buf = this.buffers.get(sessionPath);
+  clear(sessionPath: string, sessionId: string | null = null): void {
+    const key = bufferKeyForSession(sessionPath, sessionId);
+    const aliasKey = this.bufferKeysByPath.get(sessionPath) || null;
+    const buf = this.lookupBuffer(sessionPath, sessionId);
     if (buf?.flushTimer) clearTimeout(buf.flushTimer);
-    this.buffers.delete(sessionPath);
+    this.deleteBufferKey(key);
+    if (aliasKey && aliasKey !== key) this.deleteBufferKey(aliasKey);
+    if (key !== sessionPath) this.deleteBufferKey(sessionPath);
   }
 
   /** 清理所有 */
@@ -493,6 +558,7 @@ class StreamBufferManager {
       if (buf.flushTimer) clearTimeout(buf.flushTimer);
     }
     this.buffers.clear();
+    this.bufferKeysByPath.clear();
   }
 
   /**
@@ -500,8 +566,8 @@ class StreamBufferManager {
    * 内容：jsonl 只在 turn_end 落盘，在 stream 进行中重建 session 时，
    * 这份快照是避免 UI 上"正在流的消息凭空消失"的唯一来源。
    */
-  snapshot(sessionPath: string): StreamBufferSnapshot | null {
-    const buf = this.buffers.get(sessionPath);
+  snapshot(sessionPath: string, sessionId: string | null = null): StreamBufferSnapshot | null {
+    const buf = this.lookupBuffer(sessionPath, sessionId);
     if (!buf) return null;
     const hasContent = !!(buf.textAcc || buf.thinkingAcc || buf.moodAcc);
     if (!hasContent) return null;

@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '../../hooks/use-i18n';
 import { useStore } from '../../stores';
+import { sessionScopedListIncludes } from '../../stores/session-slice';
 import {
   dismissSessionCapabilityDrift,
   refreshSessionCapabilities,
@@ -42,7 +43,7 @@ function buildDetailText(
 export function CapabilityDriftNotice({ sessionPath, drift }: CapabilityDriftNoticeProps) {
   const { t } = useI18n();
   const [confirming, setConfirming] = useState(false);
-  const refreshing = useStore(s => s.capabilityRefreshingSessions.includes(sessionPath));
+  const refreshing = useStore(s => sessionScopedListIncludes(s, s.capabilityRefreshingSessions, sessionPath));
 
   // 切换 session 或漂移数据更新时收起确认态
   useEffect(() => {

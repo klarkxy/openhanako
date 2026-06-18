@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../stores';
+import { sessionScopedValue } from '../stores/session-slice';
 import { fetchConfig } from '../hooks/use-config';
 import { hanaFetch } from '../hooks/use-hana-fetch';
 import { useI18n } from '../hooks/use-i18n';
@@ -409,7 +410,7 @@ export function AgentPhoneSessionPreview({ sessionPath, agentId, agentYuan }: {
   agentYuan?: string | null;
 }) {
   const { t } = useI18n();
-  const session = useStore(s => (sessionPath ? s.chatSessions[sessionPath] ?? null : null));
+  const session = useStore(s => (sessionPath ? sessionScopedValue(s, s.chatSessions, sessionPath) ?? null : null));
   const items = session?.items ?? EMPTY_CHAT_ITEMS;
   const [loading, setLoading] = useState(false);
   const [streamMessage, setStreamMessage] = useState<ChatMessage | null>(null);
@@ -431,7 +432,7 @@ export function AgentPhoneSessionPreview({ sessionPath, agentId, agentYuan }: {
   // loaded, the instant scroll below lands it and later growth = streaming (keeps smooth follow).
   useLayoutEffect(() => {
     const alreadyHydrated = !!sessionPath
-      && (useStore.getState().chatSessions[sessionPath]?.items?.length ?? 0) > 0;
+      && ((sessionScopedValue(useStore.getState(), useStore.getState().chatSessions, sessionPath)?.items?.length ?? 0) > 0);
     if (sessionPath && !alreadyHydrated) bottomScroll.armInstantLanding();
     bottomScroll.scrollToBottom({ mode: 'instant', forceSticky: true });
     streamTurnRef.current = 0;

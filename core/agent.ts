@@ -415,6 +415,9 @@ export class Agent {
         getSessionStreamFn: (sessionPath) => (
           this._cb?.getEngine?.()?.getSessionStreamFn?.(sessionPath)
         ),
+        getSessionIdForPath: (sessionPath) => (
+          this._cb?.getEngine?.()?.getSessionIdForPath?.(sessionPath)
+        ),
         onCompiled: () => {
           // _systemPrompt 是非 session 路径（巡检/cron/频道/DM/bridge owner 新建）
           // 共享的 cache，必须按 master 构建，不被 per-session 开关污染。
@@ -493,6 +496,7 @@ export class Agent {
       getVisionBridge: () => this._cb?.getEngine?.()?.getVisionBridge?.() || null,
       isVisionAuxiliaryEnabled: () => this._cb?.getEngine?.()?.isVisionAuxiliaryEnabled?.() === true,
       getHanakoHome: () => this._cb?.getEngine?.()?.hanakoHome,
+      getSessionIdForPath: (sessionPath) => this._cb?.getEngine?.()?.getSessionIdForPath?.(sessionPath) || null,
       registerSessionFile: (entry) => this._cb?.registerSessionFile?.(entry),
     });
     this._notifyTool = createNotifyTool({
@@ -633,6 +637,7 @@ export class Agent {
       setSubagentController: (id, ctrl) => this._cb?.setSubagentController?.(id, ctrl),
       removeSubagentController: (id) => this._cb?.removeSubagentController?.(id),
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+      getSessionIdForPath: (sp) => this._cb?.getEngine?.()?.getSessionIdForPath?.(sp) || null,
       // 父会话当前权限档：subagent 省略 access 参数时据此继承（Codex 式）。
       // 按显式 sessionPath 反查，不从焦点指针推导（状态归属唯一确定）。
       getSessionPermissionMode: (sp) => this._cb?.getSessionPermissionMode?.(sp) ?? null,

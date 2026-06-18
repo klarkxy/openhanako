@@ -6,6 +6,7 @@ import type { ChatListItem, ChatMessage, ContentBlock, SessionMessages, SessionM
 import { invalidateSessionCache } from './selectors/file-refs';
 import { invalidateStreamBuffer, invalidateStreamResumeMeta } from './stream-invalidator';
 import { bumpMessageLiveVersion, clearMessageLiveVersion } from './message-live-version';
+import { sessionScopedKey, sessionScopedValue } from './session-slice';
 
 export interface ChatSlice {
   chatSessions: Record<string, SessionMessages>;
@@ -47,6 +48,38 @@ export interface ChatSlice {
 
 const MAX_CACHED_SESSIONS = 8;
 
+function keyForSession(state: Record<string, any>, path: string): string {
+  return sessionScopedKey(state, path) || path;
+}
+
+function scopedMapValue<T>(state: Record<string, any>, map: Record<string, T>, path: string): T | undefined {
+  return sessionScopedValue(state, map, path) as T | undefined;
+}
+
+function putScopedMapValue<T>(
+  state: Record<string, any>,
+  map: Record<string, T>,
+  path: string,
+  value: T,
+): Record<string, T> {
+  const key = keyForSession(state, path);
+  const next = { ...map, [key]: value };
+  if (key !== path) delete next[path];
+  return next;
+}
+
+function deleteScopedMapValue<T>(
+  state: Record<string, any>,
+  map: Record<string, T>,
+  path: string,
+): Record<string, T> {
+  const key = keyForSession(state, path);
+  const next = { ...map };
+  delete next[key];
+  if (key !== path) delete next[path];
+  return next;
+}
+
 export const createChatSlice = (
   set: (partial: Partial<ChatSlice> | ((s: ChatSlice) => Partial<ChatSlice>)) => void,
   get: () => ChatSlice,
@@ -58,22 +91,24 @@ export const createChatSlice = (
   scrollPositions: {},
 
   initSession: (path, items, hasMore, revision = null) => set((s) => {
+    const key = keyForSession(s as any, path);
     const sessions = { ...s.chatSessions };
     const registryFiles = { ...s.sessionRegistryFilesByPath };
     const scrollPositions = { ...s.scrollPositions };
-    sessions[path] = {
+    sessions[key] = {
       items,
       hasMore,
       loadingMore: false,
       oldestId: firstMessageId(items),
       revision,
     };
+    if (key !== path) delete sessions[path];
     // LRU 淘汰：只淘汰消息缓存，不动模型快照（模型是轻量常驻数据）。
     // 被淘汰的 session 的 FileRef 缓存（含 inlineData base64）必须同步清，
     // 否则模块顶层的 cachedSession 会让载荷在 renderer 里滞留。
     const keys = Object.keys(sessions);
     if (keys.length > MAX_CACHED_SESSIONS) {
-      const oldest = keys.find(k => k !== path);
+      const oldest = keys.find(k => k !== key);
       if (oldest) {
         delete sessions[oldest];
         delete registryFiles[oldest];
@@ -87,38 +122,32 @@ export const createChatSlice = (
   }),
 
   prependItems: (path, items, hasMore) => set((s) => {
-    const session = s.chatSessions[path];
+    const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path);
     if (!session) return {};
     const merged = [...items, ...session.items];
     return {
-      chatSessions: {
-        ...s.chatSessions,
-        [path]: {
+      chatSessions: putScopedMapValue(s as any, s.chatSessions, path, {
           ...session,
           items: merged,
           hasMore,
           loadingMore: false,
           oldestId: firstMessageId(items) || session.oldestId,
-        },
-      },
+        }),
     };
   }),
 
   appendItem: (path, item) => set((s) => {
-    const session = s.chatSessions[path];
+    const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path);
     if (!session) return {};
     return {
-      chatSessions: {
-        ...s.chatSessions,
-        [path]: { ...session, items: [...session.items, item] },
-      },
+      chatSessions: putScopedMapValue(s as any, s.chatSessions, path, { ...session, items: [...session.items, item] }),
     };
   }),
 
   appendOptimisticUserMessage: (path, message) => {
     bumpMessageLiveVersion(path);
     set((s) => {
-      const session = s.chatSessions[path] || {
+      const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path) || {
         items: [],
         hasMore: false,
         loadingMore: false,
@@ -134,14 +163,11 @@ export const createChatSlice = (
       const items = existingIdx >= 0 ? [...session.items] : [...session.items, nextItem];
       if (existingIdx >= 0) items[existingIdx] = nextItem;
       return {
-        chatSessions: {
-          ...s.chatSessions,
-          [path]: {
+        chatSessions: putScopedMapValue(s as any, s.chatSessions, path, {
             ...session,
             items,
             oldestId: session.oldestId || firstMessageId(items),
-          },
-        },
+          }),
       };
     });
   },
@@ -149,7 +175,7 @@ export const createChatSlice = (
   confirmOptimisticUserMessage: (path, clientMessageId, message) => {
     let consumed = false;
     set((s) => {
-      const session = s.chatSessions[path];
+      const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path);
       if (!session) return {};
       const targetIdx = session.items.findIndex((item) =>
         item.type === 'message' &&
@@ -171,10 +197,7 @@ export const createChatSlice = (
       items[targetIdx] = { type: 'message', data: nextData };
       consumed = true;
       return {
-        chatSessions: {
-          ...s.chatSessions,
-          [path]: { ...session, items },
-        },
+        chatSessions: putScopedMapValue(s as any, s.chatSessions, path, { ...session, items }),
       };
     });
     return consumed;
@@ -183,7 +206,7 @@ export const createChatSlice = (
   markOptimisticUserMessageFailed: (path, clientMessageId, error) => {
     let consumed = false;
     set((s) => {
-      const session = s.chatSessions[path];
+      const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path);
       if (!session) return {};
       const targetIdx = session.items.findIndex((item) =>
         item.type === 'message' &&
@@ -204,10 +227,7 @@ export const createChatSlice = (
       };
       consumed = true;
       return {
-        chatSessions: {
-          ...s.chatSessions,
-          [path]: { ...session, items },
-        },
+        chatSessions: putScopedMapValue(s as any, s.chatSessions, path, { ...session, items }),
       };
     });
     if (consumed) bumpMessageLiveVersion(path);
@@ -215,7 +235,7 @@ export const createChatSlice = (
   },
 
   updateLastMessage: (path, updater) => set((s) => {
-    const session = s.chatSessions[path];
+    const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path);
     if (!session || session.items.length === 0) return {};
     const items = [...session.items];
     const lastIdx = items.length - 1;
@@ -223,15 +243,12 @@ export const createChatSlice = (
     if (last.type !== 'message') return {};
     items[lastIdx] = { type: 'message', data: updater(last.data) };
     return {
-      chatSessions: {
-        ...s.chatSessions,
-        [path]: { ...session, items },
-      },
+      chatSessions: putScopedMapValue(s as any, s.chatSessions, path, { ...session, items }),
     };
   }),
 
   updateMessageById: (path, messageId, updater) => {
-    const session = get().chatSessions[path];
+    const session = scopedMapValue<SessionMessages>(get() as any, get().chatSessions, path);
     if (!session) return false;
     const targetIdx = session.items.findIndex((item) =>
       item.type === 'message' &&
@@ -241,7 +258,7 @@ export const createChatSlice = (
     if (targetIdx < 0) return false;
 
     set((s) => {
-      const latest = s.chatSessions[path];
+      const latest = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path);
       if (!latest) return {};
       const latestIdx = latest.items.findIndex((item) =>
         item.type === 'message' &&
@@ -254,17 +271,14 @@ export const createChatSlice = (
       if (current.type !== 'message' || current.data.role !== 'assistant') return {};
       items[latestIdx] = { type: 'message', data: updater(current.data) };
       return {
-        chatSessions: {
-          ...s.chatSessions,
-          [path]: { ...latest, items },
-        },
+        chatSessions: putScopedMapValue(s as any, s.chatSessions, path, { ...latest, items }),
       };
     });
     return true;
   },
 
   truncateSessionFromMessage: (path, messageId) => {
-    const session = get().chatSessions[path];
+    const session = scopedMapValue<SessionMessages>(get() as any, get().chatSessions, path);
     if (!session) return false;
 
     const targetIdx = session.items.findIndex((item) =>
@@ -274,7 +288,7 @@ export const createChatSlice = (
     if (targetIdx < 0) return false;
 
     set((s) => {
-      const latest = s.chatSessions[path];
+      const latest = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path);
       if (!latest) return {};
       const latestIdx = latest.items.findIndex((item) =>
         item.type === 'message' &&
@@ -286,14 +300,11 @@ export const createChatSlice = (
       invalidateStreamBuffer(path);
       invalidateStreamResumeMeta(path);
       return {
-        chatSessions: {
-          ...s.chatSessions,
-          [path]: {
+        chatSessions: putScopedMapValue(s as any, s.chatSessions, path, {
             ...latest,
             items,
             oldestId: firstMessageId(items),
-          },
-        },
+          }),
       };
     });
     return true;
@@ -303,11 +314,11 @@ export const createChatSlice = (
   _pendingBlockPatches: {} as Record<string, Record<string, any>>,
 
   insertInterludeItemNearTaskResult: (sessionPath, taskId, block) => {
-    if (!get().chatSessions[sessionPath]) return false;
+    if (!scopedMapValue<SessionMessages>(get() as any, get().chatSessions, sessionPath)) return false;
 
     let consumed = false;
     set((s) => {
-      const session = s.chatSessions[sessionPath];
+      const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, sessionPath);
       if (!session) return {};
       const items = [...session.items];
 
@@ -341,10 +352,7 @@ export const createChatSlice = (
       consumed = true;
       invalidateSessionCache(sessionPath);
       return {
-        chatSessions: {
-          ...s.chatSessions,
-          [sessionPath]: { ...session, items },
-        },
+        chatSessions: putScopedMapValue(s as any, s.chatSessions, sessionPath, { ...session, items }),
       };
     });
 
@@ -352,11 +360,11 @@ export const createChatSlice = (
   },
 
   resolveBlockByTaskId: (sessionPath, taskId, resolution) => {
-    if (!get().chatSessions[sessionPath]) return false;
+    if (!scopedMapValue<SessionMessages>(get() as any, get().chatSessions, sessionPath)) return false;
 
     let consumed = false;
     set((s) => {
-      const session = s.chatSessions[sessionPath];
+      const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, sessionPath);
       if (!session) return {};
       const items = [...session.items];
 
@@ -381,10 +389,7 @@ export const createChatSlice = (
         items[i] = { ...item, data: { ...item.data, blocks: nextBlocks } };
         invalidateSessionCache(sessionPath);
         return {
-          chatSessions: {
-            ...s.chatSessions,
-            [sessionPath]: { ...session, items },
-          },
+          chatSessions: putScopedMapValue(s as any, s.chatSessions, sessionPath, { ...session, items }),
         };
       }
 
@@ -396,32 +401,38 @@ export const createChatSlice = (
 
   setSessionRegistryFiles: (path, files) => set((s) => {
     invalidateSessionCache(path);
+    const key = sessionScopedKey(s as any, path) || path;
+    const sessionRegistryFilesByPath = {
+      ...s.sessionRegistryFilesByPath,
+      [key]: [...files],
+    };
+    if (key !== path) delete sessionRegistryFilesByPath[path];
     return {
-      sessionRegistryFilesByPath: {
-        ...s.sessionRegistryFilesByPath,
-        [path]: [...files],
-      },
+      sessionRegistryFilesByPath,
     };
   }),
 
   upsertSessionRegistryFile: (path, file) => set((s) => {
     const key = registryFileKey(file);
     if (!key) return {};
-    const files = s.sessionRegistryFilesByPath[path] || [];
+    const sessionKey = sessionScopedKey(s as any, path) || path;
+    const files = sessionScopedValue(s as any, s.sessionRegistryFilesByPath, path) || [];
     const idx = files.findIndex(existing => registryFileKey(existing) === key);
     const next = idx >= 0 ? [...files] : [...files, file];
     if (idx >= 0) next[idx] = { ...files[idx], ...file };
     invalidateSessionCache(path);
+    const sessionRegistryFilesByPath = {
+      ...s.sessionRegistryFilesByPath,
+      [sessionKey]: next,
+    };
+    if (sessionKey !== path) delete sessionRegistryFilesByPath[path];
     return {
-      sessionRegistryFilesByPath: {
-        ...s.sessionRegistryFilesByPath,
-        [path]: next,
-      },
+      sessionRegistryFilesByPath,
     };
   }),
 
   patchBlockByTaskId: (sessionPath, taskId, patch) => {
-    const session = get().chatSessions[sessionPath];
+    const session = scopedMapValue<SessionMessages>(get() as any, get().chatSessions, sessionPath);
     if (!session) {
       // session 还没初始化，缓存 patch
       const pending = (get() as any)._pendingBlockPatches;
@@ -442,10 +453,12 @@ export const createChatSlice = (
       const newItems = [...items];
       newItems[i] = { ...item, data: { ...item.data, blocks: newBlocks } };
       set((s) => ({
-        chatSessions: {
-          ...s.chatSessions,
-          [sessionPath]: { ...s.chatSessions[sessionPath], items: newItems },
-        },
+        chatSessions: putScopedMapValue(
+          s as any,
+          s.chatSessions,
+          sessionPath,
+          { ...(scopedMapValue<SessionMessages>(s as any, s.chatSessions, sessionPath) || session), items: newItems },
+        ),
       }));
       found = true;
       break;
@@ -468,42 +481,35 @@ export const createChatSlice = (
     // 只写 sessionModelsByPath，不碰 chatSessions。
     // chatSessions[path] 的存在性仍然是"消息状态已初始化"的单一语义。
     set((s) => ({
-      sessionModelsByPath: { ...s.sessionModelsByPath, [path]: model },
+      sessionModelsByPath: putScopedMapValue(s as any, s.sessionModelsByPath, path, model),
     }));
   },
 
   bumpLoadMessagesVersion: (path) => {
-    const next = ((get() as any)._loadMessagesVersion?.[path] ?? 0) + 1;
+    const current = scopedMapValue<number>(get() as any, (get() as any)._loadMessagesVersion || {}, path) ?? 0;
+    const next = current + 1;
     set((s) => ({
-      _loadMessagesVersion: { ...s._loadMessagesVersion, [path]: next },
+      _loadMessagesVersion: putScopedMapValue(s as any, s._loadMessagesVersion, path, next),
     }));
     return next;
   },
 
   setLoadingMore: (path, loading) => set((s) => {
-    const session = s.chatSessions[path];
+    const session = scopedMapValue<SessionMessages>(s as any, s.chatSessions, path);
     if (!session) return {};
     return {
-      chatSessions: {
-        ...s.chatSessions,
-        [path]: { ...session, loadingMore: loading },
-      },
+      chatSessions: putScopedMapValue(s as any, s.chatSessions, path, { ...session, loadingMore: loading }),
     };
   }),
 
   clearSession: (path) => set((s) => {
-    const sessions = { ...s.chatSessions };
-    delete sessions[path];
-    const registryFiles = { ...s.sessionRegistryFilesByPath };
-    delete registryFiles[path];
-    const models = { ...s.sessionModelsByPath };
-    delete models[path];
-    const versions = { ...s._loadMessagesVersion };
-    delete versions[path];
-    const scrollPositions = { ...s.scrollPositions };
-    delete scrollPositions[path];
+    const sessions = deleteScopedMapValue(s as any, s.chatSessions, path);
+    const registryFiles = deleteScopedMapValue(s as any, s.sessionRegistryFilesByPath, path);
+    const models = deleteScopedMapValue(s as any, s.sessionModelsByPath, path);
+    const versions = deleteScopedMapValue(s as any, s._loadMessagesVersion, path);
+    const scrollPositions = deleteScopedMapValue(s as any, s.scrollPositions, path);
     const pendingConfirmations = { ...((s as any).pendingSessionConfirmationsByPath || {}) };
-    delete pendingConfirmations[path];
+    const pendingSessionConfirmationsByPath = deleteScopedMapValue(s as any, pendingConfirmations, path);
     // FileRef 缓存和 streamBuffer 都绑定 session 生命周期，归属方主动清
     invalidateSessionCache(path);
     invalidateStreamBuffer(path);
@@ -515,12 +521,12 @@ export const createChatSlice = (
       sessionModelsByPath: models,
       _loadMessagesVersion: versions,
       scrollPositions,
-      pendingSessionConfirmationsByPath: pendingConfirmations,
+      pendingSessionConfirmationsByPath,
     } as any;
   }),
 
   saveScrollPosition: (path, scrollTop) => set((s) => ({
-    scrollPositions: { ...s.scrollPositions, [path]: scrollTop },
+    scrollPositions: putScopedMapValue(s as any, s.scrollPositions, path, scrollTop),
   })),
 });
 

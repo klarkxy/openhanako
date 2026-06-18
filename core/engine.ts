@@ -107,6 +107,9 @@ import { sanitizeMessagesForModel, stripHistoricalInlineMediaForReplay } from ".
 import { normalizeProviderContextMessages, normalizeProviderPayload } from "./provider-compat.ts";
 import { VisionBridge } from "./vision-bridge.ts";
 import { SessionCoordinator } from "./session-coordinator.ts";
+import { SessionManifestResolver } from "./session-manifest/resolver.ts";
+import { SessionManifestStore } from "./session-manifest/store.ts";
+import { ensureLegacySessionManifestMigration } from "./session-manifest/startup-migration.ts";
 import { ConfigCoordinator, SHARED_MODEL_KEYS } from "./config-coordinator.ts";
 import { ChannelManager } from "./channel-manager.ts";
 import {
@@ -210,6 +213,9 @@ export class HanaEngine {
   declare _runtimeContext: any;
   declare _sessionCoord: any;
   declare _sessionFiles: any;
+  declare _sessionManifestMigration: any;
+  declare _sessionManifestResolver: any;
+  declare _sessionManifestStore: any;
   declare _sessionProjects: any;
   declare _skills: any;
   declare _slashSystem: any;
@@ -260,7 +266,15 @@ export class HanaEngine {
     });
     this._sessionFiles = new SessionFileRegistry({
       managedCacheRoot: path.join(hanakoHome, "session-files"),
+      getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
     });
+    this._sessionManifestStore = new SessionManifestStore({
+      dbPath: path.join(hanakoHome, "session-manifest.db"),
+    });
+    this._sessionManifestResolver = new SessionManifestResolver({
+      store: this._sessionManifestStore,
+    });
+    this._sessionManifestMigration = this._runSessionManifestStartupMigration();
     this._currentTurnNativeMedia = createCurrentTurnNativeMediaStore();
     this._pluginInstallRecords = new PluginInstallRecords({ hanakoHome });
     this._automationSuggestionStore = new AutomationSuggestionStore();
@@ -358,6 +372,7 @@ export class HanaEngine {
       getTaskRegistry: () => this._taskRegistry,
       getEngine: () => this,
       getUsageLedger: () => this._usageLedger,
+      sessionManifestStore: this._sessionManifestStore,
       closeTerminalsForSession: (sessionPath) => this._terminalSessions.closeForSession(sessionPath),
       closeAllTerminals: () => this._terminalSessions.closeAll(),
       onSessionRuntimeDiscarded: (sessionPath, reason) => this.clearSessionRuntimeState(sessionPath, reason),
@@ -389,6 +404,7 @@ export class HanaEngine {
       resolveVisionConfig: () => this.resolveVisionConfig(),
       getUsageLedger: () => this._usageLedger,
       getActiveAgentId: () => this._agentMgr.activeAgentId,
+      getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
     });
 
     // ── Bridge Session Manager ──
@@ -408,6 +424,7 @@ export class HanaEngine {
       registerSessionFile: (entry) => this.registerSessionFile(entry),
       getSessionFile: (fileId, options) => this.getSessionFile(fileId, options),
       getSessionFileByPath: (filePath, options) => this.getSessionFileByPath(filePath, options),
+      getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
       beginCurrentTurnNativeMedia: (sessionPath, opts) => this.beginCurrentTurnNativeMedia(sessionPath, opts),
       endCurrentTurnNativeMedia: (token) => this.endCurrentTurnNativeMedia(token),
       emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
@@ -435,6 +452,7 @@ export class HanaEngine {
     // 任务注册表（外部 abort 用）；handler 是运行时函数，任务元数据持久化供插件重启恢复和诊断使用。
     this._taskRegistry = new TaskRegistry({
       persistencePath: path.join(this.hanakoHome, ".ephemeral", "plugin-tasks.json"),
+      getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
     });
 
     // subagent AbortController 存储（engine 级别，跨 agent 共享）
@@ -449,6 +467,7 @@ export class HanaEngine {
 
     this._terminalSessions = new TerminalSessionManager({
       hanakoHome: this.hanakoHome,
+      getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
       emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
     });
 
@@ -613,7 +632,15 @@ export class HanaEngine {
     return this._terminalSessions;
   }
 
-  registerSessionFile(entry) { return this._sessionFiles.registerFile(entry); }
+  registerSessionFile(entry) {
+    const sessionId = entry?.sessionId || (
+      entry?.sessionPath ? this.getSessionIdForPath(entry.sessionPath) : null
+    );
+    return this._sessionFiles.registerFile({
+      ...entry,
+      ...(sessionId ? { sessionId } : {}),
+    });
+  }
   recordSessionFileOperation(entry) {
     const file = this.registerSessionFile(entry);
     this._emitSessionFileUpdatedEvent(file, entry);
@@ -642,27 +669,77 @@ export class HanaEngine {
       ...(file?.version ? { version: file.version } : {}),
     });
   }
-  getSessionFile(fileId, options) { return this._sessionFiles.get(fileId, options); }
-  getSessionFileByPath(filePath, options) { return this._sessionFiles.getByFilePath(filePath, options); }
-  getSessionFileBySourceKey(sourceKey, options) { return this._sessionFiles.getBySourceKey(sourceKey, options); }
+  _sessionFileOptionsWithLocator(options: any = {}) {
+    const next = { ...(options || {}) };
+    if (next.sessionId && !next.sessionPath) {
+      const manifest = this.getSessionManifest?.(next.sessionId) || null;
+      const locatorPath = manifest?.currentLocator?.path || null;
+      if (locatorPath) next.sessionPath = locatorPath;
+    }
+    return next;
+  }
+  getSessionFile(fileId, options) { return this._sessionFiles.get(fileId, this._sessionFileOptionsWithLocator(options)); }
+  getSessionFileByPath(filePath, options) { return this._sessionFiles.getByFilePath(filePath, this._sessionFileOptionsWithLocator(options)); }
+  getSessionFileBySourceKey(sourceKey, options) { return this._sessionFiles.getBySourceKey(sourceKey, this._sessionFileOptionsWithLocator(options)); }
   listSessionFiles(sessionPath) { return this._sessionFiles.list(sessionPath); }
-  updateSessionFileTranscription(fileId, transcription, options) { return this._sessionFiles.updateTranscription(fileId, transcription, options); }
-  beginCurrentTurnNativeMedia(sessionPath, opts) { return this._currentTurnNativeMedia.begin(sessionPath, opts); }
+  updateSessionFileTranscription(fileId, transcription, options) { return this._sessionFiles.updateTranscription(fileId, transcription, this._sessionFileOptionsWithLocator(options)); }
+  _sessionRefForPath(sessionPath) {
+    return {
+      sessionId: this.getSessionIdForPath(sessionPath),
+      sessionPath,
+    };
+  }
+  _sessionRefForPathSafe(sessionPath) {
+    return typeof this._sessionRefForPath === "function"
+      ? this._sessionRefForPath(sessionPath)
+      : { sessionId: null, sessionPath };
+  }
+  beginCurrentTurnNativeMedia(sessionPath, opts) {
+    const sessionRef = typeof this._sessionRefForPathSafe === "function"
+      ? this._sessionRefForPathSafe(sessionPath)
+      : { sessionId: null, sessionPath };
+    return this._currentTurnNativeMedia.begin(sessionRef, opts);
+  }
   endCurrentTurnNativeMedia(token) { return this._currentTurnNativeMedia.end(token); }
+  _sessionRuntimeKeyForPath(sessionPath) {
+    if (!sessionPath) return null;
+    try {
+      return this.getSessionIdForPath?.(sessionPath) || sessionPath;
+    } catch {
+      return sessionPath;
+    }
+  }
+  _deleteSessionRuntimeMapEntry(map, sessionPath) {
+    const key = this._sessionRuntimeKeyForPath(sessionPath);
+    if (!key) return false;
+    const deleted = map?.delete?.(key) === true;
+    const legacyDeleted = key !== sessionPath ? map?.delete?.(sessionPath) === true : false;
+    return deleted || legacyDeleted;
+  }
+  _deleteSessionRuntimeSetEntry(set, sessionPath) {
+    const key = this._sessionRuntimeKeyForPath(sessionPath);
+    if (!key) return false;
+    const deleted = set?.delete?.(key) === true;
+    const legacyDeleted = key !== sessionPath ? set?.delete?.(sessionPath) === true : false;
+    return deleted || legacyDeleted;
+  }
   clearSessionRuntimeState(sessionPath, reason = "discard") {
     if (!sessionPath) return false;
     void reason;
-    this._uiContextBySession?.delete(sessionPath);
-    this._imageStripNotified?.delete(sessionPath);
-    this._videoStripNotified?.delete(sessionPath);
+    const sessionRef = typeof this._sessionRefForPathSafe === "function"
+      ? this._sessionRefForPathSafe(sessionPath)
+      : { sessionId: null, sessionPath };
+    this._deleteSessionRuntimeMapEntry(this._uiContextBySession, sessionPath);
+    this._deleteSessionRuntimeSetEntry(this._imageStripNotified, sessionPath);
+    this._deleteSessionRuntimeSetEntry(this._videoStripNotified, sessionPath);
     if (typeof this._currentTurnNativeMedia?.clearSession === "function") {
-      this._currentTurnNativeMedia.clearSession(sessionPath);
+      this._currentTurnNativeMedia.clearSession(sessionRef);
     }
     if (typeof this._sessionFiles?.unloadSession === "function") {
       this._sessionFiles.unloadSession(sessionPath);
     }
     if (typeof this._computerHost?.abortSession === "function") {
-      this._computerHost.abortSession(sessionPath);
+      this._computerHost.abortSession(sessionRef);
     }
     return true;
   }
@@ -700,17 +777,24 @@ export class HanaEngine {
    */
   setUiContext(sessionPath, ctx) {
     if (!sessionPath) return;
+    const key = this._sessionRuntimeKeyForPath(sessionPath);
+    if (!key) return;
     if (ctx == null) {
-      this._uiContextBySession.delete(sessionPath);
+      this._deleteSessionRuntimeMapEntry(this._uiContextBySession, sessionPath);
     } else {
-      this._uiContextBySession.set(sessionPath, ctx);
+      this._uiContextBySession.set(key, ctx);
+      if (key !== sessionPath) this._uiContextBySession.delete(sessionPath);
     }
   }
 
   /** 读取某 session 当前的 UI context。无则返回 null。 */
   getUiContext(sessionPath) {
     if (!sessionPath) return null;
-    return this._uiContextBySession.get(sessionPath) || null;
+    const key = this._sessionRuntimeKeyForPath(sessionPath);
+    if (!key) return null;
+    return this._uiContextBySession.get(key)
+      || (key !== sessionPath ? this._uiContextBySession.get(sessionPath) : null)
+      || null;
   }
 
   // 向后兼容 getter
@@ -761,6 +845,35 @@ export class HanaEngine {
 
   async createSession(mgr, cwd, mem, model, opts: any = {}) {
     return this._sessionCoord.createSession(mgr, cwd, mem, model, opts);
+  }
+  resolveSessionRef(ref, opts = {}) {
+    return this._sessionManifestResolver.resolve(ref, opts);
+  }
+  getSessionManifest(sessionId) {
+    return this._sessionManifestStore.getBySessionId(sessionId);
+  }
+  getSessionIdForPath(sessionPath) {
+    return this._sessionManifestResolver.resolveOptional({ sessionPath })?.sessionId || null;
+  }
+
+  _runSessionManifestStartupMigration() {
+    try {
+      const result = ensureLegacySessionManifestMigration({
+        hanaHome: this.hanakoHome,
+        store: this._sessionManifestStore,
+        appVersion: this.appVersion,
+      });
+      if (result.status === "failed") {
+        moduleLog.warn(`Session manifest startup migration failed: ${result.error?.message || "unknown error"}`);
+      }
+      return result;
+    } catch (error) {
+      moduleLog.warn(`Session manifest startup migration crashed: ${error?.message || String(error)}`);
+      return {
+        status: "failed",
+        error,
+      };
+    }
   }
   async createDetachedSession( opts: any = {}) {
     return this._sessionCoord.createDetachedSession(opts);
@@ -1065,11 +1178,20 @@ export class HanaEngine {
       if (ownerAgentId) resolvedOptions.agentId = ownerAgentId;
     }
     const config = this._configCoord.resolveUtilityConfig(resolvedOptions);
+    let usageSessionId = resolvedOptions.sessionId || null;
+    if (!usageSessionId && resolvedOptions.sessionPath) {
+      try {
+        usageSessionId = this.getSessionIdForPath?.(resolvedOptions.sessionPath) || null;
+      } catch {
+        usageSessionId = null;
+      }
+    }
     return {
       ...config,
       usageLedger: this._usageLedger,
       usageAgentId: resolvedOptions.agentId || this.currentAgentId || null,
       usageSessionPath: resolvedOptions.sessionPath || null,
+      usageSessionId,
     };
   }
   _callApprovalReviewerText(options) { return callText(options); }
@@ -1184,6 +1306,7 @@ export class HanaEngine {
   setCurrentSessionPermissionMode(mode) { return this._sessionCoord.setCurrentSessionPermissionMode(mode); }
   setPendingSessionPermissionMode(mode) { return this._sessionCoord.setPendingPermissionMode(mode); }
   getSessionPermissionModeDefault() { return this._sessionCoord.getPermissionModeDefault(); }
+  setSessionPermissionModeDefault(mode) { return this._sessionCoord.setPermissionModeDefault(mode); }
   get accessMode() { return this._sessionCoord.getAccessMode(); }
   setAccessMode(mode) { return this._sessionCoord.setAccessMode(mode); }
   setPlanMode(enabled) { return this._sessionCoord.setPlanMode(enabled); }
@@ -1589,11 +1712,15 @@ export class HanaEngine {
           if (!model) return;
           const sessionPath = ctx?.sessionManager?.getSessionFile?.();
           const replaySafe = stripHistoricalInlineMediaForReplay(event.messages);
-          const currentTurnMedia = this._currentTurnNativeMedia.inject(sessionPath, replaySafe.messages);
+          const sessionRef = typeof this._sessionRefForPathSafe === "function"
+            ? this._sessionRefForPathSafe(sessionPath)
+            : { sessionId: null, sessionPath };
+          const currentTurnMedia = this._currentTurnNativeMedia.inject(sessionRef, replaySafe.messages);
           const { messages, stripped, strippedImages, strippedVideos } = sanitizeMessagesForModel(currentTurnMedia.messages, model);
           if (replaySafe.stripped === 0 && stripped === 0 && !currentTurnMedia.changed) return;
-          if (sessionPath && strippedImages > 0 && !this._imageStripNotified.has(sessionPath)) {
-            this._imageStripNotified.add(sessionPath);
+          const sessionRuntimeKey = sessionPath ? this._sessionRuntimeKeyForPath(sessionPath) : null;
+          if (sessionRuntimeKey && strippedImages > 0 && !this._imageStripNotified.has(sessionRuntimeKey)) {
+            this._imageStripNotified.add(sessionRuntimeKey);
             this._emitEvent({
               type: "image_stripped_notice",
               modelId: model.id,
@@ -1601,8 +1728,8 @@ export class HanaEngine {
               count: strippedImages,
             }, sessionPath);
           }
-          if (sessionPath && strippedVideos > 0 && !this._videoStripNotified.has(sessionPath)) {
-            this._videoStripNotified.add(sessionPath);
+          if (sessionRuntimeKey && strippedVideos > 0 && !this._videoStripNotified.has(sessionRuntimeKey)) {
+            this._videoStripNotified.add(sessionRuntimeKey);
             this._emitEvent({
               type: "video_stripped_notice",
               modelId: model.id,
@@ -1728,7 +1855,11 @@ export class HanaEngine {
       await this._agentMgr.disposeAll(this._sessionCoord);
       await this._sessionCoord.cleanupSession();
     } finally {
-      await this.disposeComputerRuntime();
+      try {
+        await this.disposeComputerRuntime();
+      } finally {
+        this._sessionManifestStore?.close?.();
+      }
     }
   }
 
@@ -1994,6 +2125,7 @@ export class HanaEngine {
         : this._readPreferences().sandbox_network !== false,
       getExternalReadPaths,
       getSessionPath,
+      getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
       resolveSessionFile: (fileId, options: any = {}) => {
         const lookupSessionPath = options?.sessionPath || getSessionPath() || null;
         return this.getSessionFile?.(fileId, { sessionPath: lookupSessionPath }) || null;

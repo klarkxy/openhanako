@@ -70,9 +70,20 @@ async function askForFolderApproval(action, folder, sessionPath, deps) {
   };
 }
 
-function buildFolderGatewayRequest(action, folder, sessionPath) {
+function stableSessionKey(sessionPath, engine, ctx = null) {
+  const ctxSessionId = typeof ctx?.sessionId === "string" && ctx.sessionId.trim()
+    ? ctx.sessionId.trim()
+    : null;
+  const resolved = !ctxSessionId && typeof engine?.getSessionIdForPath === "function"
+    ? engine.getSessionIdForPath(sessionPath)
+    : null;
+  const sessionId = ctxSessionId || (typeof resolved === "string" && resolved.trim() ? resolved.trim() : null);
+  return sessionId || sessionPath || "session";
+}
+
+function buildFolderGatewayRequest(action, folder, sessionPath, stableKey = null) {
   return {
-    id: `${sessionPath || "session"}:session_folders:${Date.now()}`,
+    id: `${stableKey || sessionPath || "session"}:session_folders:${Date.now()}`,
     kind: "session_folders",
     sessionPath,
     agentId: null,
@@ -85,7 +96,7 @@ function buildFolderGatewayRequest(action, folder, sessionPath) {
   };
 }
 
-async function reviewFolderApproval(action, folder, sessionPath, deps, engine) {
+async function reviewFolderApproval(action, folder, sessionPath, deps, engine, ctx = null) {
   const mode = normalizeSessionPermissionMode(
     deps.getPermissionMode?.(sessionPath)
       || engine?.getSessionPermissionMode?.(sessionPath)
@@ -96,7 +107,7 @@ async function reviewFolderApproval(action, folder, sessionPath, deps, engine) {
   if (!gateway || typeof gateway.review !== "function") {
     return { allowed: false, status: "ask_user", reason: "approval-gateway-unavailable" };
   }
-  const decision = await gateway.review(buildFolderGatewayRequest(action, folder, sessionPath), { sessionPath });
+  const decision = await gateway.review(buildFolderGatewayRequest(action, folder, sessionPath, stableSessionKey(sessionPath, engine, ctx)), { sessionPath });
   if (decision?.action === "allow") {
     return { allowed: true, status: "approved", decision };
   }
@@ -153,7 +164,7 @@ export function createSessionFoldersTool(deps: Record<string, any> = {}) {
         });
       }
 
-      let approval: { allowed: boolean; status: string; confirmId?: string; reason?: string; decision?: any } = await reviewFolderApproval(action, folder, sessionPath, deps, engine);
+      let approval: { allowed: boolean; status: string; confirmId?: string; reason?: string; decision?: any } = await reviewFolderApproval(action, folder, sessionPath, deps, engine, ctx);
       if (!approval.allowed && approval.status === "ask_user") {
         approval = await askForFolderApproval(action, folder, sessionPath, deps);
       }

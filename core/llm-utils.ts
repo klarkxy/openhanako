@@ -108,6 +108,7 @@ async function callLlm({
 
 function utilityUsageContext(utilConfig, operation, trigger = "tool") {
   const agentId = utilConfig?.usageAgentId || null;
+  const sessionId = utilConfig?.usageSessionId || null;
   const sessionPath = utilConfig?.usageSessionPath || null;
   return {
     source: {
@@ -116,8 +117,13 @@ function utilityUsageContext(utilConfig, operation, trigger = "tool") {
       surface: "system",
       trigger,
     },
-    attribution: sessionPath
-      ? { kind: "session", agentId, sessionPath }
+    attribution: sessionId || sessionPath
+      ? {
+          kind: "session",
+          agentId,
+          ...(sessionId ? { sessionId } : {}),
+          ...(sessionPath ? { sessionPath } : {}),
+        }
       : { kind: "utility", agentId },
   };
 }

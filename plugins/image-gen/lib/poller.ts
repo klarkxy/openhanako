@@ -239,13 +239,25 @@ export class Poller {
 
   _registerGeneratedFiles(task, files) {
     if (isResponseDelivery(task)) return [];
-    if (!this._registerSessionFile || !task?.sessionPath || !files?.length) return [];
+    const sessionId = typeof task?.sessionId === "string" && task.sessionId.trim()
+      ? task.sessionId.trim()
+      : task?.sessionRef?.sessionId || null;
+    const sessionPath = typeof task?.sessionPath === "string" && task.sessionPath.trim()
+      ? task.sessionPath.trim()
+      : task?.sessionRef?.sessionPath || null;
+    const sessionRef = task?.sessionRef || (sessionId ? {
+      sessionId,
+      ...(sessionPath ? { sessionPath } : {}),
+    } : null);
+    if (!this._registerSessionFile || (!sessionId && !sessionPath) || !files?.length) return [];
     const sessionFiles = [];
     for (const file of files) {
       const filePath = pathJoin(this._generatedDir, file);
       try {
         const sessionFile = this._registerSessionFile({
-          sessionPath: task.sessionPath,
+          ...(sessionId ? { sessionId } : {}),
+          ...(sessionPath ? { sessionPath } : {}),
+          ...(sessionRef ? { sessionRef } : {}),
           filePath,
           label: file,
           origin: "plugin_output",
@@ -276,6 +288,7 @@ export class Poller {
       protocolId: latest.protocolId || null,
       metadata: latest.metadata || null,
       task: latest,
+      ...(latest.sessionId ? { sessionId: latest.sessionId, sessionRef: latest.sessionRef || null } : {}),
     }, task.sessionPath || null);
   }
 

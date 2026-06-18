@@ -267,6 +267,42 @@ describe("UniversalMediaManager plugin image input boundary", () => {
 
     manager.stop();
   });
+
+  it("submits image generation with sessionId ownership when no path locator is supplied", async () => {
+    const root = makeRoot();
+    roots.push(root);
+    const manager = makeManager(root, makePreferences(root));
+    const bus = makeBus();
+    manager.start(bus);
+    manager.registerAdapter({
+      id: "id-image",
+      types: ["image"],
+      submit: vi.fn(async () => ({ taskId: "id-image-task" })),
+    });
+
+    const result = await manager.generateImageFromBus({
+      sessionId: "sess_media_image",
+      prompt: "draw by id",
+      provider: "id-image",
+    });
+    await flushBackgroundWork();
+
+    expect(result).toMatchObject({ ok: true, kind: "image" });
+    expect(manager.getTask(result.tasks[0].taskId)).toMatchObject({
+      sessionId: "sess_media_image",
+      sessionPath: null,
+    });
+    expect(bus.request).toHaveBeenCalledWith("deferred:register", expect.objectContaining({
+      sessionId: "sess_media_image",
+      sessionPath: null,
+    }));
+    expect(bus.request).toHaveBeenCalledWith("task:register", expect.objectContaining({
+      sessionId: "sess_media_image",
+      parentSessionPath: null,
+    }));
+
+    manager.stop();
+  });
 });
 
 describe("media parameter input limits", () => {
@@ -544,6 +580,45 @@ describe("UniversalMediaManager response delivery", () => {
     });
     expect(bus.request).not.toHaveBeenCalledWith("deferred:register", expect.anything());
     expect(bus.request).not.toHaveBeenCalledWith("task:register", expect.anything());
+
+    manager.stop();
+  });
+
+  it("submits video generation with sessionId ownership when no path locator is supplied", async () => {
+    const root = makeRoot();
+    roots.push(root);
+    const manager = makeManager(root, makePreferences(root));
+    const bus = makeBus();
+    manager.start(bus);
+    manager.registerAdapter({
+      id: "id-video",
+      types: ["video"],
+      submit: vi.fn(async () => ({ taskId: "id-video-task" })),
+    });
+
+    const result = await manager.generateVideoFromBus({
+      sessionId: "sess_media_video",
+      prompt: "animate by id",
+      provider: "id-video",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "video",
+      tasks: [{ taskId: "id-video-task" }],
+    });
+    expect(manager.getTask("id-video-task")).toMatchObject({
+      sessionId: "sess_media_video",
+      sessionPath: null,
+    });
+    expect(bus.request).toHaveBeenCalledWith("deferred:register", expect.objectContaining({
+      sessionId: "sess_media_video",
+      sessionPath: null,
+    }));
+    expect(bus.request).toHaveBeenCalledWith("task:register", expect.objectContaining({
+      sessionId: "sess_media_video",
+      parentSessionPath: null,
+    }));
 
     manager.stop();
   });

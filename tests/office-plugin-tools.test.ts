@@ -277,6 +277,55 @@ describe("office plugin tools", () => {
     expect(result.mediaItem).toMatchObject({ type: "session_file", fileId: "sf_pdf" });
   });
 
+  it("stages rendered PDF output with sessionId when the path locator is absent", async () => {
+    const fakeSpawn = vi.fn((command, args) => {
+      const child: any = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+      queueMicrotask(() => {
+        const jobPath = args.at(-1);
+        const job = JSON.parse(fs.readFileSync(jobPath, "utf-8"));
+        fs.mkdirSync(path.dirname(job.outputPath), { recursive: true });
+        fs.writeFileSync(job.outputPath, "%PDF-1.4\n% office test\n", "utf-8");
+        child.emit("close", 0);
+      });
+      return child;
+    });
+    const stageFile = vi.fn(({ sessionId, sessionPath, sessionRef, filePath, label }) => ({
+      file: { fileId: "sf_pdf", sessionId, sessionPath, sessionRef, filePath, label },
+      mediaItem: { type: "session_file", fileId: "sf_pdf", sessionId, sessionPath, sessionRef, filePath, label },
+    }));
+
+    const result = await renderHtmlToPdf(
+      {
+        html: "<!doctype html><h1>Hello</h1>",
+        filename: "hello-id.pdf",
+      },
+      {
+        dataDir: tempDir,
+        sessionId: "sess_office_pdf",
+        sessionRef: { sessionId: "sess_office_pdf" },
+        stageFile,
+      },
+      {
+        env: {
+          HANA_DESKTOP_EXEC_PATH: "/Applications/HanaAgent.app/Contents/MacOS/HanaAgent",
+          HANA_DESKTOP_IS_PACKAGED: "1",
+        },
+        spawn: fakeSpawn,
+      },
+    );
+
+    expect(stageFile).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "sess_office_pdf",
+      sessionRef: { sessionId: "sess_office_pdf" },
+      filePath: result.outputPath,
+      label: "hello-id.pdf",
+    }));
+    expect(result.sessionFile).toMatchObject({ fileId: "sf_pdf", sessionId: "sess_office_pdf" });
+  });
+
   it("lets callers opt out of Hana font embedding via embedHanaFonts:false", async () => {
     let observedJob = null;
     const fakeSpawn = vi.fn((command, args) => {

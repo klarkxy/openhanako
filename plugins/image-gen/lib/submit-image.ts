@@ -5,7 +5,7 @@ import {
   createTaskId,
   imageDeferredMeta,
   isResponseDelivery,
-  normalizeSessionPath,
+  normalizeSessionRef,
   normalizeMediaDelivery,
   assertAdapterReferenceImageLimit,
   resolveImageTarget,
@@ -24,10 +24,11 @@ function assertMediaRuntime(ctx) {
 
 export async function submitImageGeneration({ input = {}, ctx, metadata = null, deliveryTarget = undefined }: any = {}) {
   const { registry, store, poller } = assertMediaRuntime(ctx);
-  const sessionPath = normalizeSessionPath(ctx);
+  const sessionTarget = normalizeSessionRef(ctx);
+  const { sessionId, sessionPath, sessionRef } = sessionTarget;
   const delivery = normalizeMediaDelivery(input);
   const responseDelivery = isResponseDelivery(delivery);
-  if (!sessionPath && !responseDelivery) {
+  if (!sessionId && !sessionPath && !responseDelivery) {
     throw new Error(t("plugin.imageGen.noSessionPath"));
   }
 
@@ -81,7 +82,9 @@ export async function submitImageGeneration({ input = {}, ctx, metadata = null, 
       type: "image",
       prompt: input.prompt,
       params,
+      sessionId,
       sessionPath,
+      sessionRef,
       deliveryMode: delivery.mode,
       delivery,
       ...(resolvedDeliveryTarget ? { deliveryTarget: resolvedDeliveryTarget } : {}),
@@ -94,7 +97,9 @@ export async function submitImageGeneration({ input = {}, ctx, metadata = null, 
       try {
         await ctx.bus.request("deferred:register", {
           taskId,
+          sessionId,
           sessionPath,
+          sessionRef,
           meta: deferredMeta,
         });
       } catch (err) {
@@ -105,6 +110,8 @@ export async function submitImageGeneration({ input = {}, ctx, metadata = null, 
         await ctx.bus.request("task:register", {
           taskId,
           type: "media-generation",
+          sessionId,
+          sessionRef,
           parentSessionPath: sessionPath,
           meta: deferredMeta,
         });

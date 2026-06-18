@@ -213,6 +213,67 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
     });
   });
 
+  it("session-ready patch and durable run record include the child sessionId", async () => {
+    const emitEvent = vi.fn();
+    const childMetaRecord = { meta: {} as any };
+    const runStore = {
+      register: vi.fn(),
+      attachSession: vi.fn(),
+      resolve: vi.fn(),
+      fail: vi.fn(),
+      abort: vi.fn(),
+    };
+    const store = {
+      defer: vi.fn(),
+      resolve: vi.fn(),
+      fail: vi.fn(),
+      query: vi.fn(() => childMetaRecord),
+      _save: vi.fn(),
+    };
+    const executeIsolated = vi.fn().mockImplementation((_prompt, opts) => {
+      opts?.onSessionReady?.("/test/child-moved.jsonl", {
+        sessionId: "sess_child_ready",
+        sessionPath: "/test/child-moved.jsonl",
+      });
+      return Promise.resolve({ replyText: "done", error: null, sessionPath: "/test/child-moved.jsonl" });
+    });
+    const tool = createSubagentTool(makeDeps({
+      executeIsolated,
+      getDeferredStore: () => store,
+      getSubagentRunStore: () => runStore,
+      emitEvent,
+    }));
+
+    const result = await tool.execute("call_1", { task: "当前 agent 自己执行" }, null, null, mockCtx());
+    const { taskId } = result.details as any;
+
+    await vi.waitFor(() => {
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "block_update",
+          taskId,
+          patch: expect.objectContaining({
+            sessionId: "sess_child_ready",
+            streamKey: "/test/child-moved.jsonl",
+          }),
+        }),
+        "/test/session.jsonl",
+      );
+    });
+
+    expect(childMetaRecord.meta).toMatchObject({
+      sessionId: "sess_child_ready",
+      sessionPath: "/test/child-moved.jsonl",
+    });
+    expect(runStore.attachSession).toHaveBeenCalledWith(
+      taskId,
+      "/test/child-moved.jsonl",
+      expect.objectContaining({
+        childSessionId: "sess_child_ready",
+      }),
+    );
+  });
+
   it("records the subagent run in the durable run store across dispatch, session ready, and completion", async () => {
     const runStore = {
       register: vi.fn(),
@@ -607,6 +668,37 @@ describe("subagent-tool (executeIsolated 原子模式)", () => {
     expect(blocked.details).toBeUndefined();
 
     // Cleanup
+    for (const resolve of pending) {
+      resolve({ replyText: "ok", error: null, sessionPath: null });
+    }
+  });
+
+  it("shares the per-session concurrency limit across moved paths with the same session id", async () => {
+    const pending = [];
+    const originalPath = "/session/original.jsonl";
+    const movedPath = "/session/archived/renamed.jsonl";
+    const sessionId = "sess_subagent_parent";
+    const blockingExecute = vi.fn().mockImplementation((_prompt, opts) => {
+      opts?.onSessionReady?.("/test/child.jsonl");
+      return new Promise((resolve) => pending.push(resolve));
+    });
+    const tool = createSubagentTool(makeDeps({
+      executeIsolated: blockingExecute,
+      getDeferredStore: () => mockStore,
+      getSessionIdForPath: (sessionPath: string) => (
+        sessionPath === originalPath || sessionPath === movedPath ? sessionId : null
+      ),
+    }));
+
+    for (let i = 0; i < 10; i++) {
+      const r = await tool.execute(`call_moved_${i}`, { task: `任务 ${i}` }, null, null, mockCtx(originalPath));
+      expect((r.details as any).streamStatus).toBe("running");
+    }
+
+    const blocked = await tool.execute("call_moved_10", { task: "移动后的第十一个任务" }, null, null, mockCtx(movedPath));
+    expect(blocked.content[0].text).toMatch(/10|subagentMaxConcurrent/);
+    expect(blocked.details).toBeUndefined();
+
     for (const resolve of pending) {
       resolve({ replyText: "ok", error: null, sessionPath: null });
     }

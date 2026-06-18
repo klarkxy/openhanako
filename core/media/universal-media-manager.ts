@@ -123,6 +123,27 @@ function textOrNull(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function normalizeSessionRefPayload(payload: any = {}) {
+  const rawRef = payload.sessionRef && typeof payload.sessionRef === "object" ? payload.sessionRef : null;
+  const sessionId = textOrNull(payload.sessionId) || textOrNull(rawRef?.sessionId);
+  const sessionPath =
+    textOrNull(payload.sessionPath)
+    || textOrNull(rawRef?.sessionPath)
+    || textOrNull(rawRef?.path);
+  const legacySessionPath =
+    textOrNull(payload.legacySessionPath)
+    || textOrNull(rawRef?.legacySessionPath)
+    || (sessionId && sessionPath ? sessionPath : null);
+  const sessionRef = sessionId
+    ? {
+      sessionId,
+      ...(sessionPath ? { sessionPath } : {}),
+      ...(legacySessionPath ? { legacySessionPath } : {}),
+    }
+    : null;
+  return { sessionId, sessionPath, sessionRef };
+}
+
 function logInfo(logger, message) {
   const fn = typeof logger?.info === "function"
     ? logger.info
@@ -137,6 +158,7 @@ function logInfo(logger, message) {
 }
 
 function normalizeImageInput(input: any = {}, {
+  sessionId = null,
   sessionPath = null,
   sessionFiles = null,
   allowRawReferences = false,
@@ -147,6 +169,7 @@ function normalizeImageInput(input: any = {}, {
       throw new Error("referenceImages must be an array of session_file references");
     }
     next.referenceImages = resolveImageReferences(next.referenceImages, {
+      sessionId,
       sessionPath,
       sessionFiles,
       allowRawReferences,
@@ -156,6 +179,7 @@ function normalizeImageInput(input: any = {}, {
   if (Object.prototype.hasOwnProperty.call(next, "image") && next.image !== undefined) {
     const images = Array.isArray(next.image) ? next.image : [next.image];
     const resolved = resolveImageReferences(images, {
+      sessionId,
       sessionPath,
       sessionFiles,
       allowRawReferences,
@@ -170,6 +194,7 @@ function normalizeImageInput(input: any = {}, {
 }
 
 function resolveImageReferences(references, {
+  sessionId,
   sessionPath,
   sessionFiles,
   allowRawReferences,
@@ -177,6 +202,7 @@ function resolveImageReferences(references, {
 }: any = {}) {
   return references
     .map((reference) => resolveImageReference(reference, {
+      sessionId,
       sessionPath,
       sessionFiles,
       allowRawReferences,
@@ -186,6 +212,7 @@ function resolveImageReferences(references, {
 }
 
 function resolveImageReference(reference, {
+  sessionId,
   sessionPath,
   sessionFiles,
   allowRawReferences,
@@ -206,9 +233,9 @@ function resolveImageReference(reference, {
   }
   const fileId = textOrNull(reference.fileId) || textOrNull(reference.id);
   if (!fileId) throw new Error(`${fieldName} session_file reference requires fileId`);
-  if (!sessionPath) throw new Error("sessionPath is required to resolve session_file references");
+  if (!sessionId && !sessionPath) throw new Error("sessionId or sessionPath is required to resolve session_file references");
   if (!sessionFiles?.get) throw new Error("session file registry unavailable");
-  const file = sessionFiles.get(fileId, { sessionPath });
+  const file = sessionFiles.get(fileId, { sessionId, sessionPath });
   if (!file) throw new Error(`session file not found: ${fileId}`);
   if (file.kind !== "image" && !String(file.mime || "").startsWith("image/")) {
     throw new Error(`${fieldName} session_file must reference an image file`);
@@ -539,14 +566,16 @@ export class UniversalMediaManager {
     };
   }
 
-  _toolContext({ sessionPath = null, bridgeContext = null }: any = {}) {
+  _toolContext({ sessionId = null, sessionPath = null, sessionRef = null, bridgeContext = null }: any = {}) {
     return {
       dataDir: this._dataDir,
       bus: this._bus,
       log: this._log,
       config: this._config,
       videoConfig: this._createVideoConfigBridge(),
+      sessionId,
       sessionPath,
+      sessionRef,
       bridgeContext,
       _mediaGen: this.runtime,
     };
@@ -567,7 +596,8 @@ export class UniversalMediaManager {
   }
 
   async generateImageFromBus(payload: any = {}, { allowRawReferences = false }: any = {}) {
-    const sessionPath = textOrNull(payload.sessionPath);
+    const sessionTarget = normalizeSessionRefPayload(payload);
+    const { sessionId, sessionPath, sessionRef } = sessionTarget;
     const inputSource = payload.input && isObject(payload.input)
       ? {
         ...payload.input,
@@ -589,11 +619,12 @@ export class UniversalMediaManager {
         deliveryMode: payload.deliveryMode,
       };
     const delivery = normalizeMediaDelivery(inputSource);
-    if (!sessionPath && !isResponseDelivery(delivery)) throw new Error("sessionPath is required");
+    if (!sessionId && !sessionPath && !isResponseDelivery(delivery)) throw new Error("sessionId or sessionPath is required");
     const input = normalizeImageInput({
       ...inputSource,
       delivery,
     }, {
+        sessionId,
         sessionPath,
         sessionFiles: this._sessionFiles,
         allowRawReferences,
@@ -601,7 +632,9 @@ export class UniversalMediaManager {
     if (!textOrNull(input.prompt)) throw new Error("prompt is required");
     return this.submitImage({
       input,
+      sessionId,
       sessionPath,
+      sessionRef,
       metadata: {
         ...(isObject(payload.metadata) ? payload.metadata : {}),
         ...(textOrNull(payload.pluginId) ? { pluginId: textOrNull(payload.pluginId) } : {}),
@@ -611,18 +644,19 @@ export class UniversalMediaManager {
     });
   }
 
-  async submitImage({ input, sessionPath, metadata = null, deliveryTarget = undefined, bridgeContext = null }: any = {}) {
+  async submitImage({ input, sessionId = null, sessionPath, sessionRef = null, metadata = null, deliveryTarget = undefined, bridgeContext = null }: any = {}) {
     if (!this._bus || !this._poller) throw new Error(t("plugin.imageGen.notInitialized"));
     return submitImageGeneration({
       input,
-      ctx: this._toolContext({ sessionPath, bridgeContext }),
+      ctx: this._toolContext({ sessionId, sessionPath, sessionRef, bridgeContext }),
       metadata,
       deliveryTarget,
     } as any);
   }
 
   async generateVideoFromBus(payload: any = {}) {
-    const sessionPath = textOrNull(payload.sessionPath);
+    const sessionTarget = normalizeSessionRefPayload(payload);
+    const { sessionId, sessionPath, sessionRef } = sessionTarget;
     const inputSource = payload.input && isObject(payload.input)
       ? {
         ...payload.input,
@@ -631,24 +665,25 @@ export class UniversalMediaManager {
       }
       : payload;
     const delivery = normalizeMediaDelivery(inputSource);
-    if (!sessionPath && !isResponseDelivery(delivery)) throw new Error("sessionPath is required");
+    if (!sessionId && !sessionPath && !isResponseDelivery(delivery)) throw new Error("sessionId or sessionPath is required");
     const input = normalizeImageInput({
       ...inputSource,
       delivery,
     }, {
+      sessionId,
       sessionPath,
       sessionFiles: this._sessionFiles,
       allowRawReferences: false,
     });
-    return this.submitVideo({ input, sessionPath });
+    return this.submitVideo({ input, sessionId, sessionPath, sessionRef });
   }
 
-  async submitVideo({ input = {}, sessionPath }: any = {}) {
+  async submitVideo({ input = {}, sessionId = null, sessionPath = null, sessionRef = null }: any = {}) {
     if (!this._bus || !this._poller) throw new Error(t("plugin.imageGen.notInitialized"));
     if (!textOrNull(input.prompt)) throw new Error("prompt is required");
     const delivery = normalizeMediaDelivery(input);
     const responseDelivery = isResponseDelivery(delivery);
-    if (!sessionPath && !responseDelivery) throw new Error("sessionPath is required");
+    if (!sessionId && !sessionPath && !responseDelivery) throw new Error("sessionId or sessionPath is required");
     const target = this._resolveVideoTarget(input);
     const adapter = target?.adapter || null;
     if (!adapter) throw new Error(t("toolDef.generateVideo.noProvider"));
@@ -686,7 +721,9 @@ export class UniversalMediaManager {
       type: "video",
       prompt: input.prompt,
       params,
+      sessionId,
       sessionPath,
+      sessionRef,
       deliveryMode: delivery.mode,
       delivery,
       ...(target?.providerId ? { providerId: target.providerId } : {}),
@@ -702,7 +739,9 @@ export class UniversalMediaManager {
     if (!responseDelivery) {
       await this._bus.request("deferred:register", {
         taskId: result.taskId,
+        sessionId,
         sessionPath,
+        sessionRef,
         meta: {
           type: "video-generation",
           mediaKind: "video",
@@ -716,6 +755,8 @@ export class UniversalMediaManager {
       await this._bus.request("task:register", {
         taskId: result.taskId,
         type: "media-generation",
+        sessionId,
+        sessionRef,
         parentSessionPath: sessionPath,
         meta: { type: "video-generation", prompt: input.prompt },
       }).catch(() => {});

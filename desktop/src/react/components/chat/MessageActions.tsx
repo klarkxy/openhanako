@@ -3,6 +3,7 @@ import { memo, useCallback, useMemo } from 'react';
 import { useStore } from '../../stores';
 import { useI18n } from '../../hooks/use-i18n';
 import { selectSelectedIdsBySession } from '../../stores/session-selectors';
+import { sessionScopedValue } from '../../stores/session-slice';
 import styles from './Chat.module.css';
 
 interface Props {
@@ -20,7 +21,7 @@ export const MessageActions = memo(function MessageActions({
 }: Props) {
   const { t } = useI18n();
   const selectedIds = useStore(s => selectSelectedIdsBySession(s, sessionPath));
-  const sessionItems = useStore(s => s.chatSessions[sessionPath]?.items);
+  const sessionItems = useStore(s => sessionScopedValue(s, s.chatSessions, sessionPath)?.items);
   const isSelected = selectedIds.includes(messageId);
   const toggle = useStore(s => s.toggleMessageSelection);
   const setSelection = useStore(s => s.setMessageSelection);

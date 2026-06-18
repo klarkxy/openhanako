@@ -10,6 +10,8 @@ import { streamBufferManager } from '../hooks/use-stream-buffer';
 import { dispatchStreamKey } from './stream-key-dispatcher';
 import { useStore } from '../stores';
 import { updateKeyed } from '../stores/create-keyed-slice';
+import { sessionScopedKey, sessionScopedListIncludes, sessionScopedValue } from '../stores/session-slice';
+import { browserStateForPath, setBrowserStateForPath } from '../stores/browser-slice';
 import { scheduleSessionsRefresh } from './session-refresh-scheduler';
 import { handleLegacyArtifactBlock } from '../stores/preview-actions';
 import { loadDeskFiles } from '../stores/desk-actions';
@@ -22,6 +24,12 @@ import {
 } from '../stores/channel-actions';
 import { showError } from '../utils/ui-helpers';
 import { handleAppEvent } from './app-event-actions';
+import {
+  PREVIEW_DOCUMENT_CATCH_UP_REFRESH_OPTIONS,
+  PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+  refreshOpenPreviewDocuments,
+  refreshPreviewDocumentTarget,
+} from '../utils/preview-document-refresh';
 import {
   replayStreamResume,
   isStreamResumeRebuilding,
@@ -41,6 +49,45 @@ function syncSessionPermissionMode(mode: unknown) {
   if (mode === 'auto' || mode === 'operate' || mode === 'ask' || mode === 'read_only') {
     useStore.getState().setSessionPermissionMode?.(mode);
   }
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function sessionIdentityFromMessage(msg: any): { sessionId: string | null; sessionPath: string | null } {
+  const session = msg?.session && typeof msg.session === 'object' ? msg.session : null;
+  return {
+    sessionId: nonEmptyString(msg?.sessionId) || nonEmptyString(session?.sessionId),
+    sessionPath: nonEmptyString(msg?.sessionPath) || nonEmptyString(msg?.path) || nonEmptyString(session?.path),
+  };
+}
+
+function rememberSessionLocatorFromMessage(msg: any): void {
+  const { sessionId, sessionPath } = sessionIdentityFromMessage(msg);
+  if (!sessionId || !sessionPath) return;
+  useStore.setState((state: any) => {
+    const currentLocator = state.sessionLocatorsById?.[sessionId] || null;
+    const patch: Record<string, any> = {};
+    if (currentLocator?.path !== sessionPath) {
+      patch.sessionLocatorsById = {
+        ...(state.sessionLocatorsById || {}),
+        [sessionId]: { path: sessionPath },
+      };
+    }
+    if (state.currentSessionPath === sessionPath && state.currentSessionId !== sessionId) {
+      patch.currentSessionId = sessionId;
+    }
+    return Object.keys(patch).length ? patch : {};
+  });
+}
+
+function isFocusedSessionMessage(msg: any): boolean {
+  const { sessionId, sessionPath } = sessionIdentityFromMessage(msg);
+  if (!sessionId && !sessionPath) return true;
+  const state = useStore.getState();
+  return (!!sessionPath && state.currentSessionPath === sessionPath)
+    || (!!sessionId && state.currentSessionId === sessionId);
 }
 
 export function configureWsMessageHandler(options: {
@@ -90,6 +137,11 @@ function upsertCreatedSession(msg: any): void {
       ? msg.sessionPath
       : null;
   if (!sessionPath) return;
+  const sessionId = typeof incoming.sessionId === 'string' && incoming.sessionId.trim()
+    ? incoming.sessionId.trim()
+    : typeof msg.sessionId === 'string' && msg.sessionId.trim()
+      ? msg.sessionId.trim()
+      : null;
 
   const state = useStore.getState();
   const existing: any = state.sessions.find((s: any) => s.path === sessionPath) || {};
@@ -97,6 +149,7 @@ function upsertCreatedSession(msg: any): void {
   const next = {
     ...existing,
     path: sessionPath,
+    sessionId: sessionId || existing.sessionId || null,
     title: typeof incoming.title === 'string' ? incoming.title : existing.title ?? null,
     firstMessage: typeof incoming.firstMessage === 'string' ? incoming.firstMessage : existing.firstMessage ?? '',
     modified: typeof incoming.modified === 'string' ? incoming.modified : existing.modified ?? now,
@@ -113,6 +166,12 @@ function upsertCreatedSession(msg: any): void {
   useStore.setState({
     sessions: [next, ...state.sessions.filter((s: any) => s.path !== sessionPath)]
       .sort((a: any, b: any) => new Date(b.modified || 0).getTime() - new Date(a.modified || 0).getTime()),
+    ...(sessionId ? {
+      sessionLocatorsById: {
+        ...(state.sessionLocatorsById || {}),
+        [sessionId]: { path: sessionPath },
+      },
+    } : {}),
   });
 }
 
@@ -175,7 +234,8 @@ function applyTodoToolEnd(msg: any): void {
 }
 
 function isKnownChatSession(sessionPath: string, state = useStore.getState()): boolean {
-  return !!state.chatSessions?.[sessionPath] || state.sessions.some((s: any) => s.path === sessionPath);
+  return !!sessionScopedValue(state, state.chatSessions, sessionPath)
+    || state.sessions.some((s: any) => s.path === sessionPath);
 }
 
 function requestInputFocusForCurrentSession(sessionPath: string | null): void {
@@ -198,7 +258,7 @@ function applyCompactionLifecycle(msg: any): void {
   if (msg.type !== 'compaction_end') return;
 
   useStore.getState().removeCompactingSession(sp);
-  const existingWindow = useStore.getState().contextBySession[sp]?.window ?? null;
+  const existingWindow = sessionScopedValue(useStore.getState(), useStore.getState().contextBySession, sp)?.window ?? null;
   const window = msg.contextWindow ?? existingWindow;
   updateKeyed('contextBySession', sp,
     { tokens: msg.tokens ?? null, window, percent: msg.percent ?? null },
@@ -215,7 +275,8 @@ export function applyStreamingStatus(
   // 元数据层：把 isStreaming 视为 sessionPath 维度的权威信号，统一写回 streamingSessions。
   // 这一层不分焦点，任何来源（普通 status、stream_resume 恢复）都必须到达这里，
   // 否则重连后服务端说「已结束」前端却留着旧的 streaming 标记，UI 会卡在"思考中"。
-  const wasStreaming = !!sessionPath && useStore.getState().streamingSessions.includes(sessionPath);
+  const wasStreaming = !!sessionPath
+    && sessionScopedListIncludes(useStore.getState(), useStore.getState().streamingSessions, sessionPath);
   if (sessionPath) {
     if (isStreaming) {
       useStore.getState().addStreamingSession(sessionPath, identity);
@@ -280,7 +341,8 @@ function normalizeMessageTimestamp(value: unknown): number {
 }
 
 function replayUserMessageAlreadyHydrated(sessionPath: string, message: any): boolean {
-  const session = useStore.getState().chatSessions[sessionPath];
+  const state = useStore.getState();
+  const session = sessionScopedValue(state, state.chatSessions, sessionPath);
   const last = session?.items?.[session.items.length - 1];
   if (!last || last.type !== 'message' || last.data?.role !== 'user') return false;
   const text = typeof message?.text === 'string' ? message.text : '';
@@ -298,7 +360,7 @@ function applyVoiceTranscriptionUpdate(msg: any): void {
 
   let changed = false;
   useStore.setState((s: any) => {
-    const session = s.chatSessions?.[sessionPath];
+    const session = sessionScopedValue<any>(s, s.chatSessions, sessionPath);
     if (!session) return {};
     const items = session.items.map((item: any) => {
       if (item?.type !== 'message' || !Array.isArray(item.data?.attachments)) return item;
@@ -313,11 +375,14 @@ function applyVoiceTranscriptionUpdate(msg: any): void {
       return { ...item, data: { ...item.data, attachments } };
     });
     if (!changed) return {};
+    const sessionKey = sessionScopedKey(s, sessionPath) || sessionPath;
+    const chatSessions = {
+      ...s.chatSessions,
+      [sessionKey]: { ...session, items },
+    };
+    if (sessionKey !== sessionPath) delete chatSessions[sessionPath];
     return {
-      chatSessions: {
-        ...s.chatSessions,
-        [sessionPath]: { ...session, items },
-      },
+      chatSessions,
     };
   });
   if (changed) bumpMessageLiveVersion(sessionPath);
@@ -341,6 +406,7 @@ function applyInputSessionConfirmationBlock(msg: any): void {
 // ── 消息分发（大 switch） ──
 
 export function handleServerMessage(msg: any): void {
+  rememberSessionLocatorFromMessage(msg);
   const state = useStore.getState();
 
   const rebuildingFor = isStreamResumeRebuilding();
@@ -395,6 +461,7 @@ export function handleServerMessage(msg: any): void {
       } else {
         console.warn('[ws] turn_end missing sessionPath, skipping context_usage request');
       }
+      void refreshOpenPreviewDocuments(PREVIEW_DOCUMENT_CATCH_UP_REFRESH_OPTIONS);
     }
     // tool_end 后更新 todo（兼容新旧工具名 + 新旧格式）
     applyTodoToolEnd(msg);
@@ -452,7 +519,7 @@ export function handleServerMessage(msg: any): void {
       if (!bsp) { console.warn('[ws] event missing sessionPath:', msg.type); break; }
       const bRunning = !!msg.running;
       const bUrl = msg.url || null;
-      const prev = state.browserBySession[bsp] ?? null;
+      const prev = browserStateForPath(state, bsp);
       const hasFreshThumbnail = bRunning && typeof msg.thumbnail === 'string' && msg.thumbnail.length > 0;
       const bThumbnail = bRunning ? (hasFreshThumbnail ? msg.thumbnail : prev?.thumbnail ?? null) : null;
       const thumbnailCapturedAt = bRunning
@@ -466,20 +533,7 @@ export function handleServerMessage(msg: any): void {
           : prev?.thumbnailUrl ?? null
         : null;
       const thumbnailFresh = bRunning && hasFreshThumbnail;
-      updateKeyed('browserBySession', bsp,
-        { running: bRunning, url: bUrl, thumbnail: bThumbnail, thumbnailCapturedAt, thumbnailUrl, thumbnailFresh },
-      );
-      // renderBrowserCard — no-op (browser card rendering handled by React)
-      if (typeof window !== 'undefined' && window.platform?.updateBrowserViewer) {
-        window.platform.updateBrowserViewer({
-          running: bRunning,
-          url: bUrl,
-          thumbnail: bThumbnail,
-          thumbnailCapturedAt,
-          thumbnailUrl,
-          thumbnailFresh,
-        });
-      }
+      setBrowserStateForPath(bsp, { running: bRunning, url: bUrl, thumbnail: bThumbnail, thumbnailCapturedAt, thumbnailUrl, thumbnailFresh });
       break;
     }
 
@@ -494,10 +548,8 @@ export function handleServerMessage(msg: any): void {
     case 'browser_bg_status': {
       const bgSp = msg.sessionPath;
       if (!bgSp) { console.warn('[ws] event missing sessionPath:', msg.type); break; }
-      const prev = useStore.getState().browserBySession[bgSp] || { running: false, url: null, thumbnail: null };
-      updateKeyed('browserBySession', bgSp,
-        { ...prev, running: !!msg.running },
-      );
+      const prev = browserStateForPath(useStore.getState(), bgSp);
+      setBrowserStateForPath(bgSp, { ...prev, running: !!msg.running });
       break;
     }
 
@@ -589,7 +641,8 @@ export function handleServerMessage(msg: any): void {
     case 'session_user_message': {
       const sp = msg.sessionPath;
       if (!sp || !msg.message) break;
-      if (!useStore.getState().chatSessions[sp]) {
+      const current = useStore.getState();
+      if (!sessionScopedValue(current, current.chatSessions, sp)) {
         useStore.getState().initSession(sp, [], false);
       }
       if (msg.__fromReplay === true && replayUserMessageAlreadyHydrated(sp, msg.message)) {
@@ -671,6 +724,7 @@ export function handleServerMessage(msg: any): void {
 
     case 'session_metadata_updated': {
       const sp = msg.sessionPath;
+      const sid = typeof msg.sessionId === 'string' && msg.sessionId.trim() ? msg.sessionId.trim() : null;
       const metadata = msg.metadata && typeof msg.metadata === 'object' ? msg.metadata : {};
       if (!sp) { console.warn('[ws] event missing sessionPath:', msg.type); break; }
       const hasPinnedAt = Object.prototype.hasOwnProperty.call(metadata, 'pinnedAt');
@@ -678,7 +732,7 @@ export function handleServerMessage(msg: any): void {
       if (hasPinnedAt || hasProjectId) {
         useStore.setState((s) => ({
           sessions: s.sessions.map((session) => {
-            if (session.path !== sp) return session;
+            if (session.path !== sp && (!sid || session.sessionId !== sid)) return session;
             return {
               ...session,
               ...(hasPinnedAt
@@ -698,8 +752,7 @@ export function handleServerMessage(msg: any): void {
     }
 
     case 'plan_mode': {
-      const sp = msg.sessionPath;
-      if (!sp || sp === useStore.getState().currentSessionPath) {
+      if (isFocusedSessionMessage(msg)) {
         const mode = msg.mode || (msg.enabled ? 'read_only' : 'operate');
         syncSessionPermissionMode(mode);
         window.dispatchEvent(new CustomEvent('hana-plan-mode', {
@@ -710,8 +763,7 @@ export function handleServerMessage(msg: any): void {
     }
 
     case 'permission_mode': {
-      const sp = msg.sessionPath;
-      if (!sp || sp === useStore.getState().currentSessionPath) {
+      if (isFocusedSessionMessage(msg)) {
         syncSessionPermissionMode(msg.mode);
         window.dispatchEvent(new CustomEvent('hana-plan-mode', {
           detail: { enabled: msg.mode === 'read_only', mode: msg.mode },
@@ -721,8 +773,7 @@ export function handleServerMessage(msg: any): void {
     }
 
     case 'access_mode': {
-      const sp = msg.sessionPath;
-      if (!sp || sp === useStore.getState().currentSessionPath) {
+      if (isFocusedSessionMessage(msg)) {
         const mode = msg.permissionMode || msg.mode;
         syncSessionPermissionMode(mode);
         window.dispatchEvent(new CustomEvent('hana-plan-mode', {
@@ -787,7 +838,7 @@ export function handleServerMessage(msg: any): void {
     case 'context_usage': {
       const sp = msg.sessionPath;
       if (!sp) { console.warn('[ws] event missing sessionPath:', msg.type); break; }
-      const existingWindow = useStore.getState().contextBySession[sp]?.window ?? null;
+      const existingWindow = sessionScopedValue(useStore.getState(), useStore.getState().contextBySession, sp)?.window ?? null;
       const window = msg.contextWindow ?? existingWindow;
       if (msg.tokens != null || window != null || msg.percent != null) {
         updateKeyed('contextBySession', sp,
@@ -866,14 +917,15 @@ export function handleServerMessage(msg: any): void {
 
     case 'status': {
       const sp = msg.sessionPath || null;
+      const sid = typeof msg.sessionId === 'string' && msg.sessionId.trim() ? msg.sessionId.trim() : null;
       // streamingSessions 维护 + 焦点 UI 占位一并由 applyStreamingStatus 处理
       const applied = applyStreamingStatus(msg.isStreaming, sp, {
         streamId: msg.streamId ?? null,
         turnId: msg.turnId ?? null,
       });
       if (sp && applied) {
-        if (msg.isStreaming) streamBufferManager.beginTurn(sp);
-        else streamBufferManager.finishTurn(sp);
+        if (msg.isStreaming) streamBufferManager.beginTurn(sp, sid);
+        else streamBufferManager.finishTurn(sp, sid);
       }
       break;
     }
@@ -885,6 +937,15 @@ function applyToolEndSessionFile(msg: any): void {
   const sessionFile = msg.details?.sessionFile;
   if (!sp || !sessionFile) return;
   useStore.getState().upsertSessionRegistryFile?.(sp, sessionFile);
+  const filePath = typeof sessionFile.filePath === 'string' && sessionFile.filePath.trim()
+    ? sessionFile.filePath
+    : null;
+  if (filePath) {
+    void refreshPreviewDocumentTarget(
+      { kind: 'local-file', filePath },
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+    );
+  }
 }
 
 function applyContentBlockSessionFile(msg: any): void {

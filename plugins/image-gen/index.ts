@@ -6,6 +6,7 @@ import { TaskStore } from "./lib/task-store.ts";
 import { Poller } from "./lib/poller.ts";
 import { builtinImageGenAdapters } from "./builtin-adapters.ts";
 import { submitImageGeneration } from "./lib/submit-image.ts";
+import { normalizeSessionRef } from "./lib/image-task-runner.ts";
 
 export default class ImageGenPlugin {
   declare ctx: any;
@@ -78,16 +79,18 @@ export default class ImageGenPlugin {
 
     this.register(bus.handle("media-gen:submit-image", async ( payload: any = {}) => {
       const input = payload.input && typeof payload.input === "object" ? payload.input : payload;
-      const sessionPath = typeof payload.sessionPath === "string" && payload.sessionPath.trim()
-        ? payload.sessionPath.trim()
-        : null;
-      if (!sessionPath) return { ok: false, error: "sessionPath is required" };
+      const sessionTarget = normalizeSessionRef(payload);
+      if (!sessionTarget.sessionId && !sessionTarget.sessionPath) {
+        return { ok: false, error: "sessionId or sessionPath is required" };
+      }
       try {
         return await submitImageGeneration({
           input,
           ctx: {
             ...this.ctx,
-            sessionPath,
+            sessionId: sessionTarget.sessionId,
+            sessionPath: sessionTarget.sessionPath,
+            sessionRef: sessionTarget.sessionRef,
             _mediaGen: this.ctx._mediaGen,
           },
           metadata: payload.metadata || null,

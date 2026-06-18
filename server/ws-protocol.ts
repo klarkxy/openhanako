@@ -74,16 +74,27 @@ export function createSessionStreamEventWsMessage(input) {
   const payload = assertObject(input, "input", context);
   const sessionPath = assertNonEmptyString(payload.sessionPath, "sessionPath", context);
   const sessionEvent = assertSessionEventPayload(payload.sessionEvent, "sessionEvent", context);
+  const sessionId = optionalNonEmptyString(
+    Object.prototype.hasOwnProperty.call(payload, "sessionId")
+      ? payload.sessionId
+      : sessionEvent.sessionId,
+    "sessionId",
+    context,
+  );
   const streamId = assertNonEmptyString(payload.streamId, "streamId", context);
   const seq = assertPositiveInteger(payload.seq, "seq", context);
 
   assertCompatibleField(sessionEvent, "sessionPath", sessionPath, context);
+  if (sessionId) assertCompatibleField(sessionEvent, "sessionId", sessionId, context);
+  assertCompatibleField(sessionEvent, "sessionRefVersion", 2, context);
   assertCompatibleField(sessionEvent, "streamId", streamId, context);
   assertCompatibleField(sessionEvent, "seq", seq, context);
 
   return {
     ...sessionEvent,
     sessionPath,
+    ...(sessionId ? { sessionId } : {}),
+    sessionRefVersion: 2,
     streamId,
     seq,
   };
@@ -94,6 +105,7 @@ export function createStreamResumeWsMessage(input) {
   const context = "Invalid WebSocket stream_resume message";
   const payload = assertObject(input, "input", context);
   const sessionPath = assertNonEmptyString(payload.sessionPath, "sessionPath", context);
+  const sessionId = optionalNonEmptyString(payload.sessionId, "sessionId", context);
   const streamId = assertNullableNonEmptyString(payload.streamId, "streamId", context);
   const sinceSeq = assertNonNegativeInteger(payload.sinceSeq, "sinceSeq", context);
   const nextSeq = assertPositiveInteger(payload.nextSeq, "nextSeq", context);
@@ -105,6 +117,7 @@ export function createStreamResumeWsMessage(input) {
   const message: Record<string, unknown> = {
     type: "stream_resume",
     sessionPath,
+    ...(sessionId ? { sessionId, sessionRefVersion: 2 } : {}),
     streamId,
     sinceSeq,
     nextSeq,
@@ -167,6 +180,11 @@ function assertNonEmptyString(value, field, context) {
 
 function assertNullableNonEmptyString(value, field, context) {
   if (value === null) return null;
+  return assertNonEmptyString(value, field, context);
+}
+
+function optionalNonEmptyString(value, field, context) {
+  if (value === undefined || value === null) return null;
   return assertNonEmptyString(value, field, context);
 }
 

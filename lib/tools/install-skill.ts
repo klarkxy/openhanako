@@ -182,6 +182,7 @@ function sourceRefFromParams(params: any = {}) {
       ref: {
         type: "session_file",
         fileId: params.fileId.trim(),
+        ...(params.sessionId ? { sessionId: params.sessionId } : {}),
         ...(params.sessionPath ? { sessionPath: params.sessionPath } : {}),
       },
       kind: "file_ref",
@@ -209,8 +210,11 @@ export function createInstallSkillTool({ getUserSkillsDir, getConfig, resolveUti
       fileId: Type.Optional(
         Type.String({ description: "SessionFile id shorthand for an uploaded .zip/.skill package in the current session." })
       ),
+      sessionId: Type.Optional(
+        Type.String({ description: "Stable sessionId that owns fileId. Prefer this over sessionPath when available." })
+      ),
       sessionPath: Type.Optional(
-        Type.String({ description: "Optional session JSONL path that owns fileId. Usually omit to use the current session." })
+        Type.String({ description: "Legacy session JSONL path that owns fileId. Usually omit to use the current session." })
       ),
       reason: Type.String({ description: "Explain why this skill is needed (for audit, required)" }),
     }),
@@ -371,10 +375,12 @@ export function createInstallSkillTool({ getUserSkillsDir, getConfig, resolveUti
           || getToolSessionPath(ctx)
           || ctx?.sessionPath
           || null;
+        const sessionId = params.sessionId || ctx?.sessionId || null;
         let sourceFile;
         try {
           sourceFile = await statFileRef(sourceRef.ref, {
             cwd,
+            sessionId,
             sessionPath,
             resolveSessionFile,
           });

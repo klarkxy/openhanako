@@ -200,6 +200,9 @@ export function buildDeferredResultInterludeBlock(event, { receiverName = "Hana"
   const previewSessionPath = typeof mergedMeta.sessionPath === "string" && mergedMeta.sessionPath.trim()
     ? mergedMeta.sessionPath
     : null;
+  const previewSessionId = typeof mergedMeta.sessionId === "string" && mergedMeta.sessionId.trim()
+    ? mergedMeta.sessionId.trim()
+    : null;
   const rawPreviewAgentId = mergedMeta.executorAgentId || mergedMeta.agentId || mergedMeta.requestedAgentId;
   const previewAgentId = typeof rawPreviewAgentId === "string" && rawPreviewAgentId.trim()
     ? rawPreviewAgentId.trim()
@@ -218,6 +221,7 @@ export function buildDeferredResultInterludeBlock(event, { receiverName = "Hana"
     status,
     sourceKind: source.kind,
     sourceLabel: source.label,
+    ...(previewSessionId ? { previewSessionId } : {}),
     ...(previewSessionPath ? { previewSessionPath } : {}),
     ...(previewAgentId ? { previewAgentId } : {}),
     text: interludeText({ receiverName, source, status }),

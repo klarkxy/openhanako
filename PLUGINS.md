@@ -202,7 +202,7 @@ export const description = "...";       // 必须
 export const parameters = { ... };      // JSON Schema，可选
 export async function execute(input, toolCtx) {  // 必须
   // input: 用户传入的参数
-  // toolCtx: { pluginId, pluginDir, dataDir, sessionPath, bus, network, config, log, registerSessionFile, stageFile }
+  // toolCtx: { pluginId, pluginDir, dataDir, sessionId, sessionRef, sessionPath, bus, network, config, log, registerSessionFile, stageFile }
   return "result";
 }
 ```
@@ -240,7 +240,8 @@ export const { name, description, parameters, execute } = tool;
 import { createMediaDetails } from "@hana/plugin-runtime";
 
 const staged = toolCtx.stageFile({
-  sessionPath: toolCtx.sessionPath,
+  sessionId: toolCtx.sessionId,
+  sessionRef: toolCtx.sessionRef,
   filePath: "/path/to/image.png",
   label: "image.png",
 });
@@ -253,7 +254,7 @@ return {
 
 框架会自动提取 `details.media` 并根据上下文投递：桌面端渲染文件卡片，Bridge 按平台能力发送给对方，Mobile PWA / 远程前端通过 `SessionFile` / Resource 身份读取。新协议优先消费 `details.media.items` 里的结构化 `session_file`；`mediaUrls` 只保留为兼容旧工具和远程 URL 的字段，不建议新插件使用。本地文件不得通过 `MEDIA:/path`、`file://` 或 `mediaUrls` 绕过 `stageFile()` / `stage_files`，必须先登记成 `session_file`。内置 `stage_files` 会自动登记 SessionFile 并返回结构化媒体项，插件交付用户可见文件时应复用这条语义，不要让插件自己判断运行平台，也不要自己创建私有文件卡片来替代 `SessionFile`。
 
-插件直接产出本地文件时，调用 `toolCtx.stageFile({ sessionPath, filePath, label })` 绑定到当前 session，并得到可直接放入 `details.media.items` 的 `mediaItem`。`registerSessionFile` 仍保留为低层兼容 API，新插件应优先使用 `stageFile`，这样文件归属和媒体交付不会被拆散。`sessionPath` 必须显式传入，`filePath` 必须是绝对路径。框架会把这类文件记为 `storageKind: "plugin_data"`，它们属于插件数据或生成结果，不会被 session 临时缓存清理器删除。插件不应把任意本地路径标成临时缓存，缓存生命周期由框架拥有。
+插件直接产出本地文件时，调用 `toolCtx.stageFile({ sessionId, sessionRef, filePath, label })` 绑定到当前 session，并得到可直接放入 `details.media.items` 的 `mediaItem`。`registerSessionFile` 仍保留为低层兼容 API，新插件应优先使用 `stageFile`，这样文件归属和媒体交付不会被拆散。`sessionId` / `sessionRef` 是新协议，`sessionPath` 仅作为旧插件兼容字段；`filePath` 必须是绝对路径。框架会把这类文件记为 `storageKind: "plugin_data"`，它们属于插件数据或生成结果，不会被 session 临时缓存清理器删除。插件不应把任意本地路径标成临时缓存，缓存生命周期由框架拥有。
 
 几条边界：
 
@@ -354,7 +355,7 @@ export const name = "focus";
 export const description = "Start focus mode";
 export async function execute(args, cmdCtx) {
   // args: 用户输入的参数文本
-  // cmdCtx: { sessionPath, agentId, bus, config, log }
+  // cmdCtx: { sessionId, sessionRef, sessionPath, agentId, bus, config, log }
 }
 ```
 
@@ -384,7 +385,8 @@ export default function (app, ctx) {
     const { text } = await c.req.json();
     const result = await ctx.bus.request("session:send", {
       text,
-      sessionPath: "/path/to/session.jsonl",  // 必须提供
+      sessionId: ctx.sessionId,
+      sessionRef: ctx.sessionRef,
     });
     return c.json(result);
   });
@@ -413,7 +415,7 @@ export function register(app, ctx) {
 }
 ```
 
-三种写法向后兼容：不使用 ctx 的老插件无需改动。`ctx.bus` 可直接调用内置 session 操作：`session:create`、`session:get`、`session:update`、`session:send`、`session:abort`、`session:history`、`session:list`、`agent:list`、`agent:profile`、`agent:create`、`agent:update`。所有针对已有 session 的操作必须携带 `sessionPath` 参数。详见下方 Route Context 和 Session Bus Handlers 章节。
+三种写法向后兼容：不使用 ctx 的老插件无需改动。`ctx.bus` 可直接调用内置 session 操作：`session:create`、`session:get`、`session:update`、`session:send`、`session:abort`、`session:history`、`session:list`、`agent:list`、`agent:profile`、`agent:create`、`agent:update`。所有针对已有 session 的操作必须携带 `sessionId` 或 `sessionRef`；`sessionPath` 仅作为旧插件兼容输入。详见下方 Route Context 和 Session Bus Handlers 章节。
 
 #### 请求级上下文（pluginRequestContext）
 
@@ -982,7 +984,7 @@ this.register(
 | `media:generate-image` | 通过内置媒体任务管线提交生图任务，默认完成后以 `SessionFile` 交付；`delivery.mode="response"` 时只返回任务/文件结果 |
 | `media:generate` / `media:generate-video` / `media:transcribe-audio` | 通过原生 Media Manager 提交通用媒体任务、视频生成任务或音频转录任务 |
 
-插件后端优先使用 `@hana/plugin-runtime` helpers。插件页面或插件 route handler 如果已经有宿主 HTTP 凭证，也可以使用原生 façade：`POST /api/media/generate`、`POST /api/media/image/generate`、`POST /api/media/video/generate`、`POST /api/media/asr/transcribe`。这些入口需要 chat scope，图片/视频必须传 `prompt`；默认 `delivery.mode="session"` 时还必须传 `sessionPath`，完成后登记 `SessionFile`。如果插件只想拿生成产物，传 `delivery: { mode: "response" }` 可省略 `sessionPath`，完成后轮询 `GET /api/media/tasks/:taskId`，再用 `task.files[]` 调 `GET /api/media/generated/:filename` 读取文件。ASR 仍必须传 `sessionPath` 和 `fileId`。图片参考图只接受 `{ kind: "session_file", fileId }` 这类 SessionFile 引用，底层仍进入同一个 Media Manager 任务管线。图片 / 视频模型必须在当前 mode 上声明参考图能力，例如 `modes[].inputLimits.referenceImages = { min: 0, max: 0 }` 表示纯文生图，`{ min: 1, max: 1 }` 表示单参考图模式。任务管线会按所选 mode 在入队前拒绝不足量或超量参考图。
+插件后端优先使用 `@hana/plugin-runtime` helpers。插件页面或插件 route handler 如果已经有宿主 HTTP 凭证，也可以使用原生 façade：`POST /api/media/generate`、`POST /api/media/image/generate`、`POST /api/media/video/generate`、`POST /api/media/asr/transcribe`。这些入口需要 chat scope，图片/视频必须传 `prompt`；默认 `delivery.mode="session"` 时还必须传 `sessionId` 或 `sessionRef`，完成后登记 `SessionFile`。如果插件只想拿生成产物，传 `delivery: { mode: "response" }` 可省略 session 身份，完成后轮询 `GET /api/media/tasks/:taskId`，再用 `task.files[]` 调 `GET /api/media/generated/:filename` 读取文件。ASR 必须传 `sessionId` 或旧 `sessionPath` 加 `fileId`。图片参考图只接受 `{ kind: "session_file", fileId }` 这类 SessionFile 引用，底层仍进入同一个 Media Manager 任务管线。图片 / 视频模型必须在当前 mode 上声明参考图能力，例如 `modes[].inputLimits.referenceImages = { min: 0, max: 0 }` 表示纯文生图，`{ min: 1, max: 1 }` 表示单参考图模式。任务管线会按所选 mode 在入队前拒绝不足量或超量参考图。
 
 `session:send.context` 只注入到当轮 provider 请求，不会改写可见用户消息，也不会写入用户消息文本。插件可以在自己的 RAG、世界观、mood、角色状态系统里生成这些片段，然后在发送时附带：
 
@@ -1009,6 +1011,7 @@ const session = await createSession(ctx, {
   visibility: "plugin_private",
   cwd: ctx.dataDir,
 });
+const sessionTarget = session.sessionRef ?? { sessionId: session.sessionId };
 
 const query = await sampleText(ctx, {
   operation: "tavern-rag-query",
@@ -1016,7 +1019,7 @@ const query = await sampleText(ctx, {
   maxTokens: 80,
 });
 
-await sendSessionMessage(ctx, session.sessionPath, {
+await sendSessionMessage(ctx, sessionTarget, {
   text: "我推开门。",
   context: {
     beforeUser: [
@@ -1027,7 +1030,8 @@ await sendSessionMessage(ctx, session.sessionPath, {
 });
 
 await generateImage(ctx, {
-  sessionPath: session.sessionPath,
+  sessionId: session.sessionId,
+  sessionRef: session.sessionRef,
   prompt: "A handwritten character card on warm paper",
   referenceImages: [
     { kind: "session_file", fileId: "sf_reference_a" },
@@ -1038,7 +1042,8 @@ await generateImage(ctx, {
 
 await generateMedia(ctx, {
   kind: "video",
-  sessionPath: session.sessionPath,
+  sessionId: session.sessionId,
+  sessionRef: session.sessionRef,
   prompt: "A slow page-turn animation on warm paper",
 });
 
@@ -1049,7 +1054,8 @@ const artifactOnly = await generateImage(ctx, {
 // 后续轮询 /api/media/tasks/{artifactOnly.tasks[0].taskId}
 
 const transcription = await transcribeAudio(ctx, {
-  sessionPath: session.sessionPath,
+  sessionId: session.sessionId,
+  sessionRef: session.sessionRef,
   fileId: "session-file-id",
 });
 // transcription = { ok: true, transcription: { status, text, ... } }
@@ -1074,11 +1080,11 @@ const usage = await listUsageEntries(this.ctx, {
 });
 
 this.register(subscribeUsageEvents(this.ctx, (entry, meta) => {
-  this.ctx.log.info("new usage", entry.requestId, meta.sessionPath);
+  this.ctx.log.info("new usage", entry.requestId, meta.sessionId, meta.sessionPath);
 }));
 ```
 
-底层能力名是 `usage:list`，实时事件名是 `llm_usage`。受限插件没有 `usage.read` 时，宿主会拒绝请求，并过滤全局订阅里的 `llm_usage` 事件。
+底层能力名是 `usage:list`，实时事件名是 `llm_usage`。`meta.sessionId` 是稳定身份，`meta.sessionPath` 只是当前 locator / 旧插件兼容字段。受限插件没有 `usage.read` 时，宿主会拒绝请求，并过滤全局订阅里的 `llm_usage` 事件。
 
 ### 动态工具注册 ⚡ full-access
 
@@ -1261,24 +1267,25 @@ https://raw.githubusercontent.com/liliMozi/OH-Plugins/main/marketplace.json
 
 Hana 支持多 session / 多 agent 并行运行。插件开发时需注意：
 
-- 所有针对已有 session 的 EventBus 事件（`session:get`、`session:update`、`session:send`、`session:abort`、`session:history` 等）必须携带 `sessionPath` 参数，用于标识目标 session
-- 工具（tool）通过 `toolCtx.sessionPath` 获取当前 session 路径
+- 所有针对已有 session 的 EventBus 事件（`session:get`、`session:update`、`session:send`、`session:abort`、`session:history` 等）必须携带 `sessionId` 或 `sessionRef`，用于标识目标 session；`sessionPath` 只保留为旧插件兼容输入
+- 工具（tool）通过 `toolCtx.sessionId` / `toolCtx.sessionRef` 获取当前 session 身份；`toolCtx.sessionPath` 是当前 locator，不要把它当持久身份
 - 不要使用 `engine.currentSessionPath` 或 `engine.currentAgentId`（这些是 UI 焦点指针，不代表当前执行的 session）
 
 ```js
-// 正确：显式指定 sessionPath
+// 正确：显式指定 sessionId / sessionRef
 await bus.request("session:send", {
   text: "你好",
-  sessionPath: "/path/to/session.jsonl",
+  sessionId: toolCtx.sessionId,
+  sessionRef: toolCtx.sessionRef,
   context: {
     beforeUser: "插件本轮 RAG / 世界观上下文",
   },
 });
 
 await bus.request("session:abort", {
-  sessionPath: "/path/to/session.jsonl",
+  sessionId: toolCtx.sessionId,
 });
 
-// 错误：省略 sessionPath，在并发场景下会定位到错误的 session
+// 错误：省略 session 身份，在并发场景下无法定位目标 session
 await bus.request("session:send", { text: "你好" });
 ```

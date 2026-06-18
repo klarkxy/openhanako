@@ -73,6 +73,51 @@ describe("workflow tool", () => {
     });
   });
 
+  it("派出后台任务时用 parentSessionId 作为内部运行时归属，sessionPath 只作 locator", async () => {
+    const store = makeStore();
+    const runStore = makeRunStore();
+    const upserts = [];
+    const hub = { upsert: vi.fn((e) => { upserts.push({ ...e }); return e; }) };
+    const exec = vi.fn(async () => ({ replyText: "bug", error: null }));
+    const tool = createWorkflowTool({
+      executeIsolated: exec,
+      getAgentId: () => "a1",
+      emitEvent: () => {},
+      getSessionIdForPath: (sessionPath) => sessionPath === "/s.jsonl" ? "sess_parent" : null,
+      getDeferredStore: () => store,
+      getSubagentRunStore: () => runStore,
+      getActivityHub: () => hub,
+    });
+
+    const res = await tool.execute(
+      "c1",
+      { script: META + `return await agent('x')` },
+      undefined,
+      undefined,
+      makeCtx(),
+    ) as any;
+    await flush();
+
+    expect(store.defer).toHaveBeenCalledWith(
+      res.details.taskId,
+      { sessionId: "sess_parent", sessionPath: "/s.jsonl" },
+      expect.objectContaining({ type: "workflow", summary: "demo" }),
+    );
+    expect(runStore.register).toHaveBeenCalledWith(
+      res.details.taskId,
+      expect.objectContaining({ parentSessionId: "sess_parent", parentSessionPath: "/s.jsonl" }),
+    );
+    expect(hub.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      id: res.details.taskId,
+      sessionId: "sess_parent",
+      sessionPath: "/s.jsonl",
+    }));
+    expect((exec.mock.calls[0] as any)[1]).toMatchObject({
+      parentSessionId: "sess_parent",
+      parentSessionPath: "/s.jsonl",
+    });
+  });
+
   it("脚本头非法时同步返回 toolError，不派后台任务", async () => {
     const store = makeStore();
     const tool = createWorkflowTool({
@@ -266,7 +311,7 @@ describe("workflow tool", () => {
     }));
   });
 
-  it("节点 done 从 UsageLedger 按 childSessionPath 汇总 token 写入子 entry", async () => {
+  it("节点 done 从 UsageLedger 按 childSessionId 汇总 token 写入子 entry", async () => {
     const store = makeStore();
     const upserts = [];
     const hub = {
@@ -278,21 +323,26 @@ describe("workflow tool", () => {
       },
     };
     const ledger = {
-      list: ({ childSessionPath }) => ({
-        entries: childSessionPath === "/child.jsonl"
+      list: ({ childSessionId }) => ({
+        entries: childSessionId === "sess_child"
           ? [{ usage: { totalTokens: 1000 } }, { usage: { totalTokens: 234 } }]
           : [],
       }),
     };
     const tool = createWorkflowTool({
-      executeIsolated: async (p, o) => { o.onSessionReady?.("/child.jsonl"); return { replyText: "x", error: null }; },
+      executeIsolated: async (p, o) => {
+        o.onSessionReady?.("/child-moved.jsonl", { sessionId: "sess_child", sessionPath: "/child-moved.jsonl" });
+        return { replyText: "x", error: null };
+      },
       getAgentId: () => "a1", emitEvent: () => {},
+      getSessionIdForPath: (sessionPath) => sessionPath === "/s.jsonl" ? "sess_parent" : null,
       getDeferredStore: () => store, getSubagentRunStore: () => makeRunStore(),
       getActivityHub: () => hub, getUsageLedger: () => ledger,
     });
     const res = await tool.execute("c1", { script: META + `return await agent('x')` }, undefined, undefined, makeCtx()) as any;
     await flush();
     const childId = `${res.details.taskId}::node-1`;
+    expect(upserts.find((e) => e.id === childId && e.childSessionId === "sess_child")).toBeTruthy();
     const done = upserts.find((e) => e.id === childId && e.status === "done");
     expect(done.tokens).toBe(1234); // 1000 + 234
   });

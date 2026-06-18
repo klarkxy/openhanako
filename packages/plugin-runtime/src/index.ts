@@ -9,9 +9,23 @@ export interface HanaToolResult {
   details?: Record<string, unknown>;
 }
 
+export interface HanaSessionRef {
+  sessionId: string;
+  sessionPath?: string | null;
+  legacySessionPath?: string | null;
+}
+
+export type HanaSessionTarget = string | HanaSessionRef | {
+  sessionId?: string | null;
+  sessionPath?: string | null;
+  path?: string | null;
+  legacySessionPath?: string | null;
+};
+
 export interface HanaSessionFile {
   id?: string | null;
   fileId?: string | null;
+  sessionId?: string | null;
   sessionPath?: string | null;
   filePath?: string;
   realPath?: string;
@@ -99,6 +113,7 @@ export interface HanaExecutionBoundary {
 export interface HanaSessionFileMediaItem {
   type: 'session_file';
   fileId: string;
+  sessionId?: string | null;
   sessionPath?: string | null;
   filePath?: string;
   label?: string;
@@ -145,6 +160,9 @@ export interface HanaToolContext {
   dataDir: string;
   capabilities?: string[];
   sensitiveCapabilities?: string[];
+  sessionId?: string | null;
+  sessionRef?: HanaSessionRef | null;
+  /** @deprecated Use sessionId/sessionRef. Kept for legacy plugins. */
   sessionPath?: string | null;
   bus: HanaEventBus;
   network: HanaPluginNetwork;
@@ -322,6 +340,8 @@ export interface HanaPluginConfigStore {
 export interface HanaPluginConfigScopeOptions {
   scope?: 'global' | 'per-agent' | 'per-session';
   agentId?: string;
+  sessionId?: string;
+  /** @deprecated Use sessionId. Kept for legacy config scopes. */
   sessionPath?: string;
 }
 
@@ -402,6 +422,9 @@ export interface HanaAgentUpdateInput {
 export interface HanaModelSampleInput {
   systemPrompt?: string;
   messages: Array<{ role: string; content: unknown }>;
+  sessionId?: string;
+  sessionRef?: HanaSessionRef;
+  /** @deprecated Use sessionId/sessionRef. */
   sessionPath?: string;
   agentId?: string;
   temperature?: number;
@@ -435,6 +458,9 @@ export interface HanaMediaDelivery {
 }
 
 export interface HanaGenerateImageInput {
+  sessionId?: string;
+  sessionRef?: HanaSessionRef;
+  /** @deprecated Use sessionId/sessionRef. */
   sessionPath?: string;
   prompt: string;
   count?: number;
@@ -455,6 +481,9 @@ export interface HanaGenerateImageInput {
 }
 
 export interface HanaGenerateVideoInput {
+  sessionId?: string;
+  sessionRef?: HanaSessionRef;
+  /** @deprecated Use sessionId/sessionRef. */
   sessionPath?: string;
   prompt: string;
   image?: HanaGenerateImageReference | HanaGenerateImageReference[] | string;
@@ -477,6 +506,9 @@ export interface HanaGenerateMediaInput {
   kind?: 'image' | 'video' | 'audio' | 'image_generation' | 'video_generation' | 'speech_recognition' | 'asr' | 'transcription' | string;
   type?: string;
   mediaKind?: string;
+  sessionId?: string;
+  sessionRef?: HanaSessionRef;
+  /** @deprecated Use sessionId/sessionRef. */
   sessionPath?: string;
   fileId?: string;
   prompt?: string;
@@ -497,7 +529,10 @@ export interface HanaGenerateMediaInput {
 }
 
 export interface HanaTranscribeAudioInput {
-  sessionPath: string;
+  sessionId?: string;
+  sessionRef?: HanaSessionRef;
+  /** @deprecated Use sessionId/sessionRef. */
+  sessionPath?: string;
   fileId: string;
   language?: string;
   providerId?: string;
@@ -567,12 +602,12 @@ export interface HanaNormalizedUsage {
 }
 
 export type HanaUsageAttribution =
-  | { kind: 'session'; agentId: string | null; sessionPath: string }
-  | { kind: 'phone_conversation'; agentId: string; conversationId: string; conversationType: 'channel' | 'dm'; sessionPath?: string | null }
+  | { kind: 'session'; agentId: string | null; sessionId?: string | null; sessionPath?: string | null }
+  | { kind: 'phone_conversation'; agentId: string; conversationId: string; conversationType: 'channel' | 'dm'; sessionId?: string | null; sessionPath?: string | null }
   | { kind: 'memory'; agentId: string | null }
   | { kind: 'automation'; jobId?: string | null; runId?: string | null; agentId?: string | null }
-  | { kind: 'plugin'; pluginId: string; agentId?: string | null; sessionPath?: string | null }
-  | { kind: 'utility'; agentId?: string | null; sessionPath?: string | null }
+  | { kind: 'plugin'; pluginId: string; agentId?: string | null; sessionId?: string | null; sessionPath?: string | null }
+  | { kind: 'utility'; agentId?: string | null; sessionId?: string | null; sessionPath?: string | null }
   | { kind: 'unknown' };
 
 export interface HanaUsageSource {
@@ -583,12 +618,14 @@ export interface HanaUsageSource {
   actor?: {
     kind: 'session' | 'phone_conversation' | 'automation' | 'plugin' | 'subagent' | 'unknown' | string;
     agentId?: string | null;
+    sessionId?: string | null;
     sessionPath?: string | null;
     taskId?: string | null;
     [key: string]: unknown;
   };
   parent?: {
     kind: 'session' | 'phone_conversation' | 'automation' | 'plugin' | 'unknown' | string;
+    sessionId?: string;
     sessionPath?: string;
     conversationId?: string;
     conversationType?: 'channel' | 'dm';
@@ -624,6 +661,7 @@ export interface HanaUsageListFilter {
   since?: string;
   until?: string;
   attributionKind?: string;
+  sessionId?: string;
   sessionPath?: string;
   agentId?: string;
   subsystem?: string;
@@ -640,7 +678,9 @@ export interface HanaUsageListResult {
 }
 
 export interface HanaUsageEventMeta {
+  sessionId?: string | null;
   sessionPath?: string | null;
+  sessionRef?: HanaSessionRef | null;
 }
 
 export interface HanaPluginLogger {
@@ -692,6 +732,10 @@ export interface HanaPluginContext {
   dataDir: string;
   capabilities?: string[];
   sensitiveCapabilities?: string[];
+  sessionId?: string | null;
+  sessionRef?: HanaSessionRef | null;
+  /** @deprecated Use sessionId/sessionRef. Kept for legacy plugins. */
+  sessionPath?: string | null;
   bus: HanaEventBus;
   network: HanaPluginNetwork;
   config: HanaPluginConfigStore;
@@ -868,9 +912,11 @@ function withContextMetadata(
   ctx: { pluginId?: string | null },
   context: HanaSessionTurnContext | null | undefined,
 ): HanaSessionTurnContext | null | undefined {
-  if (!context) return context;
   const pluginId = pluginIdFromContext(ctx);
   if (!pluginId) return context;
+  if (!context) {
+    return { metadata: { pluginId } };
+  }
   return {
     ...context,
     metadata: {
@@ -878,6 +924,39 @@ function withContextMetadata(
       ...(context.metadata || {}),
     },
   };
+}
+
+function textOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizeSessionTarget(target: HanaSessionTarget): Record<string, unknown> {
+  if (typeof target === 'string') return { sessionPath: target };
+  if (!target || typeof target !== 'object') return { sessionPath: target as unknown };
+
+  const sessionId = textOrNull((target as any).sessionId);
+  const sessionPath = textOrNull((target as any).sessionPath) || textOrNull((target as any).path);
+  const legacySessionPath = textOrNull((target as any).legacySessionPath);
+  if (!sessionId) {
+    return sessionPath ? { sessionPath } : {};
+  }
+
+  const sessionRef: HanaSessionRef = {
+    sessionId,
+    ...(sessionPath ? { sessionPath } : {}),
+    ...(legacySessionPath ? { legacySessionPath } : {}),
+  };
+  return {
+    sessionId,
+    ...(sessionPath ? { sessionPath } : {}),
+    ...(legacySessionPath ? { legacySessionPath } : {}),
+    sessionRef,
+  };
+}
+
+function sessionRefFromTarget(target: HanaSessionTarget): HanaSessionRef | null {
+  const payload = normalizeSessionTarget(target);
+  return (payload.sessionRef as HanaSessionRef | undefined) || null;
 }
 
 export function createSession(
@@ -890,10 +969,10 @@ export function createSession(
 
 export function getSession(
   ctx: { bus?: Pick<HanaEventBus, 'request'> | null },
-  sessionPath: string,
+  target: HanaSessionTarget,
   options?: Record<string, unknown>,
 ): Promise<unknown> {
-  return requestBus(ctx, 'session:get', { sessionPath }, options);
+  return requestBus(ctx, 'session:get', normalizeSessionTarget(target), options);
 }
 
 export function listSessions(
@@ -906,37 +985,50 @@ export function listSessions(
 
 export function updateSession(
   ctx: { pluginId?: string | null; bus?: Pick<HanaEventBus, 'request'> | null },
-  sessionPath: string,
+  target: HanaSessionTarget,
   patch: HanaSessionUpdateInput,
   options?: Record<string, unknown>,
 ): Promise<unknown> {
-  return requestBus(ctx, 'session:update', { sessionPath, ...withOwnerPlugin(ctx, { ...patch }) }, options);
+  return requestBus(ctx, 'session:update', {
+    ...normalizeSessionTarget(target),
+    ...withOwnerPlugin(ctx, { ...patch }),
+  }, options);
 }
 
 export function sendSessionMessage(
   ctx: { pluginId?: string | null; bus?: Pick<HanaEventBus, 'request'> | null },
-  sessionPath: string,
+  target: HanaSessionTarget,
   input: HanaSessionSendInput,
   options?: Record<string, unknown>,
 ): Promise<unknown> {
   return requestBus(ctx, 'session:send', {
+    ...normalizeSessionTarget(target),
     ...input,
-    sessionPath,
     context: withContextMetadata(ctx, input.context),
   }, options);
 }
 
 export function subscribeSessionEvents(
   ctx: { bus?: Pick<HanaEventBus, 'subscribe'> | null },
-  sessionPath: string,
-  handler: (event: unknown, meta: { sessionPath: string | null }) => void,
+  target: HanaSessionTarget,
+  handler: (event: unknown, meta: { sessionId: string | null; sessionPath: string | null; sessionRef: HanaSessionRef | null }) => void,
 ): () => void {
   if (!ctx.bus || typeof ctx.bus.subscribe !== 'function') {
     throw new Error('plugin bus subscribe unavailable');
   }
+  const filter = normalizeSessionTarget(target);
+  const targetRef = sessionRefFromTarget(target);
   return ctx.bus.subscribe((event, scopedSessionPath) => {
-    handler(event, { sessionPath: scopedSessionPath || null });
-  }, { sessionPath });
+    const eventSessionId = event && typeof event === 'object' ? textOrNull((event as any).sessionId) : null;
+    const sessionId = eventSessionId || targetRef?.sessionId || null;
+    const sessionPath = scopedSessionPath || targetRef?.sessionPath || null;
+    const sessionRef = sessionId ? {
+      sessionId,
+      ...(sessionPath ? { sessionPath } : {}),
+      ...(targetRef?.legacySessionPath ? { legacySessionPath: targetRef.legacySessionPath } : {}),
+    } : null;
+    handler(event, { sessionId, sessionPath, sessionRef });
+  }, filter);
 }
 
 export function listAgents(
@@ -1070,7 +1162,26 @@ export function subscribeUsageEvents(
     if (!event || typeof event !== 'object') return;
     const typed = event as { type?: unknown; entry?: unknown };
     if (typed.type !== 'llm_usage') return;
-    handler(typed.entry as HanaUsageLedgerEntry, { sessionPath });
+    const entry = typed.entry as HanaUsageLedgerEntry;
+    const entrySessionId =
+      textOrNull((entry as any)?.attribution?.sessionId)
+      || textOrNull((entry as any)?.source?.actor?.sessionId)
+      || textOrNull((entry as any)?.source?.parent?.sessionId);
+    const entrySessionPath =
+      textOrNull((entry as any)?.attribution?.sessionPath)
+      || textOrNull((entry as any)?.source?.actor?.sessionPath)
+      || textOrNull((entry as any)?.source?.parent?.sessionPath)
+      || textOrNull(sessionPath);
+    handler(entry, {
+      ...(entrySessionId ? { sessionId: entrySessionId } : {}),
+      sessionPath: entrySessionPath,
+      ...(entrySessionId ? {
+        sessionRef: {
+          sessionId: entrySessionId,
+          ...(entrySessionPath ? { sessionPath: entrySessionPath } : {}),
+        },
+      } : {}),
+    });
   }, { types: ['llm_usage'] });
 }
 
@@ -1136,6 +1247,7 @@ export function sessionFileToMediaItem(file: HanaSessionFile): HanaSessionFileMe
     type: 'session_file',
     fileId,
   };
+  assignDefined(item, 'sessionId', file.sessionId);
   assignDefined(item, 'sessionPath', file.sessionPath);
   assignDefined(item, 'filePath', file.filePath);
   assignDefined(item, 'label', firstText(file.label, file.displayName, file.filename));

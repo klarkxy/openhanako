@@ -18,6 +18,8 @@ import { useStore } from '../../stores';
 import type { ChatListItem, ChatMessage } from '../../stores/chat-types';
 
 const PATH = '/test/session.jsonl';
+const MOVED_PATH = '/test/moved-session.jsonl';
+const SESSION_ID = 'sess_stream_buffer';
 
 function userItem(id: string, text: string): ChatListItem {
   return { type: 'message', data: { id, role: 'user', text } };
@@ -25,6 +27,11 @@ function userItem(id: string, text: string): ChatListItem {
 
 function getItems(): ChatListItem[] {
   return useStore.getState().chatSessions[PATH]?.items ?? [];
+}
+
+function sessionScopedItems(sessionPath: string): ChatListItem[] {
+  const state: any = useStore.getState();
+  return state.chatSessions[SESSION_ID]?.items ?? state.chatSessions[sessionPath]?.items ?? [];
 }
 
 function lastRole(): string | undefined {
@@ -45,7 +52,14 @@ function getThinkingBlock() {
 describe('streamBufferManager.snapshot', () => {
   beforeEach(() => {
     streamBufferManager.clearAll();
+    useStore.setState({
+      currentSessionId: null,
+      currentSessionPath: null,
+      sessions: [],
+      sessionLocatorsById: {},
+    } as never);
     useStore.getState().clearSession(PATH);
+    useStore.getState().clearSession(MOVED_PATH);
     useStore.getState().initSession(PATH, [userItem('u1', 'hi')], false);
   });
 
@@ -98,7 +112,14 @@ describe('streamBufferManager.snapshot', () => {
 describe('streamBufferManager.thinking 流式刷新', () => {
   beforeEach(() => {
     streamBufferManager.clearAll();
+    useStore.setState({
+      currentSessionId: null,
+      currentSessionPath: null,
+      sessions: [],
+      sessionLocatorsById: {},
+    } as never);
     useStore.getState().clearSession(PATH);
+    useStore.getState().clearSession(MOVED_PATH);
     useStore.getState().initSession(PATH, [userItem('u1', 'hi')], false);
   });
 
@@ -128,7 +149,14 @@ describe('streamBufferManager.thinking 流式刷新', () => {
 describe('streamBufferManager.ensureMessage 自愈', () => {
   beforeEach(() => {
     streamBufferManager.clearAll();
+    useStore.setState({
+      currentSessionId: null,
+      currentSessionPath: null,
+      sessions: [],
+      sessionLocatorsById: {},
+    } as never);
     useStore.getState().clearSession(PATH);
+    useStore.getState().clearSession(MOVED_PATH);
     useStore.getState().initSession(PATH, [userItem('u1', 'hi')], false);
   });
 
@@ -171,6 +199,75 @@ describe('streamBufferManager.ensureMessage 自愈', () => {
     if (last.type !== 'message') throw new Error('expected assistant message');
     expect(last.data.id).toBe(assistantId);
     expect(last.data.blocks?.some((block: { type: string }) => block.type === 'tool_group')).toBe(true);
+  });
+
+  it('keeps in-flight turn state attached to sessionId when the session path moves', () => {
+    useStore.setState({
+      sessions: [{
+        path: PATH,
+        sessionId: SESSION_ID,
+        agentId: 'owner',
+        title: null,
+        firstMessage: '',
+        modified: '',
+        messageCount: 0,
+      }],
+      sessionLocatorsById: { [SESSION_ID]: { path: PATH } },
+      currentSessionId: SESSION_ID,
+      currentSessionPath: PATH,
+    } as never);
+
+    streamBufferManager.handle({
+      type: 'text_delta',
+      sessionId: SESSION_ID,
+      sessionPath: PATH,
+      delta: 'first',
+    });
+    const firstAssistantItem = sessionScopedItems(PATH)
+      .find((item) => item.type === 'message' && item.data.role === 'assistant');
+    expect(firstAssistantItem?.type).toBe('message');
+    if (firstAssistantItem?.type !== 'message') throw new Error('expected first assistant message');
+    const firstAssistant = firstAssistantItem.data;
+    expect(firstAssistant?.blocks?.find((block) => block.type === 'text')).toMatchObject({
+      type: 'text',
+      source: 'first',
+    });
+
+    useStore.setState((state: any) => ({
+      sessions: state.sessions.map((session: any) => (
+        session.sessionId === SESSION_ID ? { ...session, path: MOVED_PATH } : session
+      )),
+      sessionLocatorsById: { [SESSION_ID]: { path: MOVED_PATH } },
+      currentSessionId: SESSION_ID,
+      currentSessionPath: MOVED_PATH,
+    }) as never);
+    useStore.getState().initSession(MOVED_PATH, [
+      userItem('u1', 'hi'),
+      { type: 'message', data: firstAssistant! },
+    ], true);
+
+    streamBufferManager.handle({
+      type: 'text_delta',
+      sessionId: SESSION_ID,
+      sessionPath: MOVED_PATH,
+      delta: ' second',
+    });
+
+    expect(snapshotStreamBuffer(MOVED_PATH)?.text).toBe('first second');
+    expect(snapshotStreamBuffer(PATH)?.text).toBe('first second');
+    streamBufferManager.finishTurn(MOVED_PATH, SESSION_ID);
+
+    const movedItems = sessionScopedItems(MOVED_PATH);
+    const movedAssistant = movedItems.find((item) => item.type === 'message' && item.data.role === 'assistant');
+    expect(movedAssistant?.type).toBe('message');
+    if (movedAssistant?.type !== 'message') throw new Error('expected moved assistant message');
+    expect(movedAssistant.data.id).toBe(firstAssistant?.id);
+    expect(movedAssistant.data.blocks?.find((block) => block.type === 'text')).toMatchObject({
+      type: 'text',
+      source: 'first second',
+    });
+    expect(snapshotStreamBuffer(MOVED_PATH)).toBeNull();
+    expect(snapshotStreamBuffer(PATH)).toBeNull();
   });
 
   it('tool_end 有调用 ID 时只闭合对应的同名工具', () => {

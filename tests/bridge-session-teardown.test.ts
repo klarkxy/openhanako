@@ -1184,6 +1184,42 @@ describe("BridgeSessionManager teardown", () => {
     });
   });
 
+  it("caches bridge context by sessionId when the manifest resolver can provide it", () => {
+    const agent = makeAgent(rootDir);
+    const beforePath = path.join(agent.sessionDir, "bridge", "owner", "before.jsonl");
+    const afterPath = path.join(agent.sessionDir, "bridge", "owner", "after.jsonl");
+    const manager = new BridgeSessionManager({
+      ...makeDeps(agent),
+      getSessionIdForPath: vi.fn((sessionPath) => (
+        sessionPath === beforePath || sessionPath === afterPath
+          ? "sess_bridge_stable"
+          : null
+      )),
+    });
+
+    manager._rememberBridgeContext(beforePath, {
+      isBridgeSession: true,
+      platform: "wechat",
+      chatType: "dm",
+      role: "owner",
+      sessionKey: "wx_dm_stable@agent-a",
+      agentId: "agent-a",
+      userId: "wx-user",
+      chatId: "wx-user",
+    });
+
+    expect(manager._bridgeContextsBySessionIdentity.has("id:sess_bridge_stable")).toBe(true);
+    expect(manager._bridgeContextsBySessionIdentity.has(`path:${path.resolve(beforePath)}`)).toBe(false);
+    expect(manager._bridgeContextsBySessionIdentity.has(path.resolve(beforePath))).toBe(false);
+    expect(manager.getBridgeContextForSessionPath(afterPath, { agentId: "agent-a" })).toMatchObject({
+      isBridgeSession: true,
+      platform: "wechat",
+      chatType: "dm",
+      role: "owner",
+      sessionKey: "wx_dm_stable@agent-a",
+    });
+  });
+
   it("owner bridge tools follow the master memory switch instead of session memory state", async () => {
     const agent = makeAgent(rootDir) as any;
     agent.memoryMasterEnabled = true;

@@ -82,6 +82,62 @@ describe("createPluginContext", () => {
     });
   });
 
+  it("exposes session identity from runtime scope and lets staged files inherit it", () => {
+    const bus = { emit() {}, subscribe() {}, request() {}, hasHandler() {} };
+    const registerSessionFile = vi.fn((entry) => ({
+      id: "sf_plugin_output",
+      ...entry,
+      filename: "generated.png",
+      status: "available",
+    }));
+    const ctx = createPluginContext({
+      pluginId: "identity-plugin",
+      pluginDir: "/plugins/identity-plugin",
+      dataDir: "/plugin-data/identity-plugin",
+      bus,
+      registerSessionFile,
+      runtimeContext: {
+        serverId: "server_scope",
+        userId: "user_scope",
+        studioId: "studio_scope",
+        sessionId: "sess_plugin_ctx",
+        sessionPath: "/sessions/current.jsonl",
+        sessionRef: {
+          sessionId: "sess_plugin_ctx",
+          sessionPath: "/sessions/current.jsonl",
+          legacySessionPath: "/sessions/legacy.jsonl",
+        },
+      },
+    } as any);
+
+    const staged = ctx.stageFile({
+      filePath: "/plugin-data/identity-plugin/generated.png",
+      label: "generated.png",
+    });
+
+    expect(ctx.sessionId).toBe("sess_plugin_ctx");
+    expect(ctx.sessionRef).toEqual({
+      sessionId: "sess_plugin_ctx",
+      sessionPath: "/sessions/current.jsonl",
+      legacySessionPath: "/sessions/legacy.jsonl",
+    });
+    expect(registerSessionFile).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "sess_plugin_ctx",
+      sessionPath: "/sessions/current.jsonl",
+      sessionRef: {
+        sessionId: "sess_plugin_ctx",
+        sessionPath: "/sessions/current.jsonl",
+        legacySessionPath: "/sessions/legacy.jsonl",
+      },
+    }));
+    expect(staged.mediaItem).toMatchObject({
+      type: "session_file",
+      fileId: "sf_plugin_output",
+      sessionId: "sess_plugin_ctx",
+      sessionPath: "/sessions/current.jsonl",
+    });
+  });
+
   it("registers plugin session files with resource content links when runtime scope is available", () => {
     const bus = { emit() {}, subscribe() {}, request() {}, hasHandler() {} };
     const registerSessionFile = vi.fn((entry) => ({

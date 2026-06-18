@@ -8,6 +8,7 @@
 import { memo, useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useStore } from '../../stores';
+import { sessionScopedListIncludes, sessionScopedValue } from '../../stores/session-slice';
 import { loadMoreMessages } from '../../stores/session-actions';
 import { getSelectionCommitAnchorRect, scheduleCaptureChatSelection } from '../../stores/selection-actions';
 import { useContinuousBottomScroll } from '../../hooks/use-continuous-bottom-scroll';
@@ -77,10 +78,10 @@ const TIMELINE_TOP_OFFSET_PX = 76;
 const TIMELINE_HEIGHT_RATIO = 0.5;
 
 const Panel = memo(function Panel({ path, active }: { path: string; active: boolean }) {
-  const items = useStore(s => s.chatSessions[path]?.items || EMPTY_ITEMS);
-  const hasMore = useStore(s => s.chatSessions[path]?.hasMore ?? false);
-  const loadingMore = useStore(s => s.chatSessions[path]?.loadingMore ?? false);
-  const isSessionStreaming = useStore(s => s.streamingSessions.includes(path));
+  const items = useStore(s => sessionScopedValue(s, s.chatSessions, path)?.items || EMPTY_ITEMS);
+  const hasMore = useStore(s => sessionScopedValue(s, s.chatSessions, path)?.hasMore ?? false);
+  const loadingMore = useStore(s => sessionScopedValue(s, s.chatSessions, path)?.loadingMore ?? false);
+  const isSessionStreaming = useStore(s => sessionScopedListIncludes(s, s.streamingSessions, path));
   const sessionAgentId = useStore(s => s.sessions.find(se => se.path === path)?.agentId ?? null);
   const sessionReadOnly = useStore(s => s.sessions.find(se => se.path === path)?.agentDeleted === true);
   const ref = useRef<HTMLDivElement>(null);
@@ -138,7 +139,8 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
       });
       // 触顶加载更多
       if (el.scrollTop < LOAD_MORE_THRESHOLD) {
-        const session = useStore.getState().chatSessions[path];
+        const state = useStore.getState();
+        const session = sessionScopedValue(state, state.chatSessions, path);
         if (session?.hasMore && !session.loadingMore) {
           loadMoreMessages(path);
         }

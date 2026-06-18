@@ -1,5 +1,6 @@
 import { useStore } from '../stores';
 import { hanaFetch } from '../hooks/use-hana-fetch';
+import { sessionIdForPathFromLocatorState, sessionScopedValue } from '../stores/session-slice';
 import { applyAgentIdentity, loadAvatars } from '../stores/agent-actions';
 import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadMessages } from '../stores/session-actions';
@@ -88,6 +89,7 @@ export async function initializeMobileRuntime(principal: MobilePrincipal): Promi
 
   const bootstrapRes = await hanaFetch('/api/mobile/bootstrap');
   const bootstrap = await bootstrapRes.json() as MobileBootstrap;
+  const permissionDefault = await rawJson<{ permissionMode?: SessionPermissionMode }>('/api/preferences/session-permission-default');
   applySyncedAppearancePreferences(bootstrap.appearance);
   applyEditorTypography(bootstrap.editor);
 
@@ -126,6 +128,9 @@ export async function initializeMobileRuntime(principal: MobilePrincipal): Promi
     });
   }
   loadAvatars(bootstrap.avatars);
+  if (isSessionPermissionMode(permissionDefault.permissionMode)) {
+    useStore.getState().setPendingNewSessionPermissionMode(permissionDefault.permissionMode);
+  }
 
   await Promise.all([
     loadModels(),
@@ -146,7 +151,7 @@ export async function loadMobileSessions({
   const res = await hanaFetch('/api/sessions');
   const sessions = await res.json() as Session[];
   const next = Array.isArray(sessions) ? sessions : [];
-  useStore.setState({ sessions: next });
+  useStore.getState().setSessions(next);
 
   const state = useStore.getState();
   const currentStillExists = !!state.currentSessionPath && next.some((session) => session.path === state.currentSessionPath);
@@ -159,7 +164,7 @@ export async function loadMobileSessions({
 
   if (target && target !== state.currentSessionPath) {
     await switchMobileSession(target, targetSession);
-  } else if (target && !useStore.getState().chatSessions[target]) {
+  } else if (target && !sessionScopedValue(useStore.getState(), useStore.getState().chatSessions, target)) {
     syncMobilePermissionMode(targetSession);
     await activateMobileSessionDesk(targetSession);
     await loadMessages(target);
@@ -178,12 +183,24 @@ export async function loadMobileSessions({
   return next;
 }
 
-export async function switchMobileSession(path: string, session?: Pick<Session, 'cwd' | 'permissionMode'> | null): Promise<void> {
-  useStore.setState({
+export async function switchMobileSession(path: string, session?: Pick<Session, 'cwd' | 'permissionMode' | 'sessionId'> | null): Promise<void> {
+  useStore.setState((state) => {
+    const sessionId = typeof session?.sessionId === 'string' && session.sessionId.trim()
+      ? session.sessionId.trim()
+      : sessionIdForPathFromLocatorState(state, path);
+    return {
     currentSessionPath: path,
+    currentSessionId: sessionId,
+    ...(sessionId ? {
+      sessionLocatorsById: {
+        ...state.sessionLocatorsById,
+        [sessionId]: { path },
+      },
+    } : {}),
     pendingSessionSwitchPath: path,
     pendingNewSession: false,
     welcomeVisible: false,
+    };
   });
   syncMobilePermissionMode(session || null);
   try {
@@ -217,6 +234,7 @@ export async function createMobileSession(): Promise<string | null> {
   });
   const data = await res.json() as {
     path?: string;
+    sessionId?: string | null;
     cwd?: string | null;
     workspaceFolders?: string[];
     agentId?: string | null;
@@ -226,6 +244,7 @@ export async function createMobileSession(): Promise<string | null> {
   if (!data.path) return null;
   const patch: Record<string, unknown> = {
     currentSessionPath: data.path,
+    currentSessionId: typeof data.sessionId === 'string' && data.sessionId.trim() ? data.sessionId.trim() : null,
     pendingSessionSwitchPath: null,
     pendingNewSession: false,
     welcomeVisible: false,
@@ -233,6 +252,12 @@ export async function createMobileSession(): Promise<string | null> {
     workspaceFolders: Array.isArray(data.workspaceFolders) ? data.workspaceFolders : [],
     selectedAgentId: null,
   };
+  if (patch.currentSessionId) {
+    patch.sessionLocatorsById = {
+      ...useStore.getState().sessionLocatorsById,
+      [patch.currentSessionId as string]: { path: data.path },
+    };
+  }
   if (data.agentId) {
     patch.currentAgentId = data.agentId;
     if (data.agentName) patch.agentName = data.agentName;
