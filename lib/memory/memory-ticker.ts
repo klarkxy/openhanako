@@ -18,7 +18,10 @@ import {
   compileWeek,
   compileLongterm,
   compileFacts,
+  compileEditableFacts,
   assemble,
+  editableFactsPath,
+  ensureEditableFactsBaseline,
 } from "./compile.ts";
 import { processDirtySessions } from "./deep-memory.ts";
 import { getLogicalDay } from "../time-utils.ts";
@@ -57,7 +60,8 @@ const CACHE_SNAPSHOT_PREVIEW_LIMIT = 16_000;
  * @param {function} [opts.getMemoryMasterEnabled] - 返回 agent 级别记忆总开关状态
  * @param {(sessionPath: string) => boolean} [opts.isSessionMemoryEnabled] - 返回指定 session 的记忆状态
  * @param {function} [opts.getTimezone] - 返回用户配置时区
- * @param {function} [opts.getCacheSnapshotReflectionMode] - 返回 off / shadow / write
+   * @param {function} [opts.getCacheSnapshotReflectionMode] - 返回 off / shadow / write
+   * @param {function} [opts.getEditableMemoryEnabled] - 返回可编辑 Facts 实验开关
  * @param {string} [opts.agentId] - 当前 agent id，用于实验观察产物归属
  * @param {string} [opts.agentDir] - 当前 agent 数据目录，用于实验观察产物落盘
  */
@@ -79,8 +83,10 @@ export function createMemoryTicker(opts) {
     isSessionMemoryEnabled,
     getTimezone,
     getCacheSnapshotReflectionMode,
+    getEditableMemoryEnabled,
     memoryReflectionRunner,
     buildSessionCacheSnapshot,
+    ensureSessionLoaded,
     getSessionStreamFn,
     getSessionIdForPath,
     memoryDir = path.dirname(memoryMdPath),
@@ -106,6 +112,14 @@ export function createMemoryTicker(opts) {
   const _getCacheSnapshotReflectionMode = () => {
     const mode = String(getCacheSnapshotReflectionMode?.() || "off");
     return CACHE_SNAPSHOT_REFLECTION_MODES.has(mode) ? mode : "off";
+  };
+  const _isEditableMemoryOn = () => getEditableMemoryEnabled?.() === true;
+  const _factsSourcePath = () => {
+    if (!_isEditableMemoryOn()) return factsMdPath;
+    ensureEditableFactsBaseline(memoryDir, summaryManager, {
+      seedFactsPath: factsMdPath,
+    });
+    return editableFactsPath(memoryDir);
   };
   const _createSourceTimeRangeResolver = () => {
     const filesById = new Map(
@@ -274,6 +288,29 @@ export function createMemoryTicker(opts) {
     return /snapshot/i.test(message) && /unknown session/i.test(message);
   }
 
+  async function _buildSessionCacheSnapshotWithRecovery(sessionPath, options) {
+    try {
+      return buildSessionCacheSnapshot(sessionPath, options);
+    } catch (err) {
+      if (!_isRecoverableSessionSnapshotUnavailable(err) || typeof ensureSessionLoaded !== "function") {
+        throw err;
+      }
+      debugLog()?.warn?.(
+        "memory",
+        `cache snapshot runtime missing for ${path.basename(sessionPath)}; loading session before retry`,
+      );
+      try {
+        await ensureSessionLoaded(sessionPath);
+        return buildSessionCacheSnapshot(sessionPath, options);
+      } catch (retryErr) {
+        if (_isRecoverableSessionSnapshotUnavailable(retryErr)) throw retryErr;
+        const wrapped: any = new Error(`Session cache snapshot unavailable after runtime recovery: ${retryErr?.message || retryErr}`);
+        wrapped.cause = retryErr;
+        throw wrapped;
+      }
+    }
+  }
+
   async function _runSessionSnapshotMemoryReflection({
     sessionPath,
     sessionId,
@@ -302,7 +339,7 @@ export function createMemoryTicker(opts) {
         throw new Error("buildSessionCacheSnapshot is required for session snapshot reflection");
       }
 
-      const snapshot = buildSessionCacheSnapshot(sessionPath, {
+      const snapshot = await _buildSessionCacheSnapshotWithRecovery(sessionPath, {
         reason: "memory.reflection",
         messages,
       });
@@ -490,7 +527,7 @@ export function createMemoryTicker(opts) {
     try {
       const resetAt = _getCompiledResetAt();
       await compileToday(summaryManager, todayMdPath, getResolvedMemoryModel(), { since: resetAt });
-      assemble(factsMdPath, todayMdPath, weekMdPath, longtermMdPath, memoryMdPath);
+      assemble(_factsSourcePath(), todayMdPath, weekMdPath, longtermMdPath, memoryMdPath);
       onCompiled?.();
       debugLog()?.log("memory", "today compiled + assembled");
       _markSuccess("compileToday");
@@ -564,7 +601,14 @@ export function createMemoryTicker(opts) {
       // Step 3: compileFacts（独立于 step 1-2）
       if (!_dailyStepsCompleted.has("compileFacts")) {
         try {
-          await compileFacts(summaryManager, factsMdPath, getResolvedMemoryModel(), { since: resetAt });
+          if (_isEditableMemoryOn()) {
+            await compileEditableFacts(summaryManager, editableFactsPath(memoryDir), getResolvedMemoryModel(), {
+              since: resetAt,
+              seedFactsPath: factsMdPath,
+            });
+          } else {
+            await compileFacts(summaryManager, factsMdPath, getResolvedMemoryModel(), { since: resetAt });
+          }
           _dailyStepsCompleted.add("compileFacts");
           _markSuccess("compileFacts");
           _markStepRecovered("compileFacts");
@@ -577,7 +621,7 @@ export function createMemoryTicker(opts) {
 
       // Step 4: assemble（纯文件操作，用已有的 .md 文件组装，总是执行）
       try {
-        assemble(factsMdPath, todayMdPath, weekMdPath, longtermMdPath, memoryMdPath);
+        assemble(_factsSourcePath(), todayMdPath, weekMdPath, longtermMdPath, memoryMdPath);
         onCompiled?.();
       } catch (err) {
         hasFailed = true;

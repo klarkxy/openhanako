@@ -82,6 +82,7 @@ describe('MobileApp', () => {
     })));
     MockWebSocket.instances = [];
     document.documentElement.removeAttribute('data-platform');
+    delete window.__hanaMobileUpdateAvailable;
     resetStoreForMobileTest();
     window.t = ((key: string) => key) as typeof window.t;
     window.i18n = {
@@ -102,6 +103,7 @@ describe('MobileApp', () => {
 
   afterEach(() => {
     cleanup();
+    delete window.__hanaMobileUpdateAvailable;
     vi.restoreAllMocks();
   });
 
@@ -301,6 +303,31 @@ describe('MobileApp', () => {
       act(() => {
         window.dispatchEvent(new Event('hana-mobile-update-available'));
       });
+
+      expect(await screen.findByText('mobile.update.available')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'mobile.update.reload' }));
+
+      expect(applyUpdate).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('hana-mobile-apply-update', applyUpdate);
+    }
+  });
+
+  it('keeps a PWA update notice that arrives before the mobile shell is ready', async () => {
+    const applyUpdate = vi.fn();
+    window.addEventListener('hana-mobile-apply-update', applyUpdate);
+    window.__hanaMobileUpdateAvailable = true;
+    fetchMock.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/web-auth/session')) {
+        return Promise.resolve(jsonResponse({ authenticated: true, principal: principal(['chat', 'resources.read', 'files.read', 'files.write']) }));
+      }
+      return Promise.resolve(jsonResponse(jsonResponseForMobile(url, options)));
+    });
+
+    try {
+      render(<MobileApp />);
+      await waitForMobileChatReady();
 
       expect(await screen.findByText('mobile.update.available')).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'mobile.update.reload' }));

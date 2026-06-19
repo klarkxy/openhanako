@@ -25,6 +25,10 @@ describe("session manifest migration checkpoint", () => {
     return fullPath;
   }
 
+  function linkDirectory(target, linkPath) {
+    fs.symlinkSync(target, linkPath, process.platform === "win32" ? "junction" : "dir");
+  }
+
   it("copies migration-owned data roots and writes a rollback receipt", () => {
     writeHomeFile("agents/hana/sessions/alpha.jsonl", "session");
     writeHomeFile("session-files/sess_alpha/file.txt", "file");
@@ -68,7 +72,7 @@ describe("session manifest migration checkpoint", () => {
     ]);
   });
 
-  it("restores checkpoint data and moves aside the current manifest database", () => {
+  it("restores checkpoint data and moves aside the current manifest database files", () => {
     const sessionPath = writeHomeFile("agents/hana/sessions/alpha.jsonl", "before");
     const checkpoint = createSessionManifestCheckpoint({
       hanaHome,
@@ -77,6 +81,8 @@ describe("session manifest migration checkpoint", () => {
     });
     fs.writeFileSync(sessionPath, "after");
     fs.writeFileSync(path.join(hanaHome, "session-manifest.db"), "broken-db");
+    fs.writeFileSync(path.join(hanaHome, "session-manifest.db-wal"), "broken-wal");
+    fs.writeFileSync(path.join(hanaHome, "session-manifest.db-shm"), "broken-shm");
 
     const result = restoreSessionManifestCheckpoint({
       checkpointDirectory: checkpoint.directory,
@@ -91,6 +97,43 @@ describe("session manifest migration checkpoint", () => {
     ));
     expect(fs.readFileSync(result.movedManifestDbTo, "utf-8")).toBe("broken-db");
     expect(fs.existsSync(path.join(hanaHome, "session-manifest.db"))).toBe(false);
+    expect(result.movedManifestFiles).toEqual([
+      {
+        from: path.join(hanaHome, "session-manifest.db"),
+        to: path.join(hanaHome, "session-manifest.db.rollback-2026-06-18T02-02-00-000Z"),
+      },
+      {
+        from: path.join(hanaHome, "session-manifest.db-wal"),
+        to: path.join(hanaHome, "session-manifest.db-wal.rollback-2026-06-18T02-02-00-000Z"),
+      },
+      {
+        from: path.join(hanaHome, "session-manifest.db-shm"),
+        to: path.join(hanaHome, "session-manifest.db-shm.rollback-2026-06-18T02-02-00-000Z"),
+      },
+    ]);
+    expect(fs.readFileSync(path.join(hanaHome, "session-manifest.db-wal.rollback-2026-06-18T02-02-00-000Z"), "utf-8")).toBe("broken-wal");
+    expect(fs.readFileSync(path.join(hanaHome, "session-manifest.db-shm.rollback-2026-06-18T02-02-00-000Z"), "utf-8")).toBe("broken-shm");
+    expect(fs.existsSync(path.join(hanaHome, "session-manifest.db-wal"))).toBe(false);
+    expect(fs.existsSync(path.join(hanaHome, "session-manifest.db-shm"))).toBe(false);
     expect(fs.existsSync(path.join(checkpoint.directory, "checkpoint.json"))).toBe(true);
+  });
+
+  it("preserves linked directories inside migration checkpoints", () => {
+    const realAgentDir = path.join(hanaHome, "real-hana-agent");
+    const linkedAgentDir = path.join(hanaHome, "agents", "hana");
+    fs.mkdirSync(path.join(realAgentDir, "sessions"), { recursive: true });
+    fs.mkdirSync(path.dirname(linkedAgentDir), { recursive: true });
+    fs.writeFileSync(path.join(realAgentDir, "sessions", "alpha.jsonl"), "session");
+    linkDirectory(realAgentDir, linkedAgentDir);
+
+    const checkpoint = createSessionManifestCheckpoint({
+      hanaHome,
+      appVersion: "0.0.0-test",
+      createdAt: "2026-06-18T02:03:00.000Z",
+    });
+
+    const copiedLink = path.join(checkpoint.directory, "agents", "hana");
+    expect(fs.lstatSync(copiedLink).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync.native(copiedLink)).toBe(fs.realpathSync.native(realAgentDir));
   });
 });

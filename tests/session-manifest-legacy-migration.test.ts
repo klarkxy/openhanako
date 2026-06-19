@@ -37,6 +37,27 @@ describe("session manifest legacy migration", () => {
     return { sessionDir, sessionPath };
   }
 
+  function linkDirectory(target, linkPath) {
+    fs.symlinkSync(target, linkPath, process.platform === "win32" ? "junction" : "dir");
+  }
+
+  function insertConflictingHistoryLocator(firstPath, secondSessionId) {
+    const locatorPath = fs.realpathSync.native(firstPath);
+    const locatorKey = process.platform === "win32"
+      ? locatorPath.toLocaleLowerCase("en-US")
+      : locatorPath;
+    store.db.prepare(`
+      INSERT INTO session_locator_history (
+        session_id,
+        locator_type,
+        locator_path,
+        locator_key,
+        reason,
+        created_at
+      ) VALUES (?, 'jsonl', ?, ?, 'test_conflict', '2026-06-18T03:01:00.000Z')
+    `).run(secondSessionId, locatorPath, locatorKey);
+  }
+
   it("creates manifests for active and archived legacy sessions with sidecar semantics", () => {
     const active = writeSession("hana", "active.jsonl");
     const archived = writeSession("hana", "old.jsonl", { archived: true });
@@ -129,5 +150,65 @@ describe("session manifest legacy migration", () => {
     expect(second).toEqual({ scanned: 1, created: 0, existing: 1, skipped: 0 });
     expect(store.resolveByLocatorPath(active.sessionPath)?.sessionId).toBe("sess_migrate_0001");
     expect(store.list()).toHaveLength(1);
+  });
+
+  it("scans legacy sessions through symlinked agent directories", () => {
+    const realAgentDir = path.join(hanaHome, "real-hana-agent");
+    const linkedAgentDir = path.join(hanaHome, "agents", "hana");
+    fs.mkdirSync(path.join(realAgentDir, "sessions"), { recursive: true });
+    fs.mkdirSync(path.dirname(linkedAgentDir), { recursive: true });
+    linkDirectory(realAgentDir, linkedAgentDir);
+    const logicalSessionPath = path.join(linkedAgentDir, "sessions", "linked.jsonl");
+    fs.writeFileSync(path.join(realAgentDir, "sessions", "linked.jsonl"), `${JSON.stringify({
+      type: "session",
+      id: "linked",
+      timestamp: "2026-06-18T03:00:00.000Z",
+    })}\n`);
+
+    const result = migrateLegacySessions({ hanaHome, store, migratedAt: "2026-06-18T03:02:00.000Z" });
+
+    expect(result).toEqual({ scanned: 1, created: 1, existing: 0, skipped: 0 });
+    expect(store.resolveByLocatorPath(logicalSessionPath)).toMatchObject({
+      sessionId: "sess_migrate_0001",
+      ownerAgentId: "hana",
+      currentLocator: {
+        path: path.resolve(logicalSessionPath),
+      },
+    });
+  });
+
+  it("skips a conflicted locator without aborting the whole legacy migration", () => {
+    const first = writeSession("hana", "first.jsonl");
+    const second = writeSession("hana", "second.jsonl");
+    const firstManifest = store.createForPath({ sessionPath: first.sessionPath, ownerAgentId: "hana" });
+    const secondManifest = store.createForPath({ sessionPath: second.sessionPath, ownerAgentId: "hana" });
+    insertConflictingHistoryLocator(first.sessionPath, secondManifest.sessionId);
+
+    const result = migrateLegacySessions({ hanaHome, store, migratedAt: "2026-06-18T03:02:00.000Z" });
+
+    expect(result).toEqual({ scanned: 2, created: 0, existing: 1, skipped: 1 });
+    expect(store.getBySessionId(firstManifest.sessionId)?.sessionId).toBe(firstManifest.sessionId);
+    expect(store.getBySessionId(secondManifest.sessionId)?.sessionId).toBe(secondManifest.sessionId);
+  });
+
+  it("repairs realpath locator paths back to the app-facing legacy path during rescan", () => {
+    const realSessionsDir = path.join(hanaHome, "real-sessions");
+    const logicalSessionsDir = path.join(hanaHome, "agents", "hana", "sessions");
+    fs.mkdirSync(realSessionsDir, { recursive: true });
+    fs.mkdirSync(path.dirname(logicalSessionsDir), { recursive: true });
+    linkDirectory(realSessionsDir, logicalSessionsDir);
+    const realSessionPath = path.join(realSessionsDir, "alpha.jsonl");
+    const logicalSessionPath = path.join(logicalSessionsDir, "alpha.jsonl");
+    fs.writeFileSync(realSessionPath, `${JSON.stringify({
+      type: "session",
+      id: "alpha",
+      timestamp: "2026-06-18T03:00:00.000Z",
+    })}\n`);
+    const existing = store.createForPath({ sessionPath: realSessionPath, ownerAgentId: "hana" });
+
+    const result = migrateLegacySessions({ hanaHome, store, migratedAt: "2026-06-18T03:02:00.000Z" });
+
+    expect(result).toEqual({ scanned: 1, created: 0, existing: 1, skipped: 0 });
+    expect(store.getBySessionId(existing.sessionId)?.currentLocator.path).toBe(path.resolve(logicalSessionPath));
   });
 });

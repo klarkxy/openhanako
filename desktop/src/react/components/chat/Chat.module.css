@@ -2222,6 +2222,10 @@
     pointer-events: auto;
 }
 
+.timelineNavExpanded .timelineCard {
+    pointer-events: auto;
+}
+
 .timelineNavExpanded .timelineLabel {
     opacity: 1;
 }

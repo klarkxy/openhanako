@@ -1,6 +1,11 @@
 import fs from "fs";
 import path from "path";
+import {
+  readDirectoryLikeDirentsSync,
+  readFileLikePathsSync,
+} from "../../shared/link-aware-fs.ts";
 import { normalizeSessionPermissionMode } from "../session-permission-mode.ts";
+import { normalizeSessionLocatorPath } from "./path-normalizer.ts";
 
 function readJsonFile(filePath, fallback = {}) {
   try {
@@ -12,9 +17,7 @@ function readJsonFile(filePath, fallback = {}) {
 
 function listDirectories(directory) {
   try {
-    return fs.readdirSync(directory, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
+    return readDirectoryLikeDirentsSync(directory).map((entry) => entry.name);
   } catch {
     return [];
   }
@@ -22,9 +25,7 @@ function listDirectories(directory) {
 
 function listJsonlFiles(directory) {
   try {
-    return fs.readdirSync(directory, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-      .map((entry) => path.join(directory, entry.name));
+    return readFileLikePathsSync(directory, { extension: ".jsonl" });
   } catch {
     return [];
   }
@@ -128,6 +129,13 @@ function buildLegacyManifestInput({
   };
 }
 
+function repairExistingLocatorIfNeeded(store, existing, sessionPath) {
+  if (!existing?.sessionId) return existing;
+  const expectedPath = normalizeSessionLocatorPath(sessionPath);
+  if (existing.currentLocator?.path === expectedPath) return existing;
+  return store.updateLocator(existing.sessionId, sessionPath, "legacy_scan_repair");
+}
+
 export function migrateLegacySessions(opts: any = {}) {
   if (!opts.hanaHome) throw new Error("migrateLegacySessions requires hanaHome");
   if (!opts.store) throw new Error("migrateLegacySessions requires store");
@@ -149,13 +157,14 @@ export function migrateLegacySessions(opts: any = {}) {
 
     for (const row of sessionRows) {
       result.scanned += 1;
-      const existing = opts.store.resolveByLocatorPath(row.sessionPath);
-      if (existing) {
-        result.existing += 1;
-        continue;
-      }
-
       try {
+        const existing = opts.store.resolveByLocatorPath(row.sessionPath);
+        if (existing) {
+          repairExistingLocatorIfNeeded(opts.store, existing, row.sessionPath);
+          result.existing += 1;
+          continue;
+        }
+
         opts.store.createForPath(buildLegacyManifestInput({
           agentId,
           sessionDir,
@@ -175,4 +184,3 @@ export function migrateLegacySessions(opts: any = {}) {
 
   return result;
 }
-

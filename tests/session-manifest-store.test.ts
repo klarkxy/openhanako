@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SESSION_MANIFEST_DB_USER_VERSION,
   SessionManifestStore,
@@ -37,6 +37,10 @@ describe("SessionManifestStore", () => {
     return sessionPath;
   }
 
+  function linkDirectory(target, linkPath) {
+    fs.symlinkSync(target, linkPath, process.platform === "win32" ? "junction" : "dir");
+  }
+
   it("creates one durable session identity for a session file path", () => {
     const sessionPath = createSessionFile("alpha");
 
@@ -48,7 +52,7 @@ describe("SessionManifestStore", () => {
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.domain).toBe("home");
     expect(manifest.kind).toBe("chat");
-    expect(manifest.currentLocator.path).toBe(fs.realpathSync.native(sessionPath));
+    expect(manifest.currentLocator.path).toBe(path.resolve(sessionPath));
     expect(manifest.currentLocator.key).toBe(sessionLocatorKey(sessionPath));
     expect(manifest.memoryPolicy).toEqual({ mode: "inherit", inheritedFrom: "agent_default" });
     expect(manifest.permissionModeSnapshot.mode).toBe("ask");
@@ -61,13 +65,13 @@ describe("SessionManifestStore", () => {
     const oldPath = createSessionFile("move-before");
     const nextPath = path.join(tmpDir, "archive", "move-after.jsonl");
     const manifest = store.createForPath({ sessionPath: oldPath, domain: "home" });
-    const oldLocatorPath = fs.realpathSync.native(oldPath);
+    const oldLocatorPath = path.resolve(oldPath);
     fs.mkdirSync(path.dirname(nextPath), { recursive: true });
     fs.renameSync(oldPath, nextPath);
 
     const moved = store.updateLocator(manifest.sessionId, nextPath, "archive");
 
-    expect(moved.currentLocator.path).toBe(fs.realpathSync.native(nextPath));
+    expect(moved.currentLocator.path).toBe(path.resolve(nextPath));
     expect(moved.currentLocator.reason).toBe("archive");
     expect(store.resolveByLocatorPath(oldPath)?.sessionId).toBe(manifest.sessionId);
     expect(store.resolveByLocatorPath(nextPath)?.sessionId).toBe(manifest.sessionId);
@@ -127,9 +131,25 @@ describe("SessionManifestStore", () => {
     );
 
     expect(store.resolveByLocatorPath(firstPath)?.sessionId).toBe(first.sessionId);
-    expect(store.getBySessionId(second.sessionId)?.currentLocator.path).toBe(
-      fs.realpathSync.native(secondPath),
-    );
+    expect(store.getBySessionId(second.sessionId)?.currentLocator.path).toBe(path.resolve(secondPath));
+  });
+
+  it("keeps the app-facing locator path when a session is reached through a symlinked directory", () => {
+    const realSessionsDir = path.join(tmpDir, "external-sessions");
+    const logicalSessionsDir = path.join(tmpDir, "agents", "hana", "sessions");
+    fs.mkdirSync(realSessionsDir, { recursive: true });
+    fs.mkdirSync(path.dirname(logicalSessionsDir), { recursive: true });
+    linkDirectory(realSessionsDir, logicalSessionsDir);
+    const realSessionPath = path.join(realSessionsDir, "linked.jsonl");
+    const logicalSessionPath = path.join(logicalSessionsDir, "linked.jsonl");
+    fs.writeFileSync(realSessionPath, "");
+
+    const manifest = store.createForPath({ sessionPath: logicalSessionPath, domain: "desktop" });
+
+    expect(manifest.currentLocator.path).toBe(path.resolve(logicalSessionPath));
+    expect(manifest.currentLocator.key).toBe(sessionLocatorKey(realSessionPath));
+    expect(store.resolveByLocatorPath(realSessionPath)?.sessionId).toBe(manifest.sessionId);
+    expect(store.resolveByLocatorPath(logicalSessionPath)?.sessionId).toBe(manifest.sessionId);
   });
 
   it("persists migration state in the manifest database", () => {
@@ -146,5 +166,27 @@ describe("SessionManifestStore", () => {
       completedAt: "2026-06-18T00:01:00.000Z",
       result: { scanned: 1, created: 1, existing: 0, skipped: 0 },
     });
+  });
+
+  it("closes a partially opened database when initialization fails", () => {
+    const dbPath = path.join(tmpDir, "broken-init.db");
+    const close = vi.fn();
+    class FailingDatabase {
+      declare close: () => void;
+
+      constructor(filePath: string) {
+        expect(filePath).toBe(dbPath);
+        this.close = close;
+      }
+
+      pragma() {
+        throw new Error("file is not a database");
+      }
+    }
+
+    expect(() => new SessionManifestStore({ dbPath, Database: FailingDatabase })).toThrow(
+      "file is not a database",
+    );
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });

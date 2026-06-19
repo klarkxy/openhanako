@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../../stores';
 import { subscribeWorkspaceChanges } from '../../services/workspace-change-events';
+import {
+  PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+  refreshOpenPreviewDocumentsForFilePath,
+} from '../../utils/preview-document-refresh';
 import type { WorkspaceChangePayload } from '../../types';
 
 function normalizeDirectoryPath(value: string): string {
@@ -130,6 +134,10 @@ export function WorkspaceFileWatchBridge() {
     const subdir = workspaceSubdirForAffectedDirectory(state.deskBasePath, payload);
     if (subdir == null) return;
     state.markDeskTreeDirty(subdir);
+    void refreshOpenPreviewDocumentsForFilePath(
+      payload.changedPath,
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+    );
   }), []);
 
   return null;

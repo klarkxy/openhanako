@@ -118,17 +118,27 @@ export class SessionManifestStore {
     fs.mkdirSync(path.dirname(opts.dbPath), { recursive: true });
     const Database = opts.Database || loadBetterSqliteDatabase();
     this.db = new Database(opts.dbPath);
-    this._now = opts.now || (() => new Date().toISOString());
-    this._idGenerator = opts.idGenerator || (() => generateSessionId());
+    try {
+      this._now = opts.now || (() => new Date().toISOString());
+      this._idGenerator = opts.idGenerator || (() => generateSessionId());
 
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("synchronous = NORMAL");
-    this.db.pragma("cache_size = -16000");
-    this.db.pragma("temp_store = MEMORY");
-    this.db.pragma("mmap_size = 30000000");
-    this._initSchema();
-    this._migrate();
-    this._prepareStatements();
+      this.db.pragma("journal_mode = WAL");
+      this.db.pragma("synchronous = NORMAL");
+      this.db.pragma("cache_size = -16000");
+      this.db.pragma("temp_store = MEMORY");
+      this.db.pragma("mmap_size = 30000000");
+      this._initSchema();
+      this._migrate();
+      this._prepareStatements();
+    } catch (error) {
+      try {
+        this.db?.close?.();
+      } catch {
+        // Keep the original initialization error; cleanup failure is secondary.
+      }
+      this.db = null;
+      throw error;
+    }
   }
 
   _initSchema() {
@@ -359,7 +369,9 @@ export class SessionManifestStore {
   createForPath(input) {
     const locator = this._locatorFromPath(input.sessionPath);
     const existing = this._findByLocator(locator.key);
-    if (existing) return existing;
+    if (existing) {
+      return this._repairCurrentLocatorForSameKey(existing, locator, input.locatorReason || "create");
+    }
 
     const createdAt = this._now();
     const memoryPolicy = defaultMemoryPolicy(input.memoryPolicy);
@@ -370,7 +382,9 @@ export class SessionManifestStore {
 
     return this.db.transaction(() => {
       const conflict = this._findByLocator(locator.key);
-      if (conflict) return conflict;
+      if (conflict) {
+        return this._repairCurrentLocatorForSameKey(conflict, locator, input.locatorReason || "create");
+      }
 
       const sessionId = this._generateUniqueSessionId();
       this._stmts.insertManifest.run({
@@ -427,7 +441,7 @@ export class SessionManifestStore {
       }
 
       if (manifest.currentLocator.key === nextLocator.key) {
-        return manifest;
+        return this._repairCurrentLocatorForSameKey(manifest, nextLocator, reason);
       }
 
       this._assertLocatorAvailable(nextLocator.key, sessionId);
@@ -549,8 +563,29 @@ export class SessionManifestStore {
     return {
       type: "jsonl",
       path: locatorPath,
-      key: sessionLocatorKey(locatorPath),
+      key: sessionLocatorKey(sessionPath),
     };
+  }
+
+  _repairCurrentLocatorForSameKey(manifest, locator, reason = "repair") {
+    if (!manifest || manifest.currentLocator?.key !== locator.key) return manifest;
+    if (
+      manifest.currentLocator.path === locator.path
+      && manifest.currentLocator.type === locator.type
+    ) {
+      return manifest;
+    }
+    const updatedAt = this._now();
+    this._stmts.updateLocator.run({
+      sessionId: manifest.sessionId,
+      currentLocatorType: locator.type,
+      currentLocatorPath: locator.path,
+      currentLocatorKey: locator.key,
+      currentLocatorReason: reason,
+      locatorUpdatedAt: updatedAt,
+      updatedAt,
+    });
+    return this.getBySessionId(manifest.sessionId);
   }
 
   _findByLocator(locatorKey) {

@@ -3,6 +3,9 @@
  *
  * 覆盖：apply 签名、toggle boolean 转换、agent null guard
  */
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { loadLocale } from "../lib/i18n.ts";
 
@@ -20,6 +23,10 @@ function makeMockPrefs( initial: any = {}) {
     setLocale(v) { store.locale = v; },
     getTimezone: () => store.timezone || "",
     setTimezone(v) { store.timezone = v; },
+    getExperimentValue: vi.fn((id) => store.experiments?.[id]),
+    setExperimentValue: vi.fn((id, value) => {
+      store.experiments = { ...(store.experiments || {}), [id]: value };
+    }),
     getBridgeMediaPublicBaseUrl: () => store.bridge?.mediaPublicBaseUrl || "",
     setBridgeMediaPublicBaseUrl(v) {
       store.bridge = { ...(store.bridge || {}), mediaPublicBaseUrl: v };
@@ -109,6 +116,25 @@ describe("update-settings-tool", () => {
       emitEvent: vi.fn(),
     });
     return { tool, engine, confirmStore };
+  }
+
+  function makeMemoryAgent(agentId = "agent-test") {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hana-update-settings-memory-"));
+    const agentDir = path.join(root, agentId);
+    const memoryDir = path.join(agentDir, "memory");
+    fs.mkdirSync(memoryDir, { recursive: true });
+    const agent = {
+      id: agentId,
+      agentDir,
+      memoryMdPath: path.join(memoryDir, "memory.md"),
+      memoryMasterEnabled: true,
+      agentName: "TestAgent",
+      userName: "TestUser",
+      config: { models: { chat: "qwen-plus" } },
+      summaryManager: { getAllSummaries: vi.fn(() => []) },
+      updateConfig: vi.fn(),
+    };
+    return { root, agentDir, memoryDir, agent };
   }
 
   it("apply locale executes directly and returns a settings_update payload without confirmation", async () => {
@@ -414,6 +440,70 @@ describe("update-settings-tool", () => {
       const result = await tool.execute("c6", { action: "search", query: "agent.name" });
       const text = result.content[0].text;
       expect(text).toContain("N/A");
+    });
+  });
+
+  describe("memory.facts editable memory boundary", () => {
+    it("rejects Agent fact edits while the editable memory experiment is disabled", async () => {
+      const { root, memoryDir, agent } = makeMemoryAgent("owner");
+      try {
+        fs.writeFileSync(path.join(memoryDir, "facts.md"), "Legacy facts\n", "utf-8");
+        const { tool } = buildTool({
+          agent,
+          currentAgentId: "owner",
+          getAgent: (agentId) => (agentId === "owner" ? agent : null),
+        });
+
+        const result = await tool.execute("c-memory-facts-disabled", {
+          action: "apply",
+          key: "memory.facts",
+          value: "User likes clean boundaries.",
+        });
+
+        expect(result.details.settingsUpdate).toMatchObject({
+          status: "failed",
+          key: "memory.facts",
+        });
+        expect(fs.existsSync(path.join(memoryDir, "editable-facts.md"))).toBe(false);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("writes editable facts and rebuilds memory.md when the experiment is enabled", async () => {
+      const { root, memoryDir, agent } = makeMemoryAgent("owner");
+      try {
+        fs.writeFileSync(path.join(memoryDir, "facts.md"), "Legacy facts\n", "utf-8");
+        fs.writeFileSync(path.join(memoryDir, "today.md"), "Today stays read-only.\n", "utf-8");
+        fs.writeFileSync(path.join(memoryDir, "week.md"), "Week stays read-only.\n", "utf-8");
+        fs.writeFileSync(path.join(memoryDir, "longterm.md"), "Long-term stays read-only.\n", "utf-8");
+        const { tool } = buildTool({
+          agent,
+          currentAgentId: "owner",
+          getAgent: (agentId) => (agentId === "owner" ? agent : null),
+          prefsData: { experiments: { "memory.editable_facts": true } },
+        });
+
+        const result = await tool.execute("c-memory-facts-enabled", {
+          action: "apply",
+          key: "memory.facts",
+          value: "User likes clean boundaries.",
+        });
+
+        expect(result.details.settingsUpdate).toMatchObject({
+          status: "applied",
+          key: "memory.facts",
+        });
+        expect(fs.readFileSync(path.join(memoryDir, "editable-facts.md"), "utf-8")).toBe("User likes clean boundaries.\n");
+        const compiled = fs.readFileSync(path.join(memoryDir, "memory.md"), "utf-8");
+        expect(compiled).toContain("## Key facts");
+        expect(compiled).toContain("User likes clean boundaries.");
+        expect(compiled).toContain("Today stays read-only.");
+        expect(compiled).toContain("Week stays read-only.");
+        expect(compiled).toContain("Long-term stays read-only.");
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
     });
   });
 

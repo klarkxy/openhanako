@@ -65,6 +65,7 @@ describe('Mobile PWA entry split', () => {
 
     expect(entrySource).toContain('hana-mobile-update-available');
     expect(entrySource).toContain('hana-mobile-apply-update');
+    expect(entrySource).toContain('__hanaMobileUpdateAvailable');
     expect(entrySource).toContain('updatefound');
     expect(entrySource).toContain('controllerchange');
     expect(entrySource).toContain('registration.update()');

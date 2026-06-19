@@ -45,6 +45,9 @@ declare global {
     // ── Notification bridge ──
     showNotification?: (title: string, body: string, agentId?: string | null, options?: DesktopNotificationOptions) => void;
 
+    // ── Mobile PWA update latch ──
+    __hanaMobileUpdateAvailable?: boolean;
+
     // ── i18n loader ──
     i18n: {
       locale: string;

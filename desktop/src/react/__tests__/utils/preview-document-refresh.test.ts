@@ -78,6 +78,8 @@ describe('preview document refresh', () => {
     useStore.setState({
       previewItems: [],
       openTabs: [],
+      deskBasePath: '',
+      deskWorkspaceMountId: null,
     } as Partial<StoreState>);
   });
 
@@ -130,6 +132,73 @@ describe('preview document refresh', () => {
     expect(mocks.refreshPreviewItemsFromRemoteWorkbenchTarget).toHaveBeenCalledWith(
       sharedRemote,
       PREVIEW_DOCUMENT_CATCH_UP_REFRESH_OPTIONS,
+    );
+  });
+
+  it('falls back to open preview documents when a change target does not match an open preview identity', async () => {
+    const openRemote = remoteRef('open.md');
+    useStore.setState({
+      previewItems: [
+        remoteItem('open-remote', openRemote),
+      ],
+      openTabs: ['open-remote'],
+    } as Partial<StoreState>);
+    const {
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+      refreshPreviewDocumentTarget,
+    } = await import('../../utils/preview-document-refresh');
+
+    await refreshPreviewDocumentTarget({ kind: 'local-file', filePath: '/tmp/open.md' });
+
+    expect(mocks.refreshPreviewItemsFromFile).toHaveBeenCalledWith(
+      '/tmp/open.md',
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+    );
+    expect(mocks.refreshPreviewItemsFromRemoteWorkbenchTarget).toHaveBeenCalledWith(
+      openRemote,
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+    );
+  });
+
+  it('does not fall back when the target already matches an open preview document', async () => {
+    useStore.setState({
+      previewItems: [
+        localItem('open-local', '/tmp/open.md'),
+        remoteItem('other-remote', remoteRef('other.md')),
+      ],
+      openTabs: ['open-local', 'other-remote'],
+    } as Partial<StoreState>);
+    const { refreshPreviewDocumentTarget } = await import('../../utils/preview-document-refresh');
+
+    await refreshPreviewDocumentTarget({ kind: 'local-file', filePath: '/tmp/open.md' });
+
+    expect(mocks.refreshPreviewItemsFromFile).toHaveBeenCalledTimes(1);
+    expect(mocks.refreshPreviewItemsFromRemoteWorkbenchTarget).not.toHaveBeenCalled();
+  });
+
+  it('refreshes matching open preview documents for an external workspace file change', async () => {
+    const openRemote = remoteRef('note.md', 'default');
+    useStore.setState({
+      deskBasePath: '/workspace',
+      previewItems: [
+        localItem('open-local', '/workspace/notes/local.md'),
+        remoteItem('open-remote', openRemote),
+        remoteItem('unrelated-remote', remoteRef('other.md', 'default')),
+      ],
+      openTabs: ['open-local', 'open-remote', 'unrelated-remote'],
+    } as Partial<StoreState>);
+    const {
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+      refreshOpenPreviewDocumentsForFilePath,
+    } = await import('../../utils/preview-document-refresh');
+
+    await refreshOpenPreviewDocumentsForFilePath('/workspace/notes/note.md');
+
+    expect(mocks.refreshPreviewItemsFromFile).not.toHaveBeenCalled();
+    expect(mocks.refreshPreviewItemsFromRemoteWorkbenchTarget).toHaveBeenCalledTimes(1);
+    expect(mocks.refreshPreviewItemsFromRemoteWorkbenchTarget).toHaveBeenCalledWith(
+      openRemote,
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
     );
   });
 });

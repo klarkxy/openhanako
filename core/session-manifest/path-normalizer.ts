@@ -6,6 +6,14 @@ export function normalizeSessionLocatorPath(sessionPath) {
     throw new Error("session locator path must be a non-empty string");
   }
 
+  return path.resolve(sessionPath);
+}
+
+export function canonicalSessionLocatorPath(sessionPath) {
+  if (typeof sessionPath !== "string" || sessionPath.trim() === "") {
+    throw new Error("session locator path must be a non-empty string");
+  }
+
   const resolved = path.resolve(sessionPath);
   try {
     return fs.realpathSync.native(resolved);
@@ -19,8 +27,8 @@ export function normalizeSessionLocatorPath(sessionPath) {
 }
 
 export function sessionLocatorKey(sessionPath) {
-  const normalized = normalizeSessionLocatorPath(sessionPath);
-  return process.platform === "win32" ? normalized.toLocaleLowerCase("en-US") : normalized;
+  const canonical = canonicalSessionLocatorPath(sessionPath);
+  return process.platform === "win32" ? canonical.toLocaleLowerCase("en-US") : canonical;
 }
 
 function normalizeMissingPathFromExistingParent(resolvedPath) {

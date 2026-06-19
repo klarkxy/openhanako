@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { atomicWriteSync, safeCopyDir } from "../../shared/safe-fs.ts";
+import { moveSessionManifestDbFilesAside } from "./db-files.ts";
 
 export const SESSION_MANIFEST_CHECKPOINT_SCHEMA_VERSION = 1;
 export const SESSION_MANIFEST_CHECKPOINT_KIND = "session-manifest-migration-checkpoint";
@@ -102,15 +103,13 @@ export function restoreSessionManifestCheckpoint(opts: any = {}) {
   const restoreId = sanitizeTimestamp(restoredAt);
   assertDirectoryWritable(hanaHome);
 
-  let movedManifestDbTo = null;
-  const manifestDb = path.join(hanaHome, "session-manifest.db");
-  if (fs.existsSync(manifestDb)) {
-    movedManifestDbTo = path.join(hanaHome, `session-manifest.db.rollback-${restoreId}`);
-    if (fs.existsSync(movedManifestDbTo)) {
-      throw new Error(`Rollback manifest database target already exists: ${movedManifestDbTo}`);
-    }
-    fs.renameSync(manifestDb, movedManifestDbTo);
-  }
+  const movedManifestFiles = moveSessionManifestDbFilesAside({
+    hanaHome,
+    suffix: `rollback-${restoreId}`,
+  });
+  const movedManifestDbTo = movedManifestFiles.find((entry) => (
+    path.basename(entry.from) === "session-manifest.db"
+  ))?.to || null;
 
   for (const entry of receipt.includes || []) {
     if (!entry?.exists) continue;
@@ -124,7 +123,7 @@ export function restoreSessionManifestCheckpoint(opts: any = {}) {
     hanaHome,
     restoredAt,
     movedManifestDbTo,
+    movedManifestFiles,
     restored: (receipt.includes || []).filter((entry) => entry?.exists).map((entry) => entry.name),
   };
 }
-

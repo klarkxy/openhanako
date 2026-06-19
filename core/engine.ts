@@ -110,6 +110,10 @@ import { SessionCoordinator } from "./session-coordinator.ts";
 import { SessionManifestResolver } from "./session-manifest/resolver.ts";
 import { SessionManifestStore } from "./session-manifest/store.ts";
 import { ensureLegacySessionManifestMigration } from "./session-manifest/startup-migration.ts";
+import {
+  moveSessionManifestDbFilesAside,
+  sanitizeSessionManifestFileSuffix,
+} from "./session-manifest/db-files.ts";
 import { ConfigCoordinator, SHARED_MODEL_KEYS } from "./config-coordinator.ts";
 import { ChannelManager } from "./channel-manager.ts";
 import {
@@ -216,6 +220,7 @@ export class HanaEngine {
   declare _sessionManifestMigration: any;
   declare _sessionManifestResolver: any;
   declare _sessionManifestStore: any;
+  declare _sessionManifestStoreRecovery: any;
   declare _sessionProjects: any;
   declare _skills: any;
   declare _slashSystem: any;
@@ -268,12 +273,11 @@ export class HanaEngine {
       managedCacheRoot: path.join(hanakoHome, "session-files"),
       getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
     });
-    this._sessionManifestStore = new SessionManifestStore({
-      dbPath: path.join(hanakoHome, "session-manifest.db"),
-    });
-    this._sessionManifestResolver = new SessionManifestResolver({
-      store: this._sessionManifestStore,
-    });
+    this._sessionManifestStoreRecovery = null;
+    this._sessionManifestStore = this._openSessionManifestStore();
+    this._sessionManifestResolver = this._sessionManifestStore
+      ? new SessionManifestResolver({ store: this._sessionManifestStore })
+      : null;
     this._sessionManifestMigration = this._runSessionManifestStartupMigration();
     this._currentTurnNativeMedia = createCurrentTurnNativeMediaStore();
     this._pluginInstallRecords = new PluginInstallRecords({ hanakoHome });
@@ -847,16 +851,70 @@ export class HanaEngine {
     return this._sessionCoord.createSession(mgr, cwd, mem, model, opts);
   }
   resolveSessionRef(ref, opts = {}) {
+    if (!this._sessionManifestResolver) {
+      const error: any = new Error("Session manifest store is unavailable.");
+      error.code = "session_manifest_unavailable";
+      error.status = 503;
+      throw error;
+    }
     return this._sessionManifestResolver.resolve(ref, opts);
   }
   getSessionManifest(sessionId) {
-    return this._sessionManifestStore.getBySessionId(sessionId);
+    return this._sessionManifestStore?.getBySessionId(sessionId) || null;
   }
   getSessionIdForPath(sessionPath) {
-    return this._sessionManifestResolver.resolveOptional({ sessionPath })?.sessionId || null;
+    if (!this._sessionManifestResolver) return null;
+    try {
+      return this._sessionManifestResolver.resolveOptional({ sessionPath })?.sessionId || null;
+    } catch (error) {
+      moduleLog.warn(`Session manifest lookup failed for ${path.basename(sessionPath || "")}: ${error?.message || error}`);
+      return null;
+    }
+  }
+
+  _openSessionManifestStore() {
+    const dbPath = path.join(this.hanakoHome, "session-manifest.db");
+    try {
+      return new SessionManifestStore({ dbPath });
+    } catch (error) {
+      moduleLog.warn(`Session manifest store open failed: ${error?.message || error}`);
+      let moved = [];
+      try {
+        moved = moveSessionManifestDbFilesAside({
+          hanaHome: this.hanakoHome,
+          suffix: `quarantine-${sanitizeSessionManifestFileSuffix(new Date().toISOString())}`,
+        });
+      } catch (moveError) {
+        moduleLog.warn(`Session manifest quarantine failed: ${moveError?.message || moveError}`);
+        this._sessionManifestStoreRecovery = { status: "unavailable", error, quarantineError: moveError };
+        return null;
+      }
+
+      if (!moved.length) {
+        this._sessionManifestStoreRecovery = { status: "unavailable", error, moved };
+        return null;
+      }
+
+      try {
+        const store = new SessionManifestStore({ dbPath });
+        this._sessionManifestStoreRecovery = { status: "quarantined", error, moved };
+        moduleLog.warn(`Session manifest database quarantined and recreated (${moved.length} files)`);
+        return store;
+      } catch (retryError) {
+        moduleLog.warn(`Session manifest store reopen failed after quarantine: ${retryError?.message || retryError}`);
+        this._sessionManifestStoreRecovery = { status: "unavailable", error: retryError, initialError: error, moved };
+        return null;
+      }
+    }
   }
 
   _runSessionManifestStartupMigration() {
+    if (!this._sessionManifestStore) {
+      return {
+        status: "unavailable",
+        error: this._sessionManifestStoreRecovery?.error || null,
+      };
+    }
     try {
       const result = ensureLegacySessionManifestMigration({
         hanaHome: this.hanakoHome,
@@ -2036,6 +2094,7 @@ export class HanaEngine {
             ...runtimeCtx,
             ...(sessionPath ? { sessionPath } : {}),
             ...(opts.bridgeContext ? { bridgeContext: opts.bridgeContext } : {}),
+            ...(opts.notificationContext ? { notificationContext: opts.notificationContext } : {}),
             agentId,
             ...executionScope,
           };
@@ -2056,6 +2115,7 @@ export class HanaEngine {
           ...runtimeCtx,
           ...(sessionPath ? { sessionPath } : {}),
           ...(opts.bridgeContext ? { bridgeContext: opts.bridgeContext } : {}),
+          ...(opts.notificationContext ? { notificationContext: opts.notificationContext } : {}),
           agentId,
           ...executionScope,
         };

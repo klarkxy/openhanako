@@ -972,7 +972,8 @@
       "compactionSectionDescription": "选择 compact 时优先保护缓存，还是优先兼容历史格式。",
       "modelPersonaTitle": "模型与人格",
       "modelPersonaDescription": "观察不同供应商在 Hana 人格、心境和输出契约上的适配表现。",
-      "memoryTitle": "缓存记忆",
+      "memoryTitle": "记忆实验",
+      "memorySectionDescription": "记忆系统的实验性能力。稳定后会迁移到它真正归属的记忆设置里。",
       "description": "前沿能力会先放在这里观察。稳定后会迁移到它真正归属的设置页。",
       "empty": "暂无可见实验功能",
       "owner": {
@@ -1010,6 +1011,10 @@
         "summaryTitle": "Rolling Summary Preview",
         "emptyPreview": "暂无观察结果",
         "clearObservation": "清除观察结果"
+      },
+      "editableMemory": {
+        "title": "可编辑记忆",
+        "description": "打开后，当下记忆中的 Facts 会拆成可编辑区域；Agent 继续从时间线读取只读摘要。"
       },
       "compaction": {
         "title": "压缩模式",
@@ -1643,6 +1648,15 @@
       "compiledEmpty": "还没有编译过记忆",
       "compiledClear": "清空",
       "compiledCleared": "编译记忆已清空",
+      "editableFactsLabel": "重要事实",
+      "saveFacts": "保存 Facts",
+      "factsSaved": "Facts 已保存",
+      "readonlyTimelineTitle": "时间线记忆",
+      "sections": {
+        "today": "今天",
+        "week": "本周早些时候",
+        "longterm": "长期情况"
+      },
       "health": {
         "healthy": "记忆整理正常",
         "degraded": "记忆整理有延迟",
@@ -3099,6 +3113,11 @@
     "mediaNoDisplayableFiles": "生成结果没有可显示文件"
   },
   "toolDef": {
+    "updateSettings": {
+      "memoryFacts": "记忆 Facts",
+      "memoryFactsDesc": "当前 Agent 的可编辑当下记忆 Facts。需要先打开「可编辑记忆」实验。",
+      "memoryFactsDisabled": "可编辑记忆实验尚未打开。"
+    },
     "generateImage": {
       "description": "根据文字描述生成图片。非阻塞：提交后立即返回，完成后自动显示。",
       "promptDesc": "图片描述（中英文均可）",

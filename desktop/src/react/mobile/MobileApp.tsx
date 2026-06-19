@@ -49,6 +49,7 @@ export function MobileApp(): React.ReactElement {
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [mobileUpdateAvailable, setMobileUpdateAvailable] = useState(() => window.__hanaMobileUpdateAvailable === true);
 
   const bootstrap = useCallback(async () => {
     const session = await readMobileAuthSession();
@@ -78,6 +79,20 @@ export function MobileApp(): React.ReactElement {
       cancelled = true;
     };
   }, [bootstrap]);
+
+  useEffect(() => {
+    const handleUpdateAvailable = () => {
+      window.__hanaMobileUpdateAvailable = true;
+      setMobileUpdateAvailable(true);
+    };
+    if (window.__hanaMobileUpdateAvailable === true) setMobileUpdateAvailable(true);
+    window.addEventListener(MOBILE_UPDATE_AVAILABLE_EVENT, handleUpdateAvailable);
+    return () => window.removeEventListener(MOBILE_UPDATE_AVAILABLE_EVENT, handleUpdateAvailable);
+  }, []);
+
+  const applyMobileUpdate = useCallback(() => {
+    window.dispatchEvent(new Event(MOBILE_APPLY_UPDATE_EVENT));
+  }, []);
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -121,15 +136,23 @@ export function MobileApp(): React.ReactElement {
 
   return (
     <ErrorBoundary region="mobile">
-      <MobileDesktopShell principal={principal} />
+      <MobileDesktopShell
+        principal={principal}
+        mobileUpdateAvailable={mobileUpdateAvailable}
+        onApplyMobileUpdate={applyMobileUpdate}
+      />
     </ErrorBoundary>
   );
 }
 
 function MobileDesktopShell({
   principal,
+  mobileUpdateAvailable,
+  onApplyMobileUpdate,
 }: {
   principal: MobilePrincipal | null;
+  mobileUpdateAvailable: boolean;
+  onApplyMobileUpdate: () => void;
 }) {
   const sidebarOpen = useStore(s => s.sidebarOpen);
   const jianOpen = useStore(s => s.jianOpen);
@@ -144,7 +167,6 @@ function MobileDesktopShell({
   const edgeGestureRef = useRef<MobileEdgeGesture | null>(null);
   const previousWsStateRef = useRef(wsState);
   const t = window.t ?? ((p: string) => p);
-  const [mobileUpdateAvailable, setMobileUpdateAvailable] = useState(false);
 
   const titlebarTitle = useMemo(() => {
     if (pendingNewSession) return t('sidebar.newChat');
@@ -165,12 +187,6 @@ function MobileDesktopShell({
       openSettingsModal(tab);
     });
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
-  }, []);
-
-  useEffect(() => {
-    const handleUpdateAvailable = () => setMobileUpdateAvailable(true);
-    window.addEventListener(MOBILE_UPDATE_AVAILABLE_EVENT, handleUpdateAvailable);
-    return () => window.removeEventListener(MOBILE_UPDATE_AVAILABLE_EVENT, handleUpdateAvailable);
   }, []);
 
   const refreshMobileSessions = useCallback(() => {
@@ -217,10 +233,6 @@ function MobileDesktopShell({
     }
     useStore.setState({ sidebarOpen: false });
     toggleJianSidebar(true);
-  }, []);
-
-  const applyMobileUpdate = useCallback(() => {
-    window.dispatchEvent(new Event(MOBILE_APPLY_UPDATE_EVENT));
   }, []);
 
   const handleTouchStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
@@ -321,7 +333,7 @@ function MobileDesktopShell({
       {mobileUpdateAvailable && (
         <div className="mobile-update-banner" role="status">
           <span>{t('mobile.update.available')}</span>
-          <button type="button" onClick={applyMobileUpdate}>{t('mobile.update.reload')}</button>
+          <button type="button" onClick={onApplyMobileUpdate}>{t('mobile.update.reload')}</button>
         </div>
       )}
       <div className="app mobile-desktop-app">
