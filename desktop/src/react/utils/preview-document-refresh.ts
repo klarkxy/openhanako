@@ -55,7 +55,7 @@ function previewDocumentTargetKey(target: PreviewDocumentTarget): string {
   ].join(':');
 }
 
-function previewDocumentTargetFromItem(item: PreviewItem | undefined | null): PreviewDocumentTarget | null {
+export function previewDocumentTargetFromItem(item: PreviewItem | undefined | null): PreviewDocumentTarget | null {
   if (!item) return null;
   if (isRemoteWorkbenchContentRef(item.remoteContentRef)) {
     return { kind: 'workbench-file', target: item.remoteContentRef };
@@ -80,7 +80,7 @@ function openPreviewDocumentTargetMatches(target: PreviewDocumentTarget): boolea
   return false;
 }
 
-function openPreviewDocumentTargets(): PreviewDocumentTarget[] {
+export function openPreviewDocumentTargets(): PreviewDocumentTarget[] {
   const state = useStore.getState();
   const itemsById = new Map((state.previewItems || []).map(item => [item.id, item]));
   const targets: PreviewDocumentTarget[] = [];
@@ -98,19 +98,41 @@ function openPreviewDocumentTargets(): PreviewDocumentTarget[] {
   return targets;
 }
 
-function filePathForPreviewDocumentTarget(target: PreviewDocumentTarget, state: ReturnType<typeof useStore.getState>): string | null {
+export function filePathForPreviewDocumentTarget(target: PreviewDocumentTarget, state: ReturnType<typeof useStore.getState>): string | null {
   if (target.kind === 'local-file') return target.filePath;
-  const basePath = typeof state.deskBasePath === 'string' ? state.deskBasePath : '';
-  if (!basePath) return null;
 
   const normalized = normalizeWorkbenchContentRef(target.target);
   const targetMountId = normalized.mountId || normalized.rootId || 'default';
-  const activeMountId = typeof state.deskWorkspaceMountId === 'string' && state.deskWorkspaceMountId.trim()
-    ? state.deskWorkspaceMountId.trim()
+  const activeMountIdValue = typeof state.deskWorkspaceMountId === 'string' ? state.deskWorkspaceMountId.trim() : '';
+  const activeMountId = activeMountIdValue
+    ? activeMountIdValue
     : 'default';
   if (targetMountId !== activeMountId) return null;
 
+  const basePath = activeMountIdValue
+    ? (typeof state.deskWorkspaceNativeRoot === 'string' ? state.deskWorkspaceNativeRoot : '')
+    : (typeof state.deskBasePath === 'string' ? state.deskBasePath : '');
+  if (!basePath) return null;
+
   return joinWorkspaceFilePath(basePath, normalized.subdir || '', normalized.name);
+}
+
+export function openPreviewDocumentWatchFilePaths(): string[] {
+  const state = useStore.getState();
+  const targets = openPreviewDocumentTargets();
+  const filePaths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const target of targets) {
+    const filePath = filePathForPreviewDocumentTarget(target, state);
+    if (!filePath) continue;
+    const key = normalizeComparablePath(filePath);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    filePaths.push(filePath);
+  }
+
+  return filePaths.sort((a, b) => normalizeComparablePath(a).localeCompare(normalizeComparablePath(b)));
 }
 
 function openPreviewDocumentTargetsForFilePath(filePath: string): PreviewDocumentTarget[] {

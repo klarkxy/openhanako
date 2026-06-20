@@ -201,4 +201,30 @@ describe('preview document refresh', () => {
       PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
     );
   });
+
+  it('matches mounted workbench preview documents through the native root file path', async () => {
+    const openRemote = remoteRef('note.md', 'mount_docs');
+    useStore.setState({
+      deskBasePath: 'studio:mount_docs',
+      deskWorkspaceMountId: 'mount_docs',
+      deskWorkspaceNativeRoot: '/Users/me/Documents',
+      previewItems: [
+        remoteItem('open-remote', openRemote),
+      ],
+      openTabs: ['open-remote'],
+    } as Partial<StoreState>);
+    const {
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+      refreshOpenPreviewDocumentsForFilePath,
+    } = await import('../../utils/preview-document-refresh');
+
+    await refreshOpenPreviewDocumentsForFilePath('/Users/me/Documents/notes/note.md');
+
+    expect(mocks.refreshPreviewItemsFromFile).not.toHaveBeenCalled();
+    expect(mocks.refreshPreviewItemsFromRemoteWorkbenchTarget).toHaveBeenCalledTimes(1);
+    expect(mocks.refreshPreviewItemsFromRemoteWorkbenchTarget).toHaveBeenCalledWith(
+      openRemote,
+      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+    );
+  });
 });

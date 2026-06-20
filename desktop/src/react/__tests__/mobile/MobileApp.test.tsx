@@ -267,6 +267,8 @@ describe('MobileApp', () => {
 
   it('opens the settings modal from the mobile platform settings event', async () => {
     installMobilePlatform();
+    const onOpenSettingsModal = vi.fn(window.platform?.onOpenSettingsModal?.bind(window.platform));
+    window.platform!.onOpenSettingsModal = onOpenSettingsModal;
     fetchMock.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
       const url = String(input);
       if (url.includes('/api/web-auth/session')) {
@@ -277,6 +279,7 @@ describe('MobileApp', () => {
 
     render(<MobileApp />);
     await waitForMobileChatReady();
+    await waitFor(() => expect(onOpenSettingsModal).toHaveBeenCalled());
 
     act(() => {
       window.platform?.openSettings?.('providers');

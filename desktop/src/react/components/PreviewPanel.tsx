@@ -10,7 +10,7 @@
  * - 独立窗口由下阶段的 viewer spawn 机制负责（单向只读副本），本面板不做 detach/dock
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useStore } from '../stores';
 import { selectPreviewItems, selectActiveTabId, selectMarkdownPreviewIds } from '../stores/preview-slice';
@@ -22,12 +22,7 @@ import { FloatingActions } from './preview/FloatingActions';
 import { clearSelection, getSelectionCommitAnchorRect, scheduleCaptureSelection } from '../stores/selection-actions';
 import type { PreviewItem } from '../types';
 import { isRemoteWorkbenchContentRef, saveRemoteWorkbenchContent } from '../utils/remote-file-preview';
-import { watchFileChanges } from '../services/file-change-events';
-import {
-  PREVIEW_DOCUMENT_CATCH_UP_REFRESH_OPTIONS,
-  PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
-  refreshPreviewDocumentTarget,
-} from '../utils/preview-document-refresh';
+import { OpenPreviewDocumentWatchBridge } from './app/OpenPreviewDocumentWatchBridge';
 import previewStyles from './Preview.module.css';
 
 const EDITABLE_TYPES = new Set(['markdown', 'code', 'csv']);
@@ -63,56 +58,10 @@ function formatMarkdownEditorStatus(stats: PreviewEditorStats): string {
   return translated && translated !== 'preview.markdownEditorStatus' ? translated : fallback;
 }
 
-function watchedPreviewFilePaths(previewItems: PreviewItem[], openTabs: string[]): string[] {
-  const itemsById = new Map(previewItems.map(item => [item.id, item]));
-  const paths = new Set<string>();
-  for (const id of openTabs) {
-    const item = itemsById.get(id);
-    if (!item?.filePath) continue;
-    if (item.storageKind === 'remote-content' || item.remoteContentRef) continue;
-    paths.add(item.filePath);
-  }
-  return [...paths].sort();
-}
-
-function PreviewFileWatchBridge({ previewItems, openTabs }: { previewItems: PreviewItem[]; openTabs: string[] }) {
-  const paths = useMemo(
-    () => watchedPreviewFilePaths(previewItems, openTabs),
-    [previewItems, openTabs],
-  );
-  const subscriptionsRef = useRef<Map<string, () => void>>(new Map());
-
-  useEffect(() => {
-    const nextPaths = new Set(paths);
-    for (const [filePath, unsubscribe] of subscriptionsRef.current) {
-      if (nextPaths.has(filePath)) continue;
-      unsubscribe();
-      subscriptionsRef.current.delete(filePath);
-    }
-
-    for (const filePath of paths) {
-      if (subscriptionsRef.current.has(filePath)) continue;
-      const unsubscribe = watchFileChanges(filePath, (changedPath) => {
-        void refreshPreviewDocumentTarget({ kind: 'local-file', filePath: changedPath }, PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS);
-      });
-      subscriptionsRef.current.set(filePath, unsubscribe);
-      void refreshPreviewDocumentTarget({ kind: 'local-file', filePath }, PREVIEW_DOCUMENT_CATCH_UP_REFRESH_OPTIONS);
-    }
-  }, [paths]);
-
-  useEffect(() => () => {
-    for (const unsubscribe of subscriptionsRef.current.values()) unsubscribe();
-    subscriptionsRef.current.clear();
-  }, []);
-
-  return null;
-}
-
 export function PreviewPanel() {
   const previewOpen = useStore(s => s.previewOpen);
   const activeTabId = useStore(selectActiveTabId);
   const previewItems = useStore(selectPreviewItems);
-  const openTabs = useStore(s => s.openTabs);
   const markdownPreviewIds = useStore(selectMarkdownPreviewIds);
   const [editorStats, setEditorStats] = useState<PreviewEditorStats>({ selectedChars: 0, totalChars: 0 });
 
@@ -179,7 +128,7 @@ export function PreviewPanel() {
       id="previewPanel"
       data-preview-open={previewOpen ? 'true' : 'false'}
     >
-      <PreviewFileWatchBridge previewItems={previewItems} openTabs={openTabs} />
+      <OpenPreviewDocumentWatchBridge />
       <div className="resize-handle resize-handle-left" id="previewResizeHandle"></div>
       <div className={previewStyles.previewPanelInner} data-preview-panel-inner="">
         <TabBar onRefresh={handleManualRefresh} refreshDisabled={!canRefreshFromDisk} />

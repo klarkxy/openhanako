@@ -191,6 +191,43 @@ describe('PreviewPanel markdown editor status', () => {
     });
   });
 
+  it('watches open remote workbench preview files by resolved file path across file types', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    useStore.setState({
+      previewOpen: false,
+      deskBasePath: '/workspace',
+      deskWorkspaceMountId: null,
+      deskWorkspaceNativeRoot: null,
+      previewItems: [{
+        id: 'remote-code',
+        type: 'code',
+        title: 'app.ts',
+        content: 'export const value = 1;\n',
+        ext: 'ts',
+        language: 'ts',
+        storageKind: 'remote-content',
+        remoteContentRef: {
+          kind: 'workbench-file',
+          mountId: 'default',
+          subdir: 'src',
+          name: 'app.ts',
+          contentPath: '/api/workbench/content?mountId=default&subdir=src&name=app.ts',
+        },
+      }],
+      openTabs: ['remote-code'],
+      activeTabId: 'remote-code',
+      markdownPreviewIds: [],
+    } as Partial<StoreState>);
+
+    render(<PreviewPanel />);
+
+    await waitFor(() => {
+      expect(window.platform?.watchFile).toHaveBeenCalledWith('/workspace/src/app.ts');
+    });
+    await Promise.resolve();
+    warnSpy.mockRestore();
+  });
+
   it('keeps retained file watches alive when the open tab set changes', async () => {
     useStore.setState({
       previewOpen: true,

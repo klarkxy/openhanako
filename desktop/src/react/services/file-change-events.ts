@@ -4,6 +4,7 @@ const handlers = new Set<FileChangeHandler>();
 const WATCH_RETRY_DELAYS_MS = [250, 750, 1500, 3000] as const;
 
 interface WatchedFileEntry {
+  filePath: string;
   refCount: number;
   active: boolean;
   attempt: number;
@@ -15,7 +16,9 @@ const watchedFiles = new Map<string, WatchedFileEntry>();
 let attachedApi: typeof window.platform | null = null;
 
 function normalizeFilePath(filePath: string): string {
-  return String(filePath || '').trim();
+  const slashed = String(filePath || '').trim().replace(/\\/g, '/');
+  const normalized = slashed.length > 1 ? slashed.replace(/\/+$/g, '') : slashed;
+  return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized;
 }
 
 function ensureBridgeAttached(): void {
@@ -57,51 +60,52 @@ export function subscribeFileChanges(handler: FileChangeHandler): () => void {
   };
 }
 
-function retainPlatformWatch(filePath: string): void {
-  const current = watchedFiles.get(filePath);
+function retainPlatformWatch(filePath: string, fileKey: string): void {
+  const current = watchedFiles.get(fileKey);
   if (current) {
     current.refCount += 1;
     return;
   }
   const entry: WatchedFileEntry = {
+    filePath,
     refCount: 1,
     active: false,
     attempt: 0,
     token: 0,
     retryTimer: null,
   };
-  watchedFiles.set(filePath, entry);
-  void startPlatformWatch(filePath, entry);
+  watchedFiles.set(fileKey, entry);
+  void startPlatformWatch(fileKey, entry);
 }
 
-function releasePlatformWatch(filePath: string): void {
-  const current = watchedFiles.get(filePath);
+function releasePlatformWatch(fileKey: string): void {
+  const current = watchedFiles.get(fileKey);
   if (!current) return;
   if (current.refCount <= 1) {
-    watchedFiles.delete(filePath);
+    watchedFiles.delete(fileKey);
     if (current.retryTimer) clearTimeout(current.retryTimer);
-    if (current.active) void window.platform?.unwatchFile?.(filePath)?.catch((err: unknown) => {
-      console.warn('[file-change-events] unwatch failed:', filePath, err);
+    if (current.active) void window.platform?.unwatchFile?.(current.filePath)?.catch((err: unknown) => {
+      console.warn('[file-change-events] unwatch failed:', current.filePath, err);
     });
     return;
   }
   current.refCount -= 1;
 }
 
-async function startPlatformWatch(filePath: string, entry: WatchedFileEntry): Promise<void> {
+async function startPlatformWatch(fileKey: string, entry: WatchedFileEntry): Promise<void> {
   const api = window.platform;
   if (!api?.watchFile) return;
   const token = ++entry.token;
   let ok = false;
   try {
-    ok = (await api.watchFile(filePath)) !== false;
+    ok = (await api.watchFile(entry.filePath)) !== false;
   } catch (err) {
-    console.warn('[file-change-events] watch failed:', filePath, err);
+    console.warn('[file-change-events] watch failed:', entry.filePath, err);
   }
 
-  if (watchedFiles.get(filePath) !== entry || entry.token !== token) {
-    if (ok) void api.unwatchFile?.(filePath)?.catch((err: unknown) => {
-      console.warn('[file-change-events] unwatch failed:', filePath, err);
+  if (watchedFiles.get(fileKey) !== entry || entry.token !== token) {
+    if (ok) void api.unwatchFile?.(entry.filePath)?.catch((err: unknown) => {
+      console.warn('[file-change-events] unwatch failed:', entry.filePath, err);
     });
     return;
   }
@@ -112,30 +116,31 @@ async function startPlatformWatch(filePath: string, entry: WatchedFileEntry): Pr
     return;
   }
 
-  schedulePlatformWatchRetry(filePath, entry);
+  schedulePlatformWatchRetry(fileKey, entry);
 }
 
-function schedulePlatformWatchRetry(filePath: string, entry: WatchedFileEntry): void {
-  if (watchedFiles.get(filePath) !== entry) return;
+function schedulePlatformWatchRetry(fileKey: string, entry: WatchedFileEntry): void {
+  if (watchedFiles.get(fileKey) !== entry) return;
   if (entry.retryTimer) clearTimeout(entry.retryTimer);
   const delayMs = WATCH_RETRY_DELAYS_MS[Math.min(entry.attempt, WATCH_RETRY_DELAYS_MS.length - 1)];
   entry.attempt += 1;
   entry.retryTimer = setTimeout(() => {
     entry.retryTimer = null;
-    if (watchedFiles.get(filePath) !== entry) return;
-    void startPlatformWatch(filePath, entry);
+    if (watchedFiles.get(fileKey) !== entry) return;
+    void startPlatformWatch(fileKey, entry);
   }, delayMs);
 }
 
 export function watchFileChanges(filePath: string, handler: FileChangeHandler): () => void {
-  const normalized = normalizeFilePath(filePath);
-  if (!normalized) return () => {};
+  const watchedPath = String(filePath || '').trim();
+  const watchedKey = normalizeFilePath(watchedPath);
+  if (!watchedPath || !watchedKey) return () => {};
 
-  retainPlatformWatch(normalized);
+  retainPlatformWatch(watchedPath, watchedKey);
   const unsubscribe = subscribeFileChanges((changedPath) => {
     const changed = normalizeFilePath(changedPath);
-    if (changed !== normalized) return;
-    handler(changed);
+    if (changed !== watchedKey) return;
+    handler(watchedPath);
   });
 
   let disposed = false;
@@ -143,6 +148,6 @@ export function watchFileChanges(filePath: string, handler: FileChangeHandler): 
     if (disposed) return;
     disposed = true;
     unsubscribe();
-    releasePlatformWatch(normalized);
+    releasePlatformWatch(watchedKey);
   };
 }

@@ -10,6 +10,7 @@ import { configureWsMessageHandler } from '../services/ws-message-handler';
 import { createBrowserServerConnection, upsertServerConnection, type ServerIdentity } from '../services/server-connection';
 import { loadModels } from '../utils/ui-helpers';
 import { applySyncedAppearancePreferences, type SyncedAppearancePreferences } from '../services/appearance-sync';
+import { applyChatLayout } from '../chat/layout';
 import { applyEditorTypography } from '../editor/typography';
 import type { ThinkingLevel } from '../stores/model-slice';
 import type { Agent, Session, SessionPermissionMode } from '../types';
@@ -46,6 +47,7 @@ export interface MobileBootstrap {
   memoryMasterEnabled?: boolean;
   memoryEnabled?: boolean;
   thinkingLevel?: ThinkingLevel;
+  chat?: unknown;
   editor?: unknown;
   avatars?: Record<string, boolean>;
   agents?: Agent[];
@@ -92,6 +94,7 @@ export async function initializeMobileRuntime(principal: MobilePrincipal): Promi
   const permissionDefault = await rawJson<{ permissionMode?: SessionPermissionMode }>('/api/preferences/session-permission-default');
   applySyncedAppearancePreferences(bootstrap.appearance);
   applyEditorTypography(bootstrap.editor);
+  applyChatLayout(bootstrap.chat);
 
   if (window.i18n?.load) {
     await window.i18n.load(bootstrap.locale || 'zh-CN');

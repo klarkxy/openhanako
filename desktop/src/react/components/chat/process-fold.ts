@@ -1,4 +1,5 @@
 import type { ChatListItem, ChatMessage, ContentBlock, ToolCall } from '../../stores/chat-types';
+import { isToolCallHiddenFromProcessUi } from '../../utils/tool-call-visibility';
 
 export interface ProcessFoldStats {
   toolCount: number;
@@ -53,7 +54,7 @@ function isProcessNarrationBlock(block: ContentBlock): block is Extract<ContentB
 }
 
 function visibleToolCalls(block: Extract<ContentBlock, { type: 'tool_group' }>): ToolCall[] {
-  return Array.isArray(block.tools) ? block.tools.filter((tool) => tool.name !== 'subagent') : [];
+  return Array.isArray(block.tools) ? block.tools.filter((tool) => !isToolCallHiddenFromProcessUi(tool)) : [];
 }
 
 function visibleBlocks(message: ChatMessage): ContentBlock[] {

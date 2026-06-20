@@ -9,10 +9,12 @@ export interface MessageFooterAction {
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
   active?: boolean;
+  pressed?: boolean;
 }
 
 interface Props {
   timeText?: string | null;
+  leadingActions?: MessageFooterAction[];
   actions: MessageFooterAction[];
   align?: 'left' | 'right';
   visible?: boolean;
@@ -22,13 +24,14 @@ interface Props {
 
 export const MessageFooterActions = memo(function MessageFooterActions({
   timeText,
+  leadingActions = [],
   actions,
   align = 'right',
   visible = false,
   timePersistent = false,
   testId,
 }: Props) {
-  if (!timeText && actions.length === 0) return null;
+  if (!timeText && leadingActions.length === 0 && actions.length === 0) return null;
 
   return (
     <div
@@ -40,21 +43,30 @@ export const MessageFooterActions = memo(function MessageFooterActions({
       ].filter(Boolean).join(' ')}
       data-testid={testId}
     >
+      {leadingActions.map(action => (
+        <FooterActionButton key={action.id} action={action} />
+      ))}
       {timeText && <span className={styles.messageFooterTime}>{timeText}</span>}
       {actions.map(action => (
-        <button
-          key={action.id}
-          className={`${styles.messageFooterBtn}${action.active ? ` ${styles.messageFooterBtnActive}` : ''}`}
-          onClick={action.onClick}
-          title={action.title}
-          disabled={action.disabled}
-        >
-          {action.icon}
-        </button>
+        <FooterActionButton key={action.id} action={action} />
       ))}
     </div>
   );
 });
+
+function FooterActionButton({ action }: { action: MessageFooterAction }) {
+  return (
+    <button
+      className={`${styles.messageFooterBtn}${action.active ? ` ${styles.messageFooterBtnActive}` : ''}`}
+      onClick={action.onClick}
+      title={action.title}
+      aria-pressed={typeof action.pressed === 'boolean' ? action.pressed : undefined}
+      disabled={action.disabled}
+    >
+      {action.icon}
+    </button>
+  );
+}
 
 export function formatMessageTime(timestamp?: number): string | null {
   if (!timestamp || !Number.isFinite(timestamp)) return null;

@@ -21,6 +21,13 @@ function readEditorTheme(): string {
   );
 }
 
+function readEditorCoverField(): string {
+  return fs.readFileSync(
+    path.join(process.cwd(), 'desktop/src/react/editor/cover-field.ts'),
+    'utf8',
+  );
+}
+
 function readEditorHighlight(): string {
   return fs.readFileSync(
     path.join(process.cwd(), 'desktop/src/react/editor/highlight.ts'),
@@ -40,6 +47,7 @@ describe('editor typography settings', () => {
     expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.heading6FontSize).toBe(14);
     expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.lineHeight).toBe(1.72);
     expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.contentPadding).toBe(24);
+    expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.contentWidth).toBe(720);
   });
 
   it('normalizes partial and invalid values without mutating the defaults', () => {
@@ -50,6 +58,7 @@ describe('editor typography settings', () => {
         heading6FontSize: 80,
         lineHeight: 'wide',
         contentPadding: -12,
+        contentWidth: 960,
         fontPreset: 'comic',
       },
     });
@@ -61,10 +70,12 @@ describe('editor typography settings', () => {
     expect(normalized.markdown.heading6FontSize).toBe(24);
     expect(normalized.markdown.lineHeight).toBe(1.72);
     expect(normalized.markdown.contentPadding).toBe(0);
+    expect(normalized.markdown.contentWidth).toBe(720);
     expect(DEFAULT_EDITOR_TYPOGRAPHY.markdown.contentPadding).toBe(24);
 
-    const selected = normalizeEditorTypography({ markdown: { fontPreset: 'sans' } });
+    const selected = normalizeEditorTypography({ markdown: { fontPreset: 'sans', contentWidth: 'unlimited' } });
     expect(selected.markdown.fontPreset).toBe('sans');
+    expect(selected.markdown.contentWidth).toBe('unlimited');
   });
 
   it('applies normalized typography as document-level CSS variables', () => {
@@ -87,6 +98,7 @@ describe('editor typography settings', () => {
         heading6FontSize: 16,
         lineHeight: 1.8,
         contentPadding: 28,
+        contentWidth: 800,
         fontPreset: 'sans',
       },
     }, root);
@@ -94,6 +106,7 @@ describe('editor typography settings', () => {
     const style = root.style;
     expect(style.getPropertyValue('--editor-markdown-font-family')).toBe('var(--font-ui)');
     expect(style.getPropertyValue('--editor-markdown-font-size')).toBe('17px');
+    expect(style.getPropertyValue('--chat-message-font-size')).toBe('');
     expect(style.getPropertyValue('--editor-markdown-h1-font-size')).toBe('26px');
     expect(style.getPropertyValue('--editor-markdown-h2-font-size')).toBe('21px');
     expect(style.getPropertyValue('--editor-markdown-h3-font-size')).toBe('19px');
@@ -102,6 +115,26 @@ describe('editor typography settings', () => {
     expect(style.getPropertyValue('--editor-markdown-h6-font-size')).toBe('16px');
     expect(style.getPropertyValue('--editor-markdown-line-height')).toBe('1.8');
     expect(style.getPropertyValue('--editor-markdown-content-padding-x')).toBe('28px');
+    expect(style.getPropertyValue('--editor-markdown-content-width')).toBe('800px');
+    expect(style.getPropertyValue('--chat-column-width')).toBe('');
+    expect(style.getPropertyValue('--chat-input-column-width')).toBe('');
+  });
+
+  it('maps unlimited reading width to unrestricted CSS max-width values', () => {
+    const values = new Map<string, string>();
+    const root = {
+      style: {
+        setProperty: (name: string, value: string) => values.set(name, value),
+        getPropertyValue: (name: string) => values.get(name) || '',
+      },
+    } as unknown as HTMLElement;
+
+    applyEditorTypography({ markdown: { contentWidth: 'unlimited' } }, root);
+
+    const style = root.style;
+    expect(style.getPropertyValue('--editor-markdown-content-width')).toBe('none');
+    expect(style.getPropertyValue('--chat-column-width')).toBe('');
+    expect(style.getPropertyValue('--chat-input-column-width')).toBe('');
   });
 
   it('uses the editor typography variables for markdown preview font size and weight', () => {
@@ -144,15 +177,28 @@ describe('editor typography settings', () => {
 
   it('uses the same typography variables in markdown editor and preview rendering', () => {
     const theme = readEditorTheme();
+    const coverField = readEditorCoverField();
     const highlight = readEditorHighlight();
     const previewCss = readPreviewStyles();
+    const cmContentBlocks = [...theme.matchAll(/'\.cm-content':\s*\{(?<body>[^}]*)\}/g)];
+    const markdownContentRule = cmContentBlocks.at(-1)?.groups?.body ?? '';
 
     expect(theme).toMatch(/'&':\s*\{\s*fontSize:\s*'var\(--editor-markdown-font-size\)'/);
     expect(theme).toMatch(/lineHeight:\s*'var\(--editor-markdown-line-height\)'/);
+    expect(theme).toMatch(/'\.cm-line':\s*\{[\s\S]*maxWidth:\s*'var\(--editor-markdown-content-width\)'/);
+    expect(theme).toMatch(/'\.cm-line':\s*\{[\s\S]*margin:\s*'0 auto'/);
+    expect(markdownContentRule).not.toMatch(/maxWidth/);
+    expect(coverField).toMatch(/Decoration\.line\(\{\s*class:\s*'cm-markdown-cover-line'\s*\}\)/);
+    expect(theme).toMatch(/'\.cm-line\.cm-markdown-cover-line':\s*\{[\s\S]*maxWidth:\s*'none'/);
+    expect(theme).toMatch(/'\.cm-markdown-cover':\s*\{[\s\S]*width:\s*'100%'/);
+    expect(theme).toMatch(/'\.cm-markdown-cover':\s*\{[\s\S]*maxWidth:\s*'none'/);
     expect(theme).toMatch(/padding:\s*'0 var\(--editor-markdown-content-padding-x\)'/);
     expect(highlight).toMatch(/tags\.heading1,\s*fontSize:\s*'var\(--editor-markdown-h1-font-size\)'/);
     expect(highlight).toMatch(/tags\.heading6,\s*fontSize:\s*'var\(--editor-markdown-h6-font-size\)'/);
     expect(previewCss).toMatch(/font-size:\s*var\(--editor-markdown-font-size\)/);
+    expect(previewCss).toMatch(/max-width:\s*var\(--editor-markdown-content-width\)/);
+    expect(previewCss).toMatch(/margin-left:\s*auto/);
+    expect(previewCss).toMatch(/:global\(\.markdown-cover\)\s*\{[\s\S]*width:\s*100%/);
     expect(previewCss).toMatch(/font-size:\s*var\(--editor-markdown-h1-font-size\)/);
     expect(previewCss).toMatch(/font-size:\s*var\(--editor-markdown-h6-font-size\)/);
   });

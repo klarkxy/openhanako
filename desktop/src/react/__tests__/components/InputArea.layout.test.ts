@@ -7,6 +7,11 @@ function cssBlock(css: string, selector: string): string {
   return css.match(new RegExp(`${selector}\\s*\\{(?<body>[^}]*)\\}`))?.groups?.body || '';
 }
 
+function readOptionalCss(relativePath: string): string | null {
+  const fullPath = path.join(process.cwd(), relativePath);
+  return fs.existsSync(fullPath) ? fs.readFileSync(fullPath, 'utf8') : null;
+}
+
 describe('InputArea layout', () => {
   it('keeps chat, composer, welcome, and bridge widths in their intended lanes', () => {
     const globalCss = fs.readFileSync(path.join(process.cwd(), 'desktop/src/styles.css'), 'utf8');
@@ -14,6 +19,7 @@ describe('InputArea layout', () => {
       path.join(process.cwd(), 'desktop/src/react/components/chat/Chat.module.css'),
       'utf8',
     );
+    const workbenchCss = readOptionalCss('desktop/src/react/workbench/workbench.module.css');
     const floatingCss = fs.readFileSync(
       path.join(process.cwd(), 'desktop/src/react/components/FloatingPanels.module.css'),
       'utf8',
@@ -22,14 +28,25 @@ describe('InputArea layout', () => {
     const inputAreaBlock = cssBlock(globalCss, String.raw`\.input-area > \*`);
     const welcomeInputAreaBlock = cssBlock(globalCss, String.raw`\.main-content\.welcome-mode \.input-area > \*`);
     const sessionMessagesBlock = cssBlock(chatCss, String.raw`\.sessionMessages`);
+    const userMessageBlock = cssBlock(chatCss, String.raw`\.messageUser`);
+    const assistantMessageBlock = cssBlock(chatCss, String.raw`\.messageAssistant`);
 
-    expect(globalCss).toMatch(/--chat-column-width:\s*45rem/);
+    expect(globalCss).toMatch(/--editor-markdown-content-width:\s*720px/);
+    expect(globalCss).toMatch(/--chat-column-width:\s*720px/);
+    expect(globalCss).toMatch(/--chat-message-font-size:\s*15px/);
     expect(globalCss).toMatch(/--chat-input-column-extra:\s*1\.25rem/);
     expect(globalCss).toMatch(/--chat-input-column-width:\s*calc\(var\(--chat-column-width\) \+ var\(--chat-input-column-extra\)\)/);
     expect(globalCss).toMatch(/--welcome-chat-input-column-width:\s*40rem/);
     expect(inputAreaBlock).toMatch(/max-width:\s*var\(--chat-input-column-width\)/);
     expect(welcomeInputAreaBlock).toMatch(/max-width:\s*var\(--welcome-chat-input-column-width\)/);
     expect(sessionMessagesBlock).toMatch(/max-width:\s*var\(--chat-column-width\)/);
+    expect(userMessageBlock).toMatch(/font-size:\s*var\(--chat-message-font-size\)/);
+    expect(assistantMessageBlock).toMatch(/font-size:\s*var\(--chat-message-font-size\)/);
+    if (workbenchCss) {
+      const parallelChatSurfaceBlock = cssBlock(workbenchCss, String.raw`\.parallelChatSurface`);
+      expect(parallelChatSurfaceBlock).not.toMatch(/--chat-column-width/);
+      expect(parallelChatSurfaceBlock).not.toMatch(/760px/);
+    }
     expect(floatingCss).not.toMatch(/--chat-column-width:\s*var\(--bridge-chat-column-width\)/);
   });
 

@@ -26,7 +26,7 @@ vi.mock("../lib/i18n.js", () => ({
   getLocale: () => "zh-CN",
 }));
 
-import { compileToday, compileWeek, compileFacts, compileEditableFacts, assemble } from "../lib/memory/compile.ts";
+import { compileToday, compileWeek, compileLongterm, compileFacts, compileEditableFacts, assemble } from "../lib/memory/compile.ts";
 import {
   readCompiledResetAt,
   writeCompiledResetMarker,
@@ -253,7 +253,9 @@ describe("compiled section formatting", () => {
     const request = (callText as any).mock.calls[0][0];
     expect(request.messages[0].content).toContain("用户喜欢清晰边界。");
     expect(request.messages[0].content).toContain("用户长期关注记忆系统。");
-    expect(request.systemPrompt).toContain("200字以内");
+    expect(request.systemPrompt).toContain("必须控制在 200 字以内");
+    expect(request.systemPrompt).toContain("综合");
+    expect(request.systemPrompt).toContain("不要追加");
     expect(fs.readFileSync(factsPath, "utf-8")).toBe("用户长期关注记忆系统。");
   });
 
@@ -353,13 +355,39 @@ describe("compiled section formatting", () => {
 
     expect(callText).toHaveBeenCalledOnce();
     const request = (callText as any).mock.calls[0][0];
+    expect(request.messages[0].content).toContain("## 当前可信 Facts");
     expect(request.messages[0].content).toContain("用户喜欢清晰边界。");
+    expect(request.messages[0].content).toContain("## 新增候选 Facts");
     expect(request.messages[0].content).toContain("用户长期关注记忆系统。");
     expect(request.messages[0].content).not.toContain("旧摘要不应再次进入编译");
+    expect(request.systemPrompt).toContain("必须控制在 200 字以内");
+    expect(request.systemPrompt).toContain("综合");
+    expect(request.systemPrompt).toContain("不要追加");
     expect(fs.readFileSync(editableFactsPath, "utf-8")).toBe("用户喜欢清晰边界。\n用户长期关注记忆系统。");
     expect(JSON.parse(fs.readFileSync(statePath, "utf-8"))).toMatchObject({
       lastCompiledSummaryUpdatedAt: "2026-04-30T09:30:00.000Z",
     });
+  });
+
+  it("asks the model to rewrite longterm from previous and weekly inputs within a word limit", async () => {
+    (callText as any).mockResolvedValueOnce("用户长期关注记忆系统。");
+    const weekPath = path.join(tmpDir, "week.md");
+    const longtermPath = path.join(tmpDir, "longterm.md");
+    fs.writeFileSync(weekPath, "用户本周关注记忆系统。", "utf-8");
+    fs.writeFileSync(longtermPath, "用户喜欢清晰边界。", "utf-8");
+
+    await compileLongterm(weekPath, longtermPath, RESOLVED_MODEL);
+
+    expect(callText).toHaveBeenCalledOnce();
+    const request = (callText as any).mock.calls[0][0];
+    expect(request.messages[0].content).toContain("## 上一份长期情况");
+    expect(request.messages[0].content).toContain("用户喜欢清晰边界。");
+    expect(request.messages[0].content).toContain("## 本周新增");
+    expect(request.messages[0].content).toContain("用户本周关注记忆系统。");
+    expect(request.systemPrompt).toContain("必须控制在 400 字以内");
+    expect(request.systemPrompt).toContain("综合");
+    expect(request.systemPrompt).toContain("重写成一份新的长期情况");
+    expect(request.systemPrompt).toContain("不要追加");
   });
 
   it("ignores unordered-list empty fact markers", async () => {

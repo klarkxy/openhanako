@@ -35,6 +35,7 @@ vi.mock("../lib/browser/browser-manager.js", () => ({
 
 vi.mock("../core/message-utils.js", () => ({
   extractTextContent: vi.fn(() => ({ text: "", images: [], thinking: "", toolUses: [] })),
+  contentHasThinkingBlock: vi.fn(() => false),
   filterUnreferencedInlineImages: vi.fn((_text, images) => images || []),
   loadSessionHistoryMessages: vi.fn(async () => []),
   loadLatestAssistantSummaryFromSessionFile: vi.fn(async () => null),
@@ -1664,6 +1665,75 @@ describe("sessions route", () => {
     ]);
   });
 
+  it("returns empty assistant thinking blocks from history as completed thinking", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const content = [{ type: "thinking", thinking: "" }];
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.contentHasThinkingBlock).mockImplementation((candidate) => candidate === content);
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      deferredResults: null,
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/messages");
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.messages).toEqual([{
+      id: "0",
+      role: "assistant",
+      content: "",
+      thinking: "",
+    }]);
+  });
+
+  it("does not return OpenAI commentary-only history messages as visible text", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+
+    vi.mocked(msgUtils.extractTextContent).mockClear();
+    vi.mocked(msgUtils.contentHasThinkingBlock).mockReturnValue(false);
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      {
+        role: "assistant",
+        content: [{
+          type: "text",
+          text: "I need to inspect the current state.",
+          textSignature: JSON.stringify({
+            v: 1,
+            id: "msg_commentary",
+            phase: "commentary",
+          }),
+        }],
+      },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      deferredResults: null,
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/messages");
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.messages).toEqual([]);
+    expect(msgUtils.extractTextContent).not.toHaveBeenCalled();
+  });
+
   it("hydrates only the requested display window for long session history", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.ts");
     const msgUtils = await import("../core/message-utils.ts");
@@ -2365,6 +2435,71 @@ describe("sessions route", () => {
       type: "subagent",
       agentId: "deleted-butter",
       agentName: "butter",
+      streamKey: childSessionPath,
+    });
+  });
+
+  it("uses manifest executor metadata before legacy child-session sidecars", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+
+    const agentsDir = path.join(tmpDir, "agents");
+    const childSessionPath = path.join(agentsDir, "hanako", "subagent-sessions", "child.jsonl");
+    fs.mkdirSync(path.dirname(childSessionPath), { recursive: true });
+    fs.writeFileSync(childSessionPath, "", "utf-8");
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "parent says hi", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "parent says hi" },
+      {
+        role: "toolResult",
+        toolName: "subagent",
+        details: {
+          taskId: "subagent-1",
+          task: "legacy delegated task",
+          sessionPath: childSessionPath,
+          streamStatus: "done",
+        },
+      },
+    ]);
+
+    const engine = {
+      agentsDir,
+      deferredResults: null,
+      getSessionIdForPath: vi.fn((sp) => (sp === childSessionPath ? "sess_child" : null)),
+      getSessionManifest: vi.fn((sessionId) => (
+        sessionId === "sess_child"
+          ? { currentLocator: { path: childSessionPath } }
+          : null
+      )),
+      getSessionExecutorMetadata: vi.fn(() => ({
+        executorAgentId: "deleted-butter",
+        executorAgentNameSnapshot: "Butter Manifest",
+        executorMetaVersion: 1,
+      })),
+      agentIdFromSessionPath: vi.fn((sp) => {
+        const rel = path.relative(agentsDir, sp);
+        return rel.split(path.sep)[0] || null;
+      }),
+      getAgent: vi.fn((id) => (id === "hanako" ? { agentName: "Hanako" } : null)),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request("/api/sessions/messages");
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(engine.getSessionExecutorMetadata).toHaveBeenCalledWith({
+      sessionId: "sess_child",
+      sessionPath: childSessionPath,
+    });
+    expect(data.blocks[0]).toMatchObject({
+      type: "subagent",
+      agentId: "deleted-butter",
+      agentName: "Butter Manifest",
       streamKey: childSessionPath,
     });
   });

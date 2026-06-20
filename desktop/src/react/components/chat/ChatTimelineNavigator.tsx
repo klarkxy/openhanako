@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, RefObject } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent, RefObject } from 'react';
 import type { TimelineAnchor } from './timeline-anchors';
 import styles from './Chat.module.css';
 
@@ -40,6 +40,7 @@ export const ChatTimelineNavigator = memo(function ChatTimelineNavigator({
   const [focusOpen, setFocusOpen] = useState(false);
   const [cardHover, setCardHover] = useState(false);
   const rafRef = useRef<number | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const hoverCloseTimerRef = useRef<number | null>(null);
 
@@ -58,6 +59,15 @@ export const ChatTimelineNavigator = memo(function ChatTimelineNavigator({
       setCardHover(false);
     }, 120);
   }, []);
+
+  const closeHoverCardFromMarker = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && cardRef.current?.contains(nextTarget)) {
+      openHoverCard();
+      return;
+    }
+    closeHoverCardSoon();
+  }, [closeHoverCardSoon, openHoverCard]);
 
   const measure = useCallback(() => {
     const panel = scrollRef.current;
@@ -195,6 +205,7 @@ export const ChatTimelineNavigator = memo(function ChatTimelineNavigator({
       }}
     >
       <div
+        ref={cardRef}
         className={styles.timelineCard}
         style={cardVars}
         onPointerEnter={openHoverCard}
@@ -219,7 +230,7 @@ export const ChatTimelineNavigator = memo(function ChatTimelineNavigator({
                 title={anchor.label}
                 onFocus={() => setFocusOpen(true)}
                 onMouseEnter={openHoverCard}
-                onMouseLeave={closeHoverCardSoon}
+                onMouseLeave={closeHoverCardFromMarker}
                 onClick={() => jumpTo(anchor)}
               >
                 <span className={styles.timelineLabel}>{anchor.label}</span>

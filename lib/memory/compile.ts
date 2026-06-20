@@ -20,6 +20,7 @@ import { atomicWriteSync, safeReadFile } from "../../shared/safe-fs.ts";
 import { normalizeCompiledLLMResult, normalizeCompiledSectionBody } from "./compiled-memory-state.ts";
 import { attachPromptLayoutMetadata, buildUtilityPromptLayout } from "../llm/prompt-layout.ts";
 import {
+  buildCompileEditableFactsPrompt,
   buildCompileFactsPrompt,
   buildCompileLongtermPrompt,
   buildCompileTodayPrompt,
@@ -50,6 +51,7 @@ const COMPILE_PROMPT_BUILDERS = {
   compile_week: buildCompileWeekPrompt,
   compile_longterm: buildCompileLongtermPrompt,
   compile_facts: buildCompileFactsPrompt,
+  compile_editable_facts: buildCompileEditableFactsPrompt,
 };
 
 // ════════════════════════════
@@ -255,45 +257,13 @@ export async function compileLongterm(weekMdPath, longtermPath, resolvedModel) {
     ? (isZh
         ? `## 上一份长期情况\n\n${prevLongterm}\n\n## 本周新增\n\n${weekContent}`
         : `## Previous long-term context\n\n${prevLongterm}\n\n## This week's additions\n\n${weekContent}`)
-    : weekContent;
+    : (isZh
+        ? `## 本周新增\n\n${weekContent}`
+        : `## This week's additions\n\n${weekContent}`);
 
   const result = await _compactLLM(
     input,
-    isZh
-      ? `请把以下内容整合成一份长期用户画像记录。
-
-记忆不是工作日志，也不是协作手册。到 longterm 这一层，记录已经是最稳定的用户画像核心。只保留"如果一年后回看仍然适合用来理解用户这个人"的内容：
-- 用户的身份、人格特质、审美、兴趣、价值取向
-- 用户长期喜欢或讨厌的事物
-- 用户长期关系和稳定生活背景
-- 用户持续关注或投入的长期关注方向
-
-去掉这些"单次性内容"：
-- 某天/某周完成的具体任务
-- 用户偏好的工作方式、协作流程、工程纪律
-- 工具使用习惯、检查顺序、汇报格式
-- 某类任务的处理方法
-- 助手的具体产出内容
-- 任何"这周/那周"级别的细节
-
-最多 400 字。不要输出 Markdown 标题，不要以 #、##、### 开头；直接输出正文列表或段落。`
-      : `Consolidate the following into a long-term user-profile record.
-
-Memory is not a work log or collaboration manual. At the longterm layer, the record is the most stable user-profile core. Keep only what would still help understand the user as a person "if reviewed a year from now":
-- The user's identity, personality traits, aesthetics, interests, and values
-- Things the user has long liked or disliked
-- Long-term relationships and stable life background
-- Persistent long-term focus directions
-
-Remove these "one-off" contents:
-- Specific tasks completed on a particular day or week
-- User-preferred work style, collaboration process, or engineering discipline
-- Tool habits, validation order, report format
-- How to handle a class of task
-- Specific content of assistant's output
-- Any "this week / that week" level details
-
-Max 240 words. Do not output Markdown headings. Do not start with #, ##, or ###; output body text only.`,
+    buildCompileLongtermPrompt(getLocale()),
     resolvedModel,
     600,
     "compile_longterm",
@@ -343,18 +313,19 @@ export async function compileFacts(summaryManager, outputPath, resolvedModel, op
     return "compiled";
   }
 
-  // 把旧 facts 和新摘要里的事实合并后去重
   const newFacts = factParts.join("\n");
-  const combined = prevFacts
-    ? `${prevFacts}\n${newFacts}`
-    : newFacts;
-
   const isZh = _isZh();
+  const combined = prevFacts
+    ? (isZh
+        ? `## 现有 Facts\n\n${prevFacts}\n\n## 新增候选 Facts\n\n${newFacts}`
+        : `## Existing Facts\n\n${prevFacts}\n\n## New Candidate Facts\n\n${newFacts}`)
+    : (isZh
+        ? `## 新增候选 Facts\n\n${newFacts}`
+        : `## New Candidate Facts\n\n${newFacts}`);
+
   const result = await _compactLLM(
     combined,
-    isZh
-      ? "将以下重要事实去重合并（200字以内）。只保留稳定的、跨时间有效的用户画像：身份、人格特质、审美、兴趣、喜欢或讨厌的事物、长期关系、长期关注方向。不要保留工作方式、协作流程、工具偏好、执行细节。矛盾时以最新为准。不要输出 Markdown 标题，不要以 #、##、### 开头；直接输出正文列表或段落。"
-      : "Deduplicate and merge the following key facts (under 120 words). Keep only stable, time-persistent user-profile facts: identity, personality traits, aesthetics, interests, likes/dislikes, long-term relationships, and long-term focus directions. Do not keep work style, collaboration process, tool preferences, or execution details. When facts conflict, prefer the latest. Do not output Markdown headings. Do not start with #, ##, or ###; output body text only.",
+    buildCompileFactsPrompt(getLocale()),
     resolvedModel,
     300,
     "compile_facts",
@@ -480,18 +451,20 @@ export async function compileEditableFacts(summaryManager, outputPath, resolvedM
 
   const prevFacts = normalizeCompiledSectionBody(safeReadFile(outputPath, ""));
   const newFacts = factParts.join("\n");
-  const combined = prevFacts
-    ? `${prevFacts}\n${newFacts}`
-    : newFacts;
   const isZh = _isZh();
+  const combined = prevFacts
+    ? (isZh
+        ? `## 当前可信 Facts\n\n${prevFacts}\n\n## 新增候选 Facts\n\n${newFacts}`
+        : `## Current Trusted Facts\n\n${prevFacts}\n\n## New Candidate Facts\n\n${newFacts}`)
+    : (isZh
+        ? `## 新增候选 Facts\n\n${newFacts}`
+        : `## New Candidate Facts\n\n${newFacts}`);
   const result = await _compactLLM(
     combined,
-    isZh
-      ? "将以下重要事实去重合并（200字以内）。第一部分是用户或 Agent 已确认的当前可信事实，默认保留；后面是新增候选事实。只保留稳定的、跨时间有效的用户画像：身份、人格特质、审美、兴趣、喜欢或讨厌的事物、长期关系、长期关注方向。新增事实与当前可信事实冲突时，以新增事实纠正当前事实；没有冲突时不要改写或删除当前可信事实。不要保留工作方式、协作流程、工具偏好、执行细节。不要输出 Markdown 标题，不要以 #、##、### 开头；直接输出正文列表或段落。"
-      : "Deduplicate and merge the following key facts (under 120 words). The first part is the current trusted facts confirmed by the user or agent; keep it by default. Later parts are new candidate facts. Keep only stable, time-persistent user-profile facts: identity, personality traits, aesthetics, interests, likes/dislikes, long-term relationships, and long-term focus directions. When a new candidate fact conflicts with the trusted facts, update the trusted fact; otherwise do not rewrite or delete trusted facts. Do not keep work style, collaboration process, tool preferences, or execution details. Do not output Markdown headings. Do not start with #, ##, or ###; output body text only.",
+    buildCompileEditableFactsPrompt(getLocale()),
     resolvedModel,
     300,
-    "compile_facts",
+    "compile_editable_facts",
   );
 
   atomicWrite(outputPath, normalizeCompiledLLMResult(result, "compileEditableFacts"));

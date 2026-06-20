@@ -5,6 +5,7 @@ import { loadSessions, switchSession } from '../stores/session-actions';
 import { loadModels } from '../utils/ui-helpers';
 import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadChannels } from '../stores/channel-actions';
+import { applyChatLayout } from '../chat/layout';
 import { applyEditorTypography } from '../editor/typography';
 import {
   PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
@@ -280,6 +281,9 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
       break;
     case 'editor-typography-changed':
       applyEditorTypography(data.editor ?? data);
+      break;
+    case 'chat-layout-changed':
+      applyChatLayout(data.chat ?? data);
       break;
     case 'network-proxy-changed':
       if (options.source === 'server') {

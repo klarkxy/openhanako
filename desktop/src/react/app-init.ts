@@ -23,6 +23,7 @@ import { openSettingsModal } from './stores/settings-modal-actions';
 import { initQuotedSelectionLifecycle } from './stores/selection-actions';
 import { configureAppEventActions, handleAppEvent, readConfigCwdHistory, readConfigHomeFolder, readConfigMemoryMasterEnabled } from './services/app-event-actions';
 import { configureWsMessageHandler } from './services/ws-message-handler';
+import { applyChatLayout } from './chat/layout';
 import { applyEditorTypography } from './editor/typography';
 import {
   LOCAL_CONNECTION_ID,
@@ -191,6 +192,7 @@ export async function initApp(): Promise<void> {
     const healthData = await healthRes.json();
     const configData = await configRes.json();
     applyEditorTypography(configData.editor);
+    applyChatLayout(configData.chat);
 
     // 3. 加载 i18n
     await i18n.load(configData.locale || 'zh-CN');

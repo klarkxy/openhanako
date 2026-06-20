@@ -107,27 +107,46 @@ vi.mock('../../components/input/FileMentionMenu', () => ({
 vi.mock('../../components/input/InputStatusBars', () => ({
   InputStatusBars: ({
     slashBusy,
+    slashBusyLabel,
     compacting,
+    compactingLabel,
     screenshotBusy,
+    screenshotLabel,
+    screenshotPageLabel,
     inlineError,
     slashResult,
     onResultClick,
   }: {
     slashBusy?: string | null;
+    slashBusyLabel?: string;
     compacting?: boolean;
+    compactingLabel?: string;
     screenshotBusy?: boolean;
+    screenshotLabel?: string;
+    screenshotPageLabel?: string | null;
     inlineError?: string | null;
     slashResult?: unknown;
     onResultClick?: () => void;
-  }) => (
-    slashBusy || compacting || screenshotBusy || inlineError || slashResult
+  }) => {
+    const label = slashBusy
+      ? slashBusyLabel
+      : compacting
+        ? compactingLabel
+        : screenshotBusy
+          ? (screenshotPageLabel || screenshotLabel)
+          : inlineError
+            ? inlineError
+            : slashResult
+              ? 'slash-result'
+              : null;
+    return label
       ? React.createElement('button', {
         'data-testid': 'input-status-bars',
         onClick: onResultClick,
         type: 'button',
-      })
-      : null
-  ),
+      }, label)
+      : null;
+  },
 }));
 
 vi.mock('../../components/input/InputContextRow', () => ({
@@ -269,6 +288,21 @@ describe('InputArea status stack', () => {
     expectBefore(contextRow, statusBars);
     expectBefore(statusBars, approvalPrompt);
     expectBefore(approvalPrompt, editor);
+  });
+
+  it('shows one fresh-compact status when capability refresh is also compacting', () => {
+    const sessionPath = '/session/status-stack.jsonl';
+    useStore.setState({
+      compactingSessions: [sessionPath],
+      capabilityRefreshingSessions: [sessionPath],
+    } as never);
+
+    render(React.createElement(InputArea));
+
+    const statusBars = screen.getAllByTestId('input-status-bars');
+    expect(statusBars).toHaveLength(1);
+    expect(statusBars[0].textContent).toContain('session.capabilityDrift.refreshing');
+    expect(statusBars[0].textContent).not.toContain('chat.compacting');
   });
 
   it('reveals screenshot notice directories in the workspace tree without replacing the desk root', async () => {

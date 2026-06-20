@@ -72,4 +72,17 @@ describe('file-change-events', () => {
 
     unwatch();
   });
+
+  it('matches Windows change events across slash and drive-letter casing differences', async () => {
+    const { watchFileChanges } = await import('../../services/file-change-events');
+    const handler = vi.fn();
+
+    const unwatch = watchFileChanges('C:\\Users\\Me\\Desk\\Note.md', handler);
+
+    fileChangedHandler?.('c:/users/me/desk/note.md');
+
+    expect(handler).toHaveBeenCalledWith('C:\\Users\\Me\\Desk\\Note.md');
+
+    unwatch();
+  });
 });

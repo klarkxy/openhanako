@@ -4,7 +4,26 @@
     "agnes-2.0-flash": {
       "name": "Agnes 2.0 Flash",
       "image": true,
+      "reasoning": false,
+      "toolUse": {
+        "supportsTools": true,
+        "dialect": "openai",
+        "toolResultFormat": "message"
+      }
+    }
+  },
+  "opencode-go": {
+    "glm-5.2": {
+      "name": "GLM-5.2",
+      "context": 1000000,
+      "maxOutput": 131072,
+      "image": false,
       "reasoning": true,
+      "xhigh": true,
+      "compat": {
+        "thinkingFormat": "zhipu",
+        "reasoningProfile": "zhipu-openai"
+      },
       "toolUse": {
         "supportsTools": true,
         "dialect": "openai",

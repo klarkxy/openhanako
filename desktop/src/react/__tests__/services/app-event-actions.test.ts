@@ -12,6 +12,7 @@ const mockSwitchSession = vi.fn(async () => {});
 const mockLoadModels = vi.fn(async () => {});
 const mockActivateWorkspaceDesk = vi.fn(async () => {});
 const mockLoadChannels = vi.fn(async () => {});
+const mockApplyChatLayout = vi.fn();
 const mockApplyEditorTypography = vi.fn();
 const mockRefreshPreviewDocumentTarget = vi.fn(async () => {});
 const mockPreviewDocumentChangeRefreshOptions = { retryMissing: true, retryUnchanged: true };
@@ -52,6 +53,10 @@ vi.mock('../../stores/channel-actions', () => ({
   loadChannels: mockLoadChannels,
 }));
 
+vi.mock('../../chat/layout', () => ({
+  applyChatLayout: mockApplyChatLayout,
+}));
+
 vi.mock('../../editor/typography', () => ({
   applyEditorTypography: mockApplyEditorTypography,
 }));
@@ -81,6 +86,7 @@ describe('handleAppEvent', () => {
     mockLoadModels.mockReset();
     mockActivateWorkspaceDesk.mockReset();
     mockLoadChannels.mockReset();
+    mockApplyChatLayout.mockReset();
     mockApplyEditorTypography.mockReset();
     mockRefreshPreviewDocumentTarget.mockReset();
     vi.resetModules();
@@ -286,6 +292,18 @@ describe('handleAppEvent', () => {
 
     expect(mockApplyEditorTypography).toHaveBeenCalledWith({
       markdown: { bodyFontSize: 17 },
+    });
+  });
+
+  it('chat-layout-changed applies chat layout settings', async () => {
+    const { handleAppEvent } = await import('../../services/app-event-actions');
+
+    handleAppEvent('chat-layout-changed', {
+      chat: { contentWidth: 800 },
+    });
+
+    expect(mockApplyChatLayout).toHaveBeenCalledWith({
+      contentWidth: 800,
     });
   });
 

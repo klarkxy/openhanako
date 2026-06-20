@@ -156,6 +156,27 @@ describe("known-models dictionary", () => {
     expect(defaultModels.zhipu[0]).toBe("glm-5.2");
   });
 
+  it("declares OpenCode Go GLM-5.2 with the GLM OpenAI-compatible thinking contract", () => {
+    expect(defaultModels["opencode-go"]).toEqual(["glm-5.2"]);
+    expect(lookupKnown("opencode-go", "glm-5.2")).toMatchObject({
+      name: "GLM-5.2",
+      context: 1000000,
+      maxOutput: 131072,
+      image: false,
+      reasoning: true,
+      xhigh: true,
+      compat: {
+        thinkingFormat: "zhipu",
+        reasoningProfile: "zhipu-openai",
+      },
+      toolUse: {
+        supportsTools: true,
+        dialect: "openai",
+        toolResultFormat: "message",
+      },
+    });
+  });
+
   it("declares GLM Coding Plan fixed models under the Zhipu coding provider", () => {
     expect(defaultModels["zhipu-coding"]).toEqual([
       "glm-5.2",
@@ -185,12 +206,15 @@ describe("known-models dictionary", () => {
     expect(lookupKnown("agnes", "agnes-2.0-flash")).toMatchObject({
       name: "Agnes 2.0 Flash",
       image: true,
-      reasoning: true,
+      reasoning: false,
       toolUse: {
         supportsTools: true,
         dialect: "openai",
         toolResultFormat: "message",
       },
+    });
+    expect(lookupKnown("custom", "agnes-2.0-flash")).toMatchObject({
+      reasoning: false,
     });
   });
 
