@@ -40,8 +40,9 @@ describe('MarkdownChrome chapter rail layout', () => {
     render(
       <ChapterRail
         headings={[
-          { id: 'short', level: 1, text: 'Short', line: 0, offset: 0 },
-          { id: 'long', level: 2, text: 'A much longer heading for marker width', line: 8, offset: 120 },
+          { id: 'short', level: 1, text: 'A', line: 0, offset: 0 },
+          { id: 'section', level: 2, text: 'Section', line: 4, offset: 72 },
+          { id: 'long', level: 3, text: 'A much longer heading for marker width', line: 8, offset: 120 },
         ]}
         activeHeadingId="long"
         railVisible
@@ -53,9 +54,34 @@ describe('MarkdownChrome chapter rail layout', () => {
     expect(nav.className).toContain('timelineNav');
     expect(nav.className).toContain('timelineNavLeft');
     expect(nav.className).toContain('timelineNavVisible');
-    expect(screen.getByRole('button', { name: 'Jump to Short' }).querySelector('[class*="timelineLine"]')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Jump to A' }).querySelector('[class*="timelineLine"]')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Jump to A much longer heading for marker width' }).className).toContain('timelineMarkerActive');
-    expect(screen.getAllByText(/Short|A much longer heading/)).toHaveLength(2);
+    expect(screen.getAllByText(/A|Section|A much longer heading/)).toHaveLength(3);
+  });
+
+  it('applies Markdown heading hierarchy indentation and longer markers only through rail item variables', () => {
+    render(
+      <ChapterRail
+        headings={[
+          { id: 'h1', level: 1, text: 'A', line: 0, offset: 0 },
+          { id: 'h2', level: 2, text: 'B', line: 4, offset: 72 },
+          { id: 'h3', level: 3, text: 'C', line: 8, offset: 120 },
+        ]}
+        activeHeadingId="h2"
+        railVisible
+        onJump={vi.fn()}
+      />,
+    );
+
+    const h1 = screen.getByRole('button', { name: 'Jump to A' });
+    const h2 = screen.getByRole('button', { name: 'Jump to B' });
+    const h3 = screen.getByRole('button', { name: 'Jump to C' });
+
+    expect(h1.style.getPropertyValue('--timeline-label-indent')).toBe('0rem');
+    expect(h2.style.getPropertyValue('--timeline-label-indent')).toBe('0.875rem');
+    expect(h3.style.getPropertyValue('--timeline-label-indent')).toBe('1.75rem');
+    expect(h1.style.getPropertyValue('--timeline-marker-width')).toBe('0.75em');
+    expect(h1.style.getPropertyValue('--timeline-marker-max-width')).toBe('1.5em');
   });
 
   it('keeps the rail hidden until the preview hover zone marks it visible', () => {

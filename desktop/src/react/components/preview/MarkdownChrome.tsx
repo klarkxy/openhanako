@@ -104,6 +104,11 @@ function knownTreeFileStatus(root: string, tree: Record<string, DeskFile[]>, fil
   return entries.some(entry => !entry.isDir && entry.name === name) ? 'exists' : 'missing';
 }
 
+function headingIndentRem(level: number): number {
+  const normalizedLevel = Number.isFinite(level) ? Math.min(3, Math.max(1, Math.trunc(level))) : 1;
+  return (normalizedLevel - 1) * 0.875;
+}
+
 export function ChapterRail({
   headings,
   activeHeadingId,
@@ -119,6 +124,8 @@ export function ChapterRail({
   const items: Array<TimelineRailItem<MarkdownHeading>> = headings.map(heading => ({
     id: heading.id,
     label: heading.text,
+    labelIndentRem: headingIndentRem(heading.level),
+    markerWidthScale: 1.5,
     markerWidthEm: measureTimelineMarkerWidthEm(Array.from(heading.text).length),
     payload: heading,
   }));

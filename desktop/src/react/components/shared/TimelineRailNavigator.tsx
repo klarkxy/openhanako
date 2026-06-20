@@ -8,6 +8,8 @@ export interface TimelineRailItem<TPayload = unknown> {
   id: string;
   label: string;
   markerWidthEm: number;
+  labelIndentRem?: number;
+  markerWidthScale?: number;
   payload: TPayload;
 }
 
@@ -116,10 +118,28 @@ export function TimelineRailNavigator<TPayload>({
         <div className={styles.timelineList} ref={listRef}>
           {items.map((item) => {
             const selected = item.id === activeId;
-            const markerWidthEm = Number.isFinite(item.markerWidthEm) && item.markerWidthEm > 0
-              ? item.markerWidthEm
+            const markerWidthScaleValue = item.markerWidthScale;
+            const markerWidthScale = typeof markerWidthScaleValue === 'number'
+              && Number.isFinite(markerWidthScaleValue)
+              && markerWidthScaleValue > 0
+              ? markerWidthScaleValue
               : 1;
-            const markerStyle: CSSProperties & { '--timeline-marker-width': string } = {
+            const markerWidthEm = Number.isFinite(item.markerWidthEm) && item.markerWidthEm > 0
+              ? item.markerWidthEm * markerWidthScale
+              : 1;
+            const labelIndentRemValue = item.labelIndentRem;
+            const labelIndentRem = typeof labelIndentRemValue === 'number'
+              && Number.isFinite(labelIndentRemValue)
+              && labelIndentRemValue > 0
+              ? labelIndentRemValue
+              : 0;
+            const markerStyle: CSSProperties & {
+              '--timeline-label-indent': string;
+              '--timeline-marker-max-width': string;
+              '--timeline-marker-width': string;
+            } = {
+              '--timeline-label-indent': `${labelIndentRem}rem`,
+              '--timeline-marker-max-width': `${markerWidthScale}em`,
               '--timeline-marker-width': `${markerWidthEm}em`,
             };
             return (

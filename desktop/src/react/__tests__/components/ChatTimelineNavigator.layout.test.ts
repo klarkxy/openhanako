@@ -51,6 +51,7 @@ describe('ChatTimelineNavigator layout', () => {
     const navBlock = cssBlock(css, '.timelineNav');
     const leftNavBlock = cssBlock(css, '.timelineNavLeft');
     const leftCardBlock = cssBlock(css, '.timelineNavLeft .timelineCard');
+    const markerBlock = cssBlock(css, '.timelineMarker');
     const lineBlock = cssBlock(css, '.timelineLine');
 
     expect(navBlock).toMatch(/top:\s*76px/);
@@ -58,9 +59,10 @@ describe('ChatTimelineNavigator layout', () => {
     expect(navBlock).toMatch(/height:\s*50%/);
     expect(leftNavBlock).toMatch(/left:\s*0/);
     expect(leftCardBlock).toMatch(/left:\s*var\(--timeline-marker-right\)/);
+    expect(markerBlock).toMatch(/--timeline-marker-max-width:\s*1em/);
     expect(lineBlock).toMatch(/height:\s*4px/);
     expect(lineBlock).toMatch(/min-width:\s*0\.5em/);
-    expect(lineBlock).toMatch(/max-width:\s*1em/);
+    expect(lineBlock).toMatch(/max-width:\s*var\(--timeline-marker-max-width\)/);
   });
 
   it('guards DOM measurements before writing marker layout and CSS variables', () => {

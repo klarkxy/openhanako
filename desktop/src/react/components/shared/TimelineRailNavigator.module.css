@@ -91,6 +91,8 @@
     align-items: center;
     gap: var(--timeline-marker-gap);
     transition: opacity var(--duration-fast) var(--ease-out), color var(--duration-instant) var(--ease-out);
+    --timeline-label-indent: 0rem;
+    --timeline-marker-max-width: 1em;
     --timeline-marker-width: 0.5em;
 }
 
@@ -126,7 +128,7 @@
     justify-self: end;
     width: var(--timeline-marker-width);
     min-width: 0.5em;
-    max-width: 1em;
+    max-width: var(--timeline-marker-max-width);
     height: 4px;
     border-radius: 999px;
     background: currentColor;
@@ -174,6 +176,8 @@
     font-family: var(--font-ui);
     font-size: 0.7rem;
     line-height: 1.4;
+    padding-inline-start: var(--timeline-label-indent);
+    box-sizing: border-box;
     transition: opacity var(--duration-fast) var(--ease-out);
 }
 
