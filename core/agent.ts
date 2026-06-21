@@ -681,6 +681,7 @@ export class Agent {
         return this._cb.executeIsolated(prompt, opts);
       },
       getSessionPath: () => this._cb?.getCurrentSessionPath?.(),
+      getSessionPermissionMode: (sp) => this._cb?.getSessionPermissionMode?.(sp) ?? null,
       getParentCwd: () => this._cb?.getCwd?.() || null,
       getAgentId: () => this.id,
       emitEvent: (event, sp) => this._cb?.emitEvent?.(event, sp),
@@ -1377,18 +1378,18 @@ export class Agent {
       );
     }
 
-    if (this._isComputerUseAvailableForThisAgent()) {
-      parts.push(isZh
-        ? "\n## 本机应用控制\n\n" +
-          "用户要求打开、查看、点击、输入或控制本机 GUI 应用时，优先使用 computer 工具。" +
-          "不要用 bash、AppleScript、osascript、open -a 或平台脚本控制 GUI 应用；这些路径会绕过 Hana 的应用审批列表，也更容易撞到系统隐私权限。" +
-          "如果需要控制一个新应用，先用 computer 的 start/list_apps 流程触发应用级确认，让用户在输入框上方同意。"
-        : "\n## Desktop App Control\n\n" +
-          "When the user asks to open, inspect, click, type in, or control a local GUI application, prefer the computer tool. " +
-          "Do not use bash, AppleScript, osascript, open -a, or platform scripts to control GUI applications; those paths bypass Hana's app approval list and are more likely to hit OS privacy permissions. " +
-          "For a new app, use the computer start/list_apps flow so the input-area app approval prompt can ask the user to approve it."
-      );
-    }
+	    if (this._isComputerUseAvailableForThisAgent()) {
+	      parts.push(isZh
+	        ? "\n## 本机应用控制\n\n" +
+	          "用户要求打开、查看、点击、输入或控制本机 GUI 应用时，优先使用 computer 工具。" +
+	          "不要用 bash、AppleScript、osascript、open -a 或平台脚本控制 GUI 应用；这些路径会绕过 Hana 的应用审批列表，也更容易撞到系统隐私权限。" +
+	          "如果需要控制一个新应用，先用 computer 的 start/list_apps 流程；Auto 模式会交给自动 reviewer，Ask 模式才会向用户展示应用确认。"
+	        : "\n## Desktop App Control\n\n" +
+	          "When the user asks to open, inspect, click, type in, or control a local GUI application, prefer the computer tool. " +
+	          "Do not use bash, AppleScript, osascript, open -a, or platform scripts to control GUI applications; those paths bypass Hana's app approval list and are more likely to hit OS privacy permissions. " +
+	          "For a new app, use the computer start/list_apps flow; Auto mode routes approval to the automatic reviewer, while Ask mode can show the user an app confirmation."
+	      );
+	    }
 
     // 失败处理（诊断优先于换方案）
     parts.push(isZh

@@ -2,9 +2,10 @@
  * UserMessage — 用户消息气泡
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MarkdownContent } from './MarkdownContent';
 import { MessageFooterActions, formatMessageTime, type MessageFooterAction } from './MessageFooterActions';
+import { useMessageFooterActions } from './MessageActions';
 import { AttachmentChip } from '../shared/AttachmentChip';
 import { AudioAttachmentChip } from '../shared/AudioAttachmentChip';
 import { FileKindIcon } from '../shared/FileKindIcon';
@@ -59,7 +60,6 @@ export const UserMessage = memo(function UserMessage({
   const isStreaming = useStore(s => selectIsStreamingSession(s, sessionPath));
   const selectedIds = useStore(s => selectSelectedIdsBySession(s, sessionPath));
   const isSelected = selectedIds.includes(message.id);
-  const toggleMessageSelection = useStore(s => s.toggleMessageSelection);
 
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -95,11 +95,6 @@ export const UserMessage = memo(function UserMessage({
     const fn = await lazyScreenshot();
     fn(message.id, sessionPath);
   }, [message.id, sessionPath]);
-
-  const handleToggleSelection = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    toggleMessageSelection(sessionPath, message.id);
-  }, [message.id, sessionPath, toggleMessageSelection]);
 
   const handleRegenerate = useCallback(async () => {
     if (busy || isStreaming) return;
@@ -153,35 +148,15 @@ export const UserMessage = memo(function UserMessage({
       disabled: busy || !editValue.trim(),
     },
   ], [busy, editValue, handleCancelEdit, handleConfirmEdit, t]);
-  const messageActions: MessageFooterAction[] = useMemo(() => {
-    if (readOnly || editing) return [];
-    return [
-      {
-        id: 'select',
-        title: t('common.selectMessage'),
-        icon: <SelectMessageIcon selected={isSelected} />,
-        onClick: handleToggleSelection,
-        disabled: isStreaming || busy,
-        active: isSelected,
-        pressed: isSelected,
-      },
-      {
-        id: 'copy',
-        title: t('common.copyText'),
-        icon: copied ? <CheckIcon /> : <CopyIcon />,
-        onClick: () => handleCopy(),
-        disabled: isStreaming || busy,
-        active: copied,
-      },
-      {
-        id: 'screenshot',
-        title: t('common.screenshot'),
-        icon: <ScreenshotIcon />,
-        onClick: () => { void handleScreenshot(); },
-        disabled: isStreaming || busy,
-      },
-    ];
-  }, [busy, copied, editing, handleCopy, handleScreenshot, handleToggleSelection, isSelected, isStreaming, readOnly, t]);
+  const standardMessageActions = useMessageFooterActions({
+    messageId: message.id,
+    sessionPath,
+    onCopy: handleCopy,
+    onScreenshot: () => { void handleScreenshot(); },
+    copied,
+    isStreaming: isStreaming || busy,
+  });
+  const messageActions = readOnly || editing ? [] : standardMessageActions;
   const latestActions: MessageFooterAction[] = useMemo(() => canShowLatestActions ? [
     {
       id: 'regenerate',
@@ -270,9 +245,10 @@ export const UserMessage = memo(function UserMessage({
         <MessageFooterActions
           align="right"
           timeText={timeText}
-          leadingActions={messageActions}
+          leadingActions={footerActions}
           visible={editing}
-          actions={footerActions}
+          actions={messageActions}
+          testId="user-message-footer-actions"
         />
       )}
     </div>
@@ -395,39 +371,6 @@ function GridIcon() {
       <line x1="18" y1="4" x2="18" y2="20" />
       <line x1="6" y1="8" x2="18" y2="8" />
       <line x1="6" y1="16" x2="18" y2="16" />
-    </svg>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-function ScreenshotIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-      <circle cx="12" cy="13" r="4" />
-    </svg>
-  );
-}
-
-function SelectMessageIcon({ selected }: { selected: boolean }) {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      {selected
-        ? <>
-            <rect x="3" y="3" width="18" height="18" rx="2" fill="currentColor" opacity="0.15" />
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <polyline points="9 12 11.5 14.5 16 9" />
-          </>
-        : <rect x="3" y="3" width="18" height="18" rx="2" />
-      }
     </svg>
   );
 }

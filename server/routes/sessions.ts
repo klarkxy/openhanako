@@ -10,7 +10,7 @@ import { t } from "../../lib/i18n.ts";
 import { extractBlocks, resolveMediaGenerationBlocks } from "../block-extractors.ts";
 import { buildDeferredResultInterludeBlock, resolveDeferredReceiverName } from "../deferred-result-interlude.ts";
 import { BrowserManager } from "../../lib/browser/browser-manager.ts";
-import { sessionIdFromFilename } from "../../lib/session-jsonl.ts";
+import { isSessionJsonlFilename, sessionIdFromFilename } from "../../lib/session-jsonl.ts";
 import {
   DEFERRED_RESULT_MESSAGE_TYPE,
   DEFERRED_RESULT_RECORD_TYPE,
@@ -1694,7 +1694,7 @@ export function createSessionsRoute(engine, hub = null) {
         let files;
         try { files = await fs.readdir(archiveDir); } catch { continue; }
         for (const f of files) {
-          if (!f.endsWith(".jsonl")) continue;
+          if (!isSessionJsonlFilename(f)) continue;
           const fp = path.join(archiveDir, f);
           try {
             const stat = await fs.stat(fp);

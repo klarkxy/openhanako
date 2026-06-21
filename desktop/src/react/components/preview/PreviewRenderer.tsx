@@ -33,13 +33,16 @@ import { parseCSV, injectCopyButtons } from '../../utils/format';
 import { fileIconSvg } from '../../utils/icons';
 import { openFilePreview } from '../../utils/file-preview';
 import { openInternalLink, resolveLinkTarget, type LinkOpenContext } from '../../utils/link-open';
+import { showError } from '../../utils/ui-helpers';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { useStore } from '../../stores';
 import { upsertPreviewItem } from '../../stores/preview-actions';
 import { isRemoteWorkbenchContentRef, normalizeWorkbenchContentRef, saveRemoteWorkbenchContent } from '../../utils/remote-file-preview';
 import { useMermaidDiagrams } from '../../hooks/use-mermaid-diagrams';
 import { LinkContextMenu, type LinkContextMenuState } from '../shared/LinkContextMenu';
+import { DocumentReferencesBlock, MarkdownPropertiesBlock } from './MarkdownChrome';
 import type { PreviewItem } from '../../types';
+import previewStyles from '../Preview.module.css';
 
 declare function t(key: string, vars?: Record<string, string | number>): string;
 
@@ -86,6 +89,24 @@ function LegacyMediaFallback({ previewItem }: { previewItem: PreviewItem }) {
 
 interface PreviewRendererProps {
   previewItem: PreviewItem;
+}
+
+function missingPreviewTitle(): string {
+  const translated = window.t?.('preview.fileMovedOrDeleted');
+  return translated && translated !== 'preview.fileMovedOrDeleted'
+    ? translated
+    : '原文稿已移动或者删除';
+}
+
+function MissingPreviewTarget({ previewItem }: { previewItem: PreviewItem }) {
+  const label = previewItem.title || previewItem.filePath || '';
+
+  return (
+    <div className={previewStyles.previewUnavailable} role="status" data-testid="preview-missing-target">
+      <p>{missingPreviewTitle()}</p>
+      {label && <span title={label}>{label}</span>}
+    </div>
+  );
 }
 
 // ── HtmlPreview ──
@@ -491,10 +512,20 @@ function MarkdownPreview({ previewItem }: { previewItem: PreviewItem }) {
       ...linkContext,
       label: anchor.textContent?.trim() || undefined,
     };
-    if (resolveLinkTarget(href, context).kind === 'anchor') return;
+    const target = resolveLinkTarget(href, context);
+    if (target.kind === 'anchor') return;
     event.preventDefault();
     event.stopPropagation();
-    void openInternalLink(href, context);
+    void (async () => {
+      if (target.kind === 'file' && /\.(md|markdown|mdx|txt|csv|json|ya?ml)$/i.test(target.filePath) && window.platform?.readFileSnapshot) {
+        const snapshot = await window.platform.readFileSnapshot(target.filePath).catch(() => null);
+        if (!snapshot) {
+          showError(`Link target not found: ${target.filePath}`);
+          return;
+        }
+      }
+      await openInternalLink(href, context);
+    })();
   }, [findAnchor, linkContext]);
 
   const handleLinkContextMenu = useCallback((event: MouseEvent) => {
@@ -523,20 +554,25 @@ function MarkdownPreview({ previewItem }: { previewItem: PreviewItem }) {
     <>
       {cover && <MarkdownCoverView previewItem={previewItem} cover={cover} />}
       {cover ? (
-        <div
-          ref={divRef}
-          className="preview-markdown md-content markdown-has-cover"
-          onClick={handleLinkClick}
-          onContextMenu={handleLinkContextMenu}
-          dangerouslySetInnerHTML={{
-            __html: renderMarkdownPreview(body, {
-              filePath: previewItem.filePath,
-              getFileUrl: window.platform?.getFileUrl,
-            }),
-          }}
-        />
+        <>
+          <MarkdownPropertiesBlock content={previewItem.content} />
+          <div
+            ref={divRef}
+            className="preview-markdown md-content markdown-has-cover"
+            onClick={handleLinkClick}
+            onContextMenu={handleLinkContextMenu}
+            dangerouslySetInnerHTML={{
+              __html: renderMarkdownPreview(body, {
+                filePath: previewItem.filePath,
+                getFileUrl: window.platform?.getFileUrl,
+              }),
+            }}
+          />
+          <DocumentReferencesBlock previewItem={previewItem} />
+        </>
       ) : (
         <MarkdownNoCoverDropHost coverTarget={coverTarget}>
+          <MarkdownPropertiesBlock content={previewItem.content} />
           <div
             ref={divRef}
             className="preview-markdown md-content"
@@ -549,6 +585,7 @@ function MarkdownPreview({ previewItem }: { previewItem: PreviewItem }) {
               }),
             }}
           />
+          <DocumentReferencesBlock previewItem={previewItem} />
         </MarkdownNoCoverDropHost>
       )}
       {linkMenu && (
@@ -666,6 +703,10 @@ function FileInfoPreview({ previewItem }: { previewItem: PreviewItem }) {
 // ── PreviewRenderer ──
 
 export function PreviewRenderer({ previewItem }: PreviewRendererProps) {
+  if (previewItem.status === 'missing') {
+    return <MissingPreviewTarget previewItem={previewItem} />;
+  }
+
   switch (previewItem.type) {
     case 'html':
       return <HtmlPreview previewItem={previewItem} />;

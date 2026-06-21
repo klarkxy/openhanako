@@ -11,12 +11,40 @@ import {
   normalizeWorkbenchContentRef,
   refreshPreviewItemsFromRemoteWorkbenchTarget,
 } from './remote-file-preview';
+import type { ResourceRef } from '../services/resource-events';
 
 export type PreviewDocumentTarget =
   | { kind: 'local-file'; filePath: string }
   | { kind: 'workbench-file'; target: RemoteWorkbenchContentRef };
 
 export type PreviewDocumentRefreshOptions = PreviewFileRefreshOptions;
+export type PreviewDocumentWatchResource = {
+  ref: ResourceRef;
+  target: PreviewDocumentTarget;
+};
+
+export type ResourceChangeEvent = {
+  filePath?: unknown;
+  path?: unknown;
+  resource?: {
+    kind?: unknown;
+    provider?: unknown;
+    path?: unknown;
+    filePath?: unknown;
+  } | null;
+  oldResource?: {
+    kind?: unknown;
+    provider?: unknown;
+    path?: unknown;
+    filePath?: unknown;
+  } | null;
+  newResource?: {
+    kind?: unknown;
+    provider?: unknown;
+    path?: unknown;
+    filePath?: unknown;
+  } | null;
+};
 
 interface PreviewDocumentRefreshControl {
   fallbackOpenDocuments?: boolean;
@@ -42,6 +70,12 @@ function joinWorkspaceFilePath(basePath: string, subdir: string | undefined | nu
     .join('/');
   if (!parts) return basePath;
   return `${basePath.replace(/[\\/]+$/g, '')}${separator}${parts.replace(/\//g, separator)}`;
+}
+
+function joinResourcePath(subdir: string | undefined | null, name: string): string {
+  return [normalizeSubdir(subdir), name.replace(/^[/\\]+/g, '')]
+    .filter(Boolean)
+    .join('/');
 }
 
 function previewDocumentTargetKey(target: PreviewDocumentTarget): string {
@@ -107,14 +141,48 @@ export function filePathForPreviewDocumentTarget(target: PreviewDocumentTarget, 
   const activeMountId = activeMountIdValue
     ? activeMountIdValue
     : 'default';
-  if (targetMountId !== activeMountId) return null;
-
-  const basePath = activeMountIdValue
-    ? (typeof state.deskWorkspaceNativeRoot === 'string' ? state.deskWorkspaceNativeRoot : '')
-    : (typeof state.deskBasePath === 'string' ? state.deskBasePath : '');
+  const basePath = targetMountId === activeMountId
+    ? (activeMountIdValue
+        ? (typeof state.deskWorkspaceNativeRoot === 'string' ? state.deskWorkspaceNativeRoot : '')
+        : (typeof state.deskBasePath === 'string' ? state.deskBasePath : ''))
+    : nativeRootForWorkbenchMount(state, targetMountId);
   if (!basePath) return null;
 
   return joinWorkspaceFilePath(basePath, normalized.subdir || '', normalized.name);
+}
+
+function resourceRefForPreviewDocumentTarget(
+  target: PreviewDocumentTarget,
+  state: ReturnType<typeof useStore.getState>,
+): ResourceRef | null {
+  if (target.kind === 'local-file') return { kind: 'local-file', path: target.filePath };
+
+  const normalized = normalizeWorkbenchContentRef(target.target);
+  const mountId = normalized.mountId || normalized.rootId || 'default';
+  if (mountId && mountId !== 'default') {
+    return {
+      kind: 'mount',
+      mountId,
+      path: joinResourcePath(normalized.subdir || '', normalized.name),
+    };
+  }
+
+  const filePath = filePathForPreviewDocumentTarget(target, state);
+  return filePath ? { kind: 'local-file', path: filePath } : null;
+}
+
+function resourceRefKey(ref: ResourceRef): string {
+  if (ref.kind === 'local-file') return `local:${normalizeComparablePath(ref.path)}`;
+  return `mount:${ref.mountId}:${normalizeSubdir(ref.path)}`;
+}
+
+function nativeRootForWorkbenchMount(state: ReturnType<typeof useStore.getState>, mountId: string): string {
+  const workspaces = Array.isArray((state as any).studioWorkspaces)
+    ? (state as any).studioWorkspaces
+    : [];
+  const match = workspaces.find((workspace: any) =>
+    typeof workspace?.mountId === 'string' && workspace.mountId === mountId);
+  return typeof match?.nativeRootPath === 'string' ? match.nativeRootPath : '';
 }
 
 export function openPreviewDocumentWatchFilePaths(): string[] {
@@ -133,6 +201,24 @@ export function openPreviewDocumentWatchFilePaths(): string[] {
   }
 
   return filePaths.sort((a, b) => normalizeComparablePath(a).localeCompare(normalizeComparablePath(b)));
+}
+
+export function openPreviewDocumentWatchResources(): PreviewDocumentWatchResource[] {
+  const state = useStore.getState();
+  const targets = openPreviewDocumentTargets();
+  const resources: PreviewDocumentWatchResource[] = [];
+  const seen = new Set<string>();
+
+  for (const target of targets) {
+    const ref = resourceRefForPreviewDocumentTarget(target, state);
+    if (!ref) continue;
+    const key = resourceRefKey(ref);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    resources.push({ ref, target });
+  }
+
+  return resources.sort((a, b) => resourceRefKey(a.ref).localeCompare(resourceRefKey(b.ref)));
 }
 
 function openPreviewDocumentTargetsForFilePath(filePath: string): PreviewDocumentTarget[] {
@@ -196,4 +282,77 @@ export async function refreshOpenPreviewDocumentsForFilePath(
     options,
     { fallbackOpenDocuments: false },
   )));
+}
+
+function filePathFromResourceDescriptor(resource: ResourceChangeEvent['resource']): string | null {
+  if (!resource || typeof resource !== 'object') return null;
+  const provider = typeof resource.provider === 'string' ? resource.provider : '';
+  const kind = typeof resource.kind === 'string' ? resource.kind : '';
+  const projectedFilePath = typeof resource.filePath === 'string' && resource.filePath.trim()
+    ? resource.filePath
+    : null;
+  const isLocal = provider === 'local_fs'
+    || kind === 'local-file'
+    || kind === 'local_path'
+    || kind === 'local-path';
+  if (isLocal && typeof resource.path === 'string' && resource.path.trim()) return resource.path;
+  return projectedFilePath;
+}
+
+export function filePathsFromResourceChange(event: ResourceChangeEvent | null | undefined): string[] {
+  if (!event || typeof event !== 'object') return [];
+  const paths: string[] = [];
+  const push = (value: string | null) => {
+    if (!value) return;
+    const key = normalizeComparablePath(value);
+    if (!key || paths.some(existing => normalizeComparablePath(existing) === key)) return;
+    paths.push(value);
+  };
+
+  if (typeof event.filePath === 'string' && event.filePath.trim()) return [event.filePath];
+  if (typeof event.path === 'string' && event.path.trim()) return [event.path];
+
+  push(filePathFromResourceDescriptor(event.resource));
+  push(filePathFromResourceDescriptor(event.oldResource));
+  push(filePathFromResourceDescriptor(event.newResource));
+  return paths;
+}
+
+export function filePathFromResourceChange(event: ResourceChangeEvent | null | undefined): string | null {
+  return filePathsFromResourceChange(event)[0] || null;
+}
+
+function parentSubdirForWorkspaceFile(basePath: string, filePath: string): string | null {
+  const base = normalizeComparablePath(basePath);
+  const changed = normalizeComparablePath(filePath);
+  if (!base || !changed) return null;
+  const prefix = base.endsWith('/') ? base : `${base}/`;
+  if (changed !== base && !changed.startsWith(prefix)) return null;
+  const relative = changed === base ? '' : changed.slice(prefix.length);
+  const parent = relative.split('/').slice(0, -1).join('/');
+  return parent.replace(/^\/+|\/+$/g, '');
+}
+
+export function markDeskTreeDirtyForResourceChange(event: ResourceChangeEvent | null | undefined): void {
+  const filePaths = filePathsFromResourceChange(event);
+  if (filePaths.length === 0) return;
+  const state = useStore.getState();
+  const basePath = state.deskWorkspaceMountId
+    ? (typeof state.deskWorkspaceNativeRoot === 'string' ? state.deskWorkspaceNativeRoot : '')
+    : (typeof state.deskBasePath === 'string' ? state.deskBasePath : '');
+  if (!basePath) return;
+  for (const filePath of filePaths) {
+    const subdir = parentSubdirForWorkspaceFile(basePath, filePath);
+    if (subdir == null) continue;
+    state.markDeskTreeDirty(subdir);
+  }
+}
+
+export async function refreshOpenPreviewDocumentsForResourceChange(
+  event: ResourceChangeEvent | null | undefined,
+  options: PreviewDocumentRefreshOptions = PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+): Promise<void> {
+  const filePaths = filePathsFromResourceChange(event);
+  if (filePaths.length === 0) return;
+  await Promise.all(filePaths.map(filePath => refreshOpenPreviewDocumentsForFilePath(filePath, options)));
 }

@@ -2,9 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const previewRefreshMocks = vi.hoisted(() => ({
   changeOptions: { retryMissing: true, retryUnchanged: true },
-  catchUpOptions: { retryMissing: true },
-  refreshPreviewDocumentTarget: vi.fn(async () => undefined),
-  refreshOpenPreviewDocuments: vi.fn(async () => undefined),
+  refreshOpenPreviewDocumentsForResourceChange: vi.fn(async () => undefined),
+  markDeskTreeDirtyForResourceChange: vi.fn(),
 }));
 
 vi.mock('../../hooks/use-stream-buffer', () => ({
@@ -17,10 +16,6 @@ vi.mock('../../hooks/use-stream-buffer', () => ({
 
 vi.mock('../../stores/session-actions', () => ({
   loadSessions: vi.fn(),
-}));
-
-vi.mock('../../stores/desk-actions', () => ({
-  loadDeskFiles: vi.fn(),
 }));
 
 vi.mock('../../stores/channel-actions', () => ({
@@ -38,9 +33,8 @@ vi.mock('../../services/app-event-actions', () => ({
 
 vi.mock('../../utils/preview-document-refresh', () => ({
   PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS: previewRefreshMocks.changeOptions,
-  PREVIEW_DOCUMENT_CATCH_UP_REFRESH_OPTIONS: previewRefreshMocks.catchUpOptions,
-  refreshPreviewDocumentTarget: previewRefreshMocks.refreshPreviewDocumentTarget,
-  refreshOpenPreviewDocuments: previewRefreshMocks.refreshOpenPreviewDocuments,
+  refreshOpenPreviewDocumentsForResourceChange: previewRefreshMocks.refreshOpenPreviewDocumentsForResourceChange,
+  markDeskTreeDirtyForResourceChange: previewRefreshMocks.markDeskTreeDirtyForResourceChange,
 }));
 
 vi.mock('../../services/stream-resume', () => ({
@@ -65,8 +59,8 @@ import { loadSessions } from '../../stores/session-actions';
 
 afterEach(() => {
   resetSessionRefreshSchedulerForTest();
-  previewRefreshMocks.refreshPreviewDocumentTarget.mockClear();
-  previewRefreshMocks.refreshOpenPreviewDocuments.mockClear();
+  previewRefreshMocks.refreshOpenPreviewDocumentsForResourceChange.mockClear();
+  previewRefreshMocks.markDeskTreeDirtyForResourceChange.mockClear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -489,11 +483,7 @@ describe('ws-message-handler session-scoped desktop events', () => {
         operations: ['created'],
       }),
     ]);
-    expect(previewRefreshMocks.refreshPreviewDocumentTarget).toHaveBeenCalledWith(
-      { kind: 'local-file', filePath: '/workspace/draft.md' },
-      previewRefreshMocks.changeOptions,
-    );
-    expect(previewRefreshMocks.refreshOpenPreviewDocuments).not.toHaveBeenCalled();
+    expect(previewRefreshMocks.refreshOpenPreviewDocumentsForResourceChange).not.toHaveBeenCalled();
   });
 
   it('content_block 文件事件把 resource envelope 同步进 session registry', () => {
@@ -644,6 +634,16 @@ describe('ws-message-handler session-scoped desktop events', () => {
       metadata: {
         pinnedAt: '2026-04-29T08:00:00.000Z',
         thinkingLevel: 'high',
+        capabilityDrift: {
+          version: 1,
+          hasDrift: true,
+          fingerprint: 'fp-live',
+          frozenFingerprint: 'fp-frozen',
+          addedToolNames: ['mcp_github_search'],
+          removedToolNames: [],
+          invalidToolNames: [],
+          promptChanged: false,
+        },
       },
     });
 
@@ -655,16 +655,22 @@ describe('ws-message-handler session-scoped desktop events', () => {
       { path: '/session/b.jsonl', pinnedAt: null },
     ]);
     expect(useStore.getState().thinkingLevel).toBe('high');
+    expect(useStore.getState().capabilityDriftBySession['/session/a.jsonl']).toMatchObject({
+      fingerprint: 'fp-live',
+      addedToolNames: ['mcp_github_search'],
+    });
 
     handleServerMessage({
       type: 'session_metadata_updated',
       sessionPath: '/session/b.jsonl',
       metadata: {
         thinkingLevel: 'off',
+        capabilityDrift: null,
       },
     });
 
     expect(useStore.getState().thinkingLevel).toBe('high');
+    expect(useStore.getState().capabilityDriftBySession['/session/b.jsonl']).toBeUndefined();
   });
 });
 
@@ -912,6 +918,47 @@ describe('ws-message-handler app events', () => {
 
     expect(handleAppEvent).toHaveBeenCalledWith('models-changed', { reason: 'provider' }, { source: 'server' });
   });
+
+  it('resource.changed 消息会刷新匹配的打开预览文档', () => {
+    const msg = {
+      type: 'resource.changed',
+      filePath: '/workspace/notes/a.md',
+      resource: { kind: 'local-file', provider: 'local_fs', path: '/workspace/notes/a.md' },
+    };
+
+    handleServerMessage(msg);
+
+    expect(previewRefreshMocks.refreshOpenPreviewDocumentsForResourceChange).toHaveBeenCalledWith(
+      msg,
+      previewRefreshMocks.changeOptions,
+    );
+  });
+
+  it('resource.deleted 和 resource.renamed 消息也走同一条刷新路径', () => {
+    const deletedMsg = {
+      type: 'resource.deleted',
+      resource: { kind: 'local-file', provider: 'local_fs', path: '/workspace/notes/deleted.md' },
+    };
+    const renamedMsg = {
+      type: 'resource.renamed',
+      oldResource: { kind: 'local-file', provider: 'local_fs', path: '/workspace/notes/old.md' },
+      newResource: { kind: 'local-file', provider: 'local_fs', path: '/workspace/notes/new.md' },
+    };
+
+    handleServerMessage(deletedMsg);
+    handleServerMessage(renamedMsg);
+
+    expect(previewRefreshMocks.markDeskTreeDirtyForResourceChange).toHaveBeenCalledWith(deletedMsg);
+    expect(previewRefreshMocks.markDeskTreeDirtyForResourceChange).toHaveBeenCalledWith(renamedMsg);
+    expect(previewRefreshMocks.refreshOpenPreviewDocumentsForResourceChange).toHaveBeenCalledWith(
+      deletedMsg,
+      previewRefreshMocks.changeOptions,
+    );
+    expect(previewRefreshMocks.refreshOpenPreviewDocumentsForResourceChange).toHaveBeenCalledWith(
+      renamedMsg,
+      previewRefreshMocks.changeOptions,
+    );
+  });
 });
 
 describe('ws-message-handler turn_end side effects', () => {
@@ -945,7 +992,7 @@ describe('ws-message-handler turn_end side effects', () => {
     });
 
     expect(useStore.getState().inputFocusTrigger).toBe(1);
-    expect(previewRefreshMocks.refreshOpenPreviewDocuments).toHaveBeenCalledWith(previewRefreshMocks.catchUpOptions);
+    expect(previewRefreshMocks.refreshOpenPreviewDocumentsForResourceChange).not.toHaveBeenCalled();
   });
 
   it('background turn_end does not request input focus', () => {

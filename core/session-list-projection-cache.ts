@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { isSessionJsonlFilename } from "../lib/session-jsonl.ts";
 import { readFileLikePaths } from "../shared/link-aware-fs.ts";
 
 /**
@@ -25,7 +26,8 @@ export class SessionListProjectionCache {
   async list(sessionDir) {
     let files;
     try {
-      files = await readFileLikePaths(sessionDir, { extension: ".jsonl" });
+      files = (await readFileLikePaths(sessionDir, { extension: ".jsonl" }))
+        .filter((filePath) => isSessionJsonlFilename(path.basename(filePath)));
     } catch (err) {
       if (err?.code === "ENOENT") return [];
       throw err;

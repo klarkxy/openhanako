@@ -295,6 +295,10 @@ describe('InputArea status stack', () => {
     useStore.setState({
       compactingSessions: [sessionPath],
       capabilityRefreshingSessions: [sessionPath],
+      chatSessions: {
+        [sessionPath]: { items: [] },
+      },
+      pendingSessionConfirmationsByPath: {},
     } as never);
 
     render(React.createElement(InputArea));
@@ -303,6 +307,8 @@ describe('InputArea status stack', () => {
     expect(statusBars).toHaveLength(1);
     expect(statusBars[0].textContent).toContain('session.capabilityDrift.refreshing');
     expect(statusBars[0].textContent).not.toContain('chat.compacting');
+    expect(screen.getAllByText('session.capabilityDrift.refreshing')).toHaveLength(1);
+    expect(screen.queryByTestId('capability-drift-notice')).toBeNull();
   });
 
   it('reveals screenshot notice directories in the workspace tree without replacing the desk root', async () => {

@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { MoodParser, ThinkTagParser, CardParser } from "../../core/events.ts";
 import { extractBlocks } from "../block-extractors.ts";
 import { toAppEventWsMessage } from "../app-events.ts";
+import { toResourceEventWsMessage } from "../resource-events-ws.ts";
 import {
   createSessionStreamEventWsMessage,
   createStreamResumeWsMessage,
@@ -641,6 +642,12 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
       return;
     }
 
+    const resourceEventMessage = toResourceEventWsMessage(event, sessionPath);
+    if (resourceEventMessage) {
+      broadcast(resourceEventMessage);
+      return;
+    }
+
     if (event.type === "plugin_ui_changed") {
       broadcast({ type: "plugin_ui_changed" });
       return;
@@ -894,10 +901,6 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         emitStreamEvent(sessionPath, ss, statusMsg);
         if (statusMsg.running) startBrowserThumbPoll();
         else if (!BrowserManager.instance().hasAnyRunning) stopBrowserThumbPoll();
-      }
-
-      if (["write", "edit", "bash"].includes(event.toolName)) {
-        broadcast({ type: "desk_changed", sessionPath });
       }
     } else if (event.type === "jian_update") {
       broadcast({ type: "jian_update", content: event.content });

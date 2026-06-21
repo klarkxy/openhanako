@@ -50,6 +50,15 @@ const KNOWN_MODELS = {
   "zhipu-coding": {
     "glm-5.2": { name: "GLM-5.2", context: 1000000, maxOutput: 131072, image: false, reasoning: true, xhigh: true },
   },
+  volcengine: {
+    "doubao-seed-2-0-pro-260215": {
+      name: "Doubao Seed 2.0 Pro",
+      context: 262144,
+      maxOutput: 16384,
+      image: true,
+      reasoning: true,
+    },
+  },
   "opencode-go": {
     "glm-5.2": {
       name: "GLM-5.2",
@@ -1040,6 +1049,32 @@ describe("syncModels", () => {
       },
     });
     expect(mimo.compat).not.toHaveProperty("reasoningProfile");
+  });
+
+  it("projects Volcengine reasoning models with Volcengine thinking compat", async () => {
+    const syncModels = await loadSync();
+
+    const providers = {
+      volcengine: {
+        base_url: "https://ark.cn-beijing.volces.com/api/v3",
+        api: "openai-completions",
+        api_key: "sk-test",
+        models: ["doubao-seed-2-0-pro-260215"],
+      },
+    };
+
+    syncModels(providers, { modelsJsonPath });
+
+    const result = JSON.parse(fs.readFileSync(modelsJsonPath, "utf-8"));
+    const model = result.providers.volcengine.models[0];
+    expect(model).toMatchObject({
+      id: "doubao-seed-2-0-pro-260215",
+      reasoning: true,
+      compat: {
+        supportsDeveloperRole: false,
+        thinkingFormat: "volcengine",
+      },
+    });
   });
 
   it("projects Claude Fable adaptive-only profile for Anthropic Messages providers", async () => {

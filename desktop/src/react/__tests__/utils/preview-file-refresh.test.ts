@@ -234,7 +234,7 @@ describe('refreshPreviewItemsFromFile', () => {
     expect(noticeSpy).not.toHaveBeenCalled();
   });
 
-  it('marks matching preview items missing when the backing file cannot be read', async () => {
+  it('marks matching preview items missing without dispatching an inline notice', async () => {
     mockState.previewItems = [{
       id: 'missing',
       type: 'markdown',
@@ -261,7 +261,7 @@ describe('refreshPreviewItemsFromFile', () => {
       status: 'missing',
       missingAt: expect.any(Number),
     });
-    expect(noticeSpy).toHaveBeenCalled();
+    expect(noticeSpy).not.toHaveBeenCalled();
   });
 
 });

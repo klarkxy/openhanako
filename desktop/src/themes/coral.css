@@ -5,50 +5,50 @@
 
 [data-theme="coral"] {
     /* 背景 */
-    --bg:           #FFF3EE;
-    --bg-card:      #FFFFFF;
-    --bg-glass:     rgba(255, 255, 255, 0.92);
+    --bg:           #FDF6EC;
+    --bg-card:      #FFFBF3;
+    --bg-glass:     rgba(255, 251, 243, 0.92);
 
     /* 主色调 */
-    --accent:       #F07860;
-    --accent-hover: #E36E55;
-    --accent-light: rgba(240, 120, 96, 0.09);
+    --accent:       #1A3049;
+    --accent-hover: #243A55;
+    --accent-light: rgba(26, 48, 73, 0.07);
 
     /* 文字 */
     --text:         #1A3049;
     --text-light:   #314153;
-    --text-muted:   #78848A;
+    --text-muted:   #727F89;
 
     /* 边框与阴影 */
-    --border:       rgba(198, 144, 84, 0.24);
+    --border:       rgba(243, 126, 99, 0.18);
     --shadow:       rgba(26, 48, 73, 0.08);
 
     /* 状态色 */
     --green:        #6E8C7A;
     --green-rgb:    110, 140, 122;
-    --coral:        #F07860;
+    --coral:        #F37E63;
 
     /* 侧边栏 */
-    --sidebar-bg:   #FDEAE3;
+    --sidebar-bg:   #FCF1E4;
 
     /* 便笺 */
-    --jian-note-bg:     #FFF8EA;
-    --jian-note-border: rgba(198, 144, 84, 0.18);
+    --jian-note-bg:     #FFF6E6;
+    --jian-note-border: rgba(243, 126, 99, 0.14);
 
     /* 聊天专用 */
     --hana-text:    #1A3049;
-    --mood-bg:      rgba(198, 144, 84, 0.06);
-    --mood-text:    #8F642E;
-    --mood-border:  rgba(198, 144, 84, 0.22);
-    --tool-bg:      rgba(240, 120, 96, 0.06);
+    --mood-bg:      rgba(243, 126, 99, 0.06);
+    --mood-text:    #C86F4A;
+    --mood-border:  rgba(243, 126, 99, 0.20);
+    --tool-bg:      rgba(26, 48, 73, 0.05);
     --tool-text:    #314153;
-    --user-bg:      rgba(240, 120, 96, 0.08);
-    --drop-overlay-bg: rgba(255, 243, 238, 0.86);
+    --user-bg:      rgba(26, 48, 73, 0.07);
+    --drop-overlay-bg: rgba(253, 246, 236, 0.86);
     --attach-bg:    rgba(26, 48, 73, 0.04);
 
     /* 辅助色 */
-    --accent-rgb:   240, 120, 96;
-    --coral-rgb:    240, 120, 96;
+    --accent-rgb:   26, 48, 73;
+    --coral-rgb:    243, 126, 99;
     --danger:       #A3483B;
     --danger-rgb:   163, 72, 59;
     --overlay-subtle: rgba(26, 48, 73, 0.03);

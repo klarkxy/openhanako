@@ -7,6 +7,7 @@ import fs from "fs/promises";
 import path from "path";
 import { isToolCallBlock, getToolArgs } from "./llm-utils.ts";
 import { SessionManager } from "../lib/pi-sdk/index.ts";
+import { isSessionJsonlFilename } from "../lib/session-jsonl.ts";
 import { DEFERRED_RESULT_RECORD_TYPE } from "../lib/deferred-result-notification.ts";
 import { repairOversizedSessionEntriesInFile } from "./session-jsonl-file.ts";
 import { isAssistantCommentaryTextBlock } from "../shared/text-signature.ts";
@@ -283,7 +284,7 @@ function desktopSessionParts(sessionPath, agentsDir) {
 }
 
 function isJsonlFileName(name) {
-  return typeof name === "string" && name.endsWith(".jsonl") && path.basename(name) === name;
+  return isSessionJsonlFilename(name);
 }
 
 /**

@@ -55,7 +55,7 @@ describe("SessionManifestStore", () => {
     expect(manifest.currentLocator.path).toBe(path.resolve(sessionPath));
     expect(manifest.currentLocator.key).toBe(sessionLocatorKey(sessionPath));
     expect(manifest.memoryPolicy).toEqual({ mode: "inherit", inheritedFrom: "agent_default" });
-    expect(manifest.permissionModeSnapshot.mode).toBe("ask");
+    expect(manifest.permissionModeSnapshot.mode).toBe("auto");
     expect(store.getBySessionId(manifest.sessionId)?.sessionId).toBe(manifest.sessionId);
     expect(store.resolveByLocatorPath(sessionPath)?.sessionId).toBe(manifest.sessionId);
     expect(store.db.pragma("user_version", { simple: true })).toBe(SESSION_MANIFEST_DB_USER_VERSION);

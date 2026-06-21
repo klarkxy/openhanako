@@ -28,6 +28,51 @@ describe("host api - agent()", () => {
     expect(calls[0].p).toBe("do it");
   });
 
+  it("inherits permission and non-interactive approval policy into workflow agent nodes", async () => {
+    const calls = [];
+    const api = createHostApi(makeDeps({
+      baseIsoOpts: {
+        agentId: "a1",
+        parentSessionPath: "/s.jsonl",
+        cwd: "/w",
+        permissionMode: "auto",
+        approvalPolicy: "deny_on_prompt",
+        allowHumanApproval: false,
+      },
+      executeIsolated: async (_p, o) => { calls.push(o); return { replyText: "hello", error: null }; },
+    }));
+
+    await api.agent("do it");
+
+    expect(calls[0]).toMatchObject({
+      permissionMode: "auto",
+      approvalPolicy: "deny_on_prompt",
+      allowHumanApproval: false,
+    });
+  });
+
+  it("supports workflow node access narrowing without exceeding the parent permission mode", async () => {
+    const calls = [];
+    const api = createHostApi(makeDeps({
+      baseIsoOpts: {
+        agentId: "a1",
+        parentSessionPath: "/s.jsonl",
+        cwd: "/w",
+        permissionMode: "ask",
+        approvalPolicy: "deny_on_prompt",
+        allowHumanApproval: false,
+      },
+      executeIsolated: async (_p, o) => { calls.push(o); return { replyText: "hello", error: null }; },
+    }));
+
+    await api.agent("read", { access: "read" });
+    await api.agent("write", { access: "write" });
+
+    expect(calls[0].permissionMode).toBe("read_only");
+    expect(calls[1].permissionMode).toBe("ask");
+    expect(calls[1].approvalPolicy).toBe("deny_on_prompt");
+  });
+
   it("opts.model / opts.agentType 透传与解析", async () => {
     const calls = [];
     const api = createHostApi(makeDeps({

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
 import { detectMime, extOfName, inferFileKind } from "../file-metadata.ts";
+import { isSessionJsonlFilename } from "../session-jsonl.ts";
 
 export const SESSION_FILE_SIDECAR_VERSION = 1;
 export const SESSION_FILE_CACHE_INACTIVE_TTL_MS = 72 * 60 * 60 * 1000;
@@ -555,7 +556,7 @@ function collectJsonlFiles(dir, out) {
   let entries = [];
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
   for (const entry of entries) {
-    if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+    if (entry.isFile() && isSessionJsonlFilename(entry.name)) {
       out.push(path.join(dir, entry.name));
     }
   }

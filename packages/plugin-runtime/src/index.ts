@@ -83,6 +83,166 @@ export interface HanaResourceEnvelope {
   [key: string]: unknown;
 }
 
+export type HanaResourceRef =
+  | { kind: 'local-file'; path: string }
+  | { kind: 'mount'; mountId: string; path: string }
+  | { kind: 'session-file'; fileId: string; sessionId?: string; sessionPath?: string }
+  | { kind: 'resource'; resourceId: string }
+  | { kind: 'url'; url: string };
+
+export interface HanaResourceVersion {
+  mtimeMs?: number;
+  size?: number | null;
+  sha256?: string;
+  etag?: string;
+  sequence?: number;
+}
+
+export type HanaResourceDescriptor = HanaResourceRef & {
+  provider?: string;
+  filePath?: string;
+  displayName?: string;
+};
+
+export interface HanaResourceStat {
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+  exists: boolean;
+  isDirectory: boolean;
+  version?: HanaResourceVersion;
+  filePath?: string;
+}
+
+export interface HanaResourceReadResult {
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+  content: Uint8Array;
+  version?: HanaResourceVersion;
+  filePath?: string;
+}
+
+export interface HanaResourceMutationResult {
+  changeType: 'created' | 'modified';
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+  version?: HanaResourceVersion;
+  filePath?: string;
+}
+
+export interface HanaResourceWriteConflictResult {
+  ok: false;
+  conflict: true;
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+  version?: HanaResourceVersion;
+  filePath?: string;
+}
+
+export type HanaResourceWriteExpectedVersionResult =
+  | HanaResourceMutationResult
+  | HanaResourceWriteConflictResult;
+
+export interface HanaResourceMoveResult {
+  oldResourceKey: string;
+  newResourceKey: string;
+  oldResource: HanaResourceDescriptor;
+  newResource: HanaResourceDescriptor;
+  oldFilePath?: string;
+  newFilePath?: string;
+}
+
+export interface HanaResourceTrashOptions {
+  namespace?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface HanaResourceTrashResult {
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+  trashId: string;
+  trashPath?: string;
+  payloadPath?: string;
+  filePath?: string;
+}
+
+export interface HanaResourceEdit {
+  oldText: string;
+  newText: string;
+}
+
+export interface HanaResourceListItem {
+  name: string;
+  isDirectory: boolean;
+  size: number | null;
+  mtimeMs: number;
+}
+
+export interface HanaResourceListResult {
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+  items: HanaResourceListItem[];
+}
+
+export interface HanaResourceSearchOptions {
+  query?: string;
+  [key: string]: unknown;
+}
+
+export interface HanaResourceSearchMatch {
+  filePath: string;
+  line: number;
+  text: string;
+  name?: string;
+  relativePath?: string;
+  parentSubdir?: string;
+  isDirectory?: boolean;
+  size?: number | null;
+  mtimeMs?: number;
+}
+
+export interface HanaResourceSearchResult {
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+  matches: HanaResourceSearchMatch[];
+}
+
+export interface HanaResourceMaterializeResult {
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+  filePath: string;
+  version?: HanaResourceVersion;
+}
+
+export interface HanaResourceWatchTarget {
+  ref?: HanaResourceRef;
+  filePath: string;
+  isDirectory?: boolean;
+  resourceKey: string;
+  resource: HanaResourceDescriptor;
+}
+
+export interface HanaPluginResourceMutationOptions {
+  emit?: boolean;
+}
+
+export interface HanaPluginResources {
+  stat(ref: HanaResourceRef | Record<string, unknown>): Promise<HanaResourceStat>;
+  read(ref: HanaResourceRef | Record<string, unknown>): Promise<HanaResourceReadResult>;
+  list(ref: HanaResourceRef | Record<string, unknown>): Promise<HanaResourceListResult>;
+  search(ref: HanaResourceRef | Record<string, unknown>, options?: HanaResourceSearchOptions): Promise<HanaResourceSearchResult>;
+  materialize(ref: HanaResourceRef | Record<string, unknown>): Promise<HanaResourceMaterializeResult>;
+  write(ref: HanaResourceRef | Record<string, unknown>, content: string | Uint8Array | ArrayBuffer, options?: HanaPluginResourceMutationOptions): Promise<HanaResourceMutationResult>;
+  writeExpectedVersion(ref: HanaResourceRef | Record<string, unknown>, content: string | Uint8Array | ArrayBuffer, expectedVersion: HanaResourceVersion, options?: HanaPluginResourceMutationOptions): Promise<HanaResourceWriteExpectedVersionResult>;
+  edit(ref: HanaResourceRef | Record<string, unknown>, edits: HanaResourceEdit[], options?: HanaPluginResourceMutationOptions): Promise<HanaResourceMutationResult>;
+  mkdir(ref: HanaResourceRef | Record<string, unknown>, options?: HanaPluginResourceMutationOptions): Promise<HanaResourceMutationResult>;
+  delete(ref: HanaResourceRef | Record<string, unknown>, options?: HanaPluginResourceMutationOptions): Promise<HanaResourceMutationResult>;
+  copy(from: HanaResourceRef | Record<string, unknown>, to: HanaResourceRef | Record<string, unknown>, options?: HanaPluginResourceMutationOptions): Promise<HanaResourceMutationResult>;
+  rename(from: HanaResourceRef | Record<string, unknown>, to: HanaResourceRef | Record<string, unknown>, options?: HanaPluginResourceMutationOptions): Promise<HanaResourceMoveResult>;
+  move(from: HanaResourceRef | Record<string, unknown>, to: HanaResourceRef | Record<string, unknown>, options?: HanaPluginResourceMutationOptions): Promise<HanaResourceMoveResult>;
+  trash(ref: HanaResourceRef | Record<string, unknown>, trashOptions?: HanaResourceTrashOptions, options?: HanaPluginResourceMutationOptions): Promise<HanaResourceTrashResult>;
+  resolveWatchTarget?(ref: HanaResourceRef | Record<string, unknown>): HanaResourceWatchTarget;
+}
+
 export interface HanaExecutionBoundary {
   schemaVersion: 1;
   boundaryId: string;
@@ -166,11 +326,42 @@ export interface HanaToolContext {
   sessionPath?: string | null;
   bus: HanaEventBus;
   network: HanaPluginNetwork;
+  resources: HanaPluginResources;
   config: HanaPluginConfigStore;
   log: HanaPluginLogger;
   registerSessionFile?: (input: Record<string, unknown>) => HanaSessionFile;
   stageFile?: (input: Record<string, unknown>) => HanaStagedSessionFile;
   [key: string]: unknown;
+}
+
+export type HanaToolSessionPermissionKind =
+  | 'read'
+  | 'read_only'
+  | 'plugin_output'
+  | 'session_file_output'
+  | 'workspace_write'
+  | 'external_side_effect'
+  | 'review'
+  | string;
+
+export interface HanaToolSessionPermission<Input = unknown> {
+  /**
+   * True means the tool only reads already-authorized data and may run in
+   * read-only sessions without reviewer escalation.
+   */
+  readOnly?: boolean;
+  /**
+   * Host approval classification hint. Unknown or external side-effect kinds
+   * remain reviewer-bound in Auto mode.
+   */
+  kind?: HanaToolSessionPermissionKind;
+  /**
+   * Override Auto-mode handling for a declared non-read tool.
+   */
+  auto?: 'allow' | 'review';
+  description?: string;
+  sideEffect?: Record<string, unknown>;
+  describeSideEffect?: (input: Input) => Record<string, unknown> | null | undefined;
 }
 
 export interface HanaToolDefinition<Input = unknown, Output = unknown> {
@@ -179,6 +370,7 @@ export interface HanaToolDefinition<Input = unknown, Output = unknown> {
   parameters?: JsonSchema;
   promptSnippet?: string;
   promptGuidelines?: string;
+  sessionPermission?: HanaToolSessionPermission<Input>;
   metadata?: Record<string, unknown>;
   invocationStyle?: 'sdk_tool' | 'pi_tool';
   execute(input: Input, ctx: HanaToolContext): MaybePromise<Output>;
@@ -703,6 +895,7 @@ export interface HanaBusHandlerContext {
   pluginId: string;
   bus: HanaEventBus;
   network?: HanaPluginNetwork;
+  resources?: HanaPluginResources;
   config?: HanaPluginConfigStore;
   log?: HanaPluginLogger;
   [key: string]: unknown;
@@ -738,6 +931,7 @@ export interface HanaPluginContext {
   sessionPath?: string | null;
   bus: HanaEventBus;
   network: HanaPluginNetwork;
+  resources: HanaPluginResources;
   config: HanaPluginConfigStore;
   log: HanaPluginLogger;
   registerTool?: (tool: HanaToolDefinition) => () => void;

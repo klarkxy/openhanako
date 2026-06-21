@@ -14,7 +14,7 @@ import { WorkflowInlineCard } from './WorkflowInlineCard';
 import { InterludeBlock } from './InterludeBlock';
 import { SettingsConfirmCard } from './SettingsConfirmCard';
 import { SettingsUpdateCard } from './SettingsUpdateCard';
-import { MessageActions } from './MessageActions';
+import { useMessageFooterActions } from './MessageActions';
 import { MessageFooterActions, formatMessageTime, type MessageFooterAction } from './MessageFooterActions';
 import { ChatResourceCard } from './ChatResourceCard';
 import { FileResourceIcon, SkillResourceIcon } from './ChatResourceIcons';
@@ -57,6 +57,7 @@ interface Props {
   readOnly?: boolean;
   isLatestAssistantMessage?: boolean;
   showTurnCompletionTime?: boolean;
+  assistantTurnSelectionIds?: readonly string[];
   retrySourceMessage?: ChatMessage | null;
   messageRef?: (element: HTMLDivElement | null) => void;
 }
@@ -72,7 +73,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   agentId,
   readOnly = false,
   isLatestAssistantMessage = false,
-  showTurnCompletionTime,
+  showTurnCompletionTime = false,
+  assistantTurnSelectionIds,
   retrySourceMessage = null,
   messageRef,
 }: Props) {
@@ -141,10 +143,19 @@ export const AssistantMessage = memo(function AssistantMessage({
     }
   }, [isStreaming, retrying, retrySourceMessage, sessionPath]);
 
-  const canShowRegenerateAction = !readOnly && isLatestAssistantMessage && !!retrySourceMessage && !isStreaming;
-  const shouldShowCompletionTime = showTurnCompletionTime ?? isLatestAssistantMessage;
-  const shouldPersistCompletionTime = shouldShowCompletionTime && isLatestAssistantMessage && !isStreaming;
-  const timeText = shouldShowCompletionTime ? formatMessageTime(message.timestamp) : null;
+  const canShowRegenerateAction = !readOnly && showTurnCompletionTime && isLatestAssistantMessage && !!retrySourceMessage && !isStreaming;
+  const shouldPersistCompletionTime = showTurnCompletionTime && isLatestAssistantMessage && !isStreaming;
+  const timeText = showTurnCompletionTime && !isStreaming ? formatMessageTime(message.timestamp) : null;
+  const standardMessageActions = useMessageFooterActions({
+    messageId: message.id,
+    selectionIds: assistantTurnSelectionIds,
+    sessionPath,
+    onCopy: handleCopy,
+    onScreenshot: () => { void handleScreenshot(); },
+    copied,
+    isStreaming,
+  });
+  const messageActions = readOnly || !showTurnCompletionTime || isStreaming ? [] : standardMessageActions;
   const regenerateActions: MessageFooterAction[] = useMemo(() => [
     {
       id: 'regenerate',
@@ -192,22 +203,13 @@ export const AssistantMessage = memo(function AssistantMessage({
           </ContentBlockErrorBoundary>
         ))}
       </div>
-      {!readOnly && !isInterludeOnly && (
-        <MessageActions
-          messageId={message.id}
-          sessionPath={sessionPath}
-          onCopy={handleCopy}
-          onScreenshot={handleScreenshot}
-          copied={copied}
-          isStreaming={isStreaming}
-        />
-      )}
-      {!isInterludeOnly && (timeText || footerActions.length > 0) && (
+      {!isInterludeOnly && (timeText || footerActions.length > 0 || messageActions.length > 0) && (
         <MessageFooterActions
           align="left"
           timeText={timeText}
           timePersistent={shouldPersistCompletionTime}
-          actions={footerActions}
+          leadingActions={footerActions}
+          actions={messageActions}
           testId="assistant-completion-actions"
         />
       )}

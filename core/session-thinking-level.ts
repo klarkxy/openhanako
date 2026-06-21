@@ -58,6 +58,11 @@ export function normalizeRequestThinkingLevel(level, fallback = "off") {
     || "off";
 }
 
+export function normalizePiSdkThinkingLevel(level) {
+  const normalized = normalizeRequestThinkingLevel(level, "off");
+  return normalized === "max" ? "xhigh" : normalized;
+}
+
 function idIncludesAny(id, markers) {
   return markers.some((marker) => id.includes(marker));
 }

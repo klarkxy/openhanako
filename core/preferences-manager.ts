@@ -186,7 +186,7 @@ export class PreferencesManager {
     this.savePreferences(prefs);
   }
 
-  /** 读取新会话默认权限模式。首次安装没有该字段时默认 ask。 */
+  /** 读取新会话默认权限模式。首次安装没有该字段时默认 auto。 */
   getSessionPermissionModeDefault() {
     return normalizeSessionPermissionMode({ permissionMode: this._cache.session_permission_mode_default });
   }

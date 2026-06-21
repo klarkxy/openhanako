@@ -69,18 +69,6 @@ import type { AudioWaveform } from '../stores/chat-types';
 
 const EMPTY_FILE_REFS: readonly import('../types/file-ref').FileRef[] = Object.freeze([]);
 
-// #1624：刷新完成瞬间 drift 已清空但 busy 态还在的兜底渲染数据（只用于 busy 分支）
-const EMPTY_CAPABILITY_DRIFT: import('../types').SessionCapabilityDrift = Object.freeze({
-  version: 1,
-  fingerprint: '',
-  frozenFingerprint: '',
-  addedToolNames: [],
-  removedToolNames: [],
-  invalidToolNames: [],
-  promptChanged: false,
-  hasDrift: false,
-});
-
 function chatVideoMimeTypeForName(name: string, fallback?: string): string {
   if (fallback?.startsWith('video/')) return fallback;
   const ext = name.toLowerCase().replace(/^.*\./, '');
@@ -1842,10 +1830,10 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
         )}
       </div>
       <div className={styles['input-stack']}>
-        {(capabilityDrift || capabilityRefreshing) && !visibleSessionConfirmation && !deletedAgentReadOnly && currentSessionPath && (
+        {capabilityDrift && !capabilityRefreshing && !visibleSessionConfirmation && !deletedAgentReadOnly && currentSessionPath && (
           <CapabilityDriftNotice
             sessionPath={currentSessionPath}
-            drift={capabilityDrift ?? EMPTY_CAPABILITY_DRIFT}
+            drift={capabilityDrift}
           />
         )}
         {visibleSessionConfirmation && (

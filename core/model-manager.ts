@@ -19,6 +19,7 @@ import { syncModels } from "./model-sync.ts";
 import { enrichModelFromKnownMetadata } from "./model-known-enrichment.ts";
 import { migrateLegacyApiKeyAuthToProviders } from "./provider-auth-migration.ts";
 import {
+  normalizePiSdkThinkingLevel,
   normalizeSessionThinkingLevel,
   normalizeThinkingLevelChoices,
   normalizeThinkingLevelForModel,
@@ -335,9 +336,9 @@ export class ModelManager {
     return model;
   }
 
-  /** legacy auto -> medium，其余原样 */
+  /** Convert Hana-visible thinking levels to the Pi SDK session contract. */
   resolveThinkingLevel(level) {
-    return level === "auto" ? "medium" : level;
+    return normalizePiSdkThinkingLevel(level);
   }
 
   _resolveModelForThinkingDefault(modelRef) {

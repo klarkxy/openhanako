@@ -169,6 +169,7 @@ export async function execute(input, toolCtx) {  // required
 - Automatically namespaced: `pluginId_name` (e.g. `my-plugin_search`)
 - Restricted plugins' `toolCtx.bus` only has `emit/subscribe/request`, not `handle`
 - New plugins can use `defineTool()` from `@hana/plugin-runtime` for types and default parameters. The current static `tools/*.js` loader still reads named exports.
+- Agent-callable tools should declare `sessionPermission`. Use `readOnly: true` for pure reads, `kind: "plugin_output"` for bounded `ctx.dataDir` writes returned through `stageFile()`, and `kind: "external_side_effect"` for provider, network, platform, or account actions that Auto mode should send to the reviewer. Tools that modify user workspace files should remain reviewer-bound unless they describe a narrower side effect with `describeSideEffect(input)`.
 
 ```js
 import { defineTool } from '@hana/plugin-runtime';
@@ -181,6 +182,7 @@ const tool = defineTool({
     properties: { query: { type: "string" } },
     required: ["query"]
   },
+  sessionPermission: { readOnly: true },
   async execute(input, ctx) {
     ctx.log.info("search", input.query);
     return `results for ${input.query}`;
@@ -189,6 +191,27 @@ const tool = defineTool({
 
 export const { name, description, parameters, execute } = tool;
 ```
+
+#### User Resource Access
+
+Use `ctx.resources` when a plugin needs to read or modify user resources. A resource can be a local file, mounted file, `SessionFile`, Resource record, or URL. Declare the exact capabilities in `manifest.json`:
+
+```json
+{
+  "capabilities": ["resource.read", "resource.search", "resource.write"]
+}
+```
+
+```js
+export async function execute(input, ctx) {
+  const ref = { kind: "mount", mountId: input.mountId, path: input.path };
+  const file = await ctx.resources.read(ref);
+  await ctx.resources.write(ref, file.content.toString("utf-8") + "\nupdated\n");
+  return "updated";
+}
+```
+
+`resource.read` covers `stat`, `read`, and `list`; `resource.search` covers search, including filename search through provider options; `resource.write` covers `write`, `writeExpectedVersion`, `edit`, `mkdir`, `delete`, `copy`, `rename`, `move`, and `trash`; `resource.materialize` is for turning a resource into a concrete local path; `resource.watch` resolves watch targets. URL resources stay read-only. Plugin-generated artifacts may still be written under `ctx.dataDir` and returned with `stageFile()`, but user resource reads and writes should not use raw local paths or `fs.writeFileSync`.
 
 #### Media Delivery
 

@@ -20,6 +20,7 @@ function makeEngine(tmpDir, options: any = {}) {
     config: { tools: { disabled } },
   };
   const emitEvent = vi.fn();
+  const emitResourceChanged = vi.fn();
   const executeIsolated = options.executeIsolated || vi.fn(async () => ({ sessionPath: path.join(tmpDir, "agents", "agent-1", "activity", "s.jsonl") }));
   const activityStore = options.activityStore || {
     add: vi.fn((activity) => activity),
@@ -59,6 +60,7 @@ function makeEngine(tmpDir, options: any = {}) {
       getPlugin: (id) => (id === "image-gen" ? { ctx: imageGenCtx, status: "loaded" } : null),
     },
     emitEvent,
+    emitResourceChanged,
     _test: { executeIsolated, activityStore, imageGenCtx },
   };
 }
@@ -97,14 +99,17 @@ describe("desk beautify cover apply route", () => {
     expect(body.cover.image).toMatch(/^文本附件\/note-cover-/);
     expect(fs.existsSync(path.join(tmpDir, ...body.cover.image.split("/")))).toBe(true);
     expect(fs.readFileSync(notePath, "utf-8")).toContain("cover:");
-    expect(engine.emitEvent).toHaveBeenCalledWith({
-      type: "app_event",
-      event: {
-        type: "markdown-cover-updated",
-        payload: { filePath: notePath },
-        source: "server",
-      },
-    }, null);
+    expect(engine.emitResourceChanged).toHaveBeenCalledWith(expect.objectContaining({
+      changeType: "modified",
+      resource: expect.objectContaining({
+        kind: "local-file",
+        provider: "local_fs",
+        path: notePath,
+        filePath: notePath,
+      }),
+      source: "api",
+      reason: "markdown_cover",
+    }));
   });
 
   it("applies uploaded cover bytes to a server workbench Markdown target", async () => {
@@ -136,14 +141,19 @@ describe("desk beautify cover apply route", () => {
     expect(body.cover.image).toMatch(/^文本附件\/note-cover-/);
     expect(fs.existsSync(path.join(tmpDir, ...body.cover.image.split("/")))).toBe(true);
     expect(fs.readFileSync(notePath, "utf-8")).toContain("cover:");
-    expect(engine.emitEvent).toHaveBeenCalledWith({
-      type: "app_event",
-      event: {
-        type: "markdown-cover-updated",
-        payload: { target: expect.objectContaining(target) },
-        source: "server",
-      },
-    }, null);
+    const expectedPath = fs.realpathSync(notePath);
+    expect(engine.emitResourceChanged).toHaveBeenCalledWith(expect.objectContaining({
+      changeType: "modified",
+      resource: expect.objectContaining({
+        kind: "local-file",
+        provider: "local_fs",
+        path: expectedPath,
+        filePath: expectedPath,
+        target: expect.objectContaining(target),
+      }),
+      source: "api",
+      reason: "markdown_cover",
+    }));
   });
 
   it("applies uploaded cover bytes to a non-default workbench mount target", async () => {
@@ -235,14 +245,17 @@ describe("desk beautify cover apply route", () => {
     expect(body.cover.image).toMatch(/^文本附件\/note-cover-/);
     expect(fs.existsSync(path.join(tmpDir, ...body.cover.image.split("/")))).toBe(true);
     expect(fs.readFileSync(notePath, "utf-8")).toContain("cover:");
-    expect(engine.emitEvent).toHaveBeenCalledWith({
-      type: "app_event",
-      event: {
-        type: "markdown-cover-updated",
-        payload: { filePath: notePath },
-        source: "server",
-      },
-    }, null);
+    expect(engine.emitResourceChanged).toHaveBeenCalledWith(expect.objectContaining({
+      changeType: "modified",
+      resource: expect.objectContaining({
+        kind: "local-file",
+        provider: "local_fs",
+        path: notePath,
+        filePath: notePath,
+      }),
+      source: "api",
+      reason: "markdown_cover",
+    }));
   });
 
   it("applies a built-in cover gallery preset to a server workbench Markdown target", async () => {

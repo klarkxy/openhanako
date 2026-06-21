@@ -84,6 +84,7 @@ const MODEL_THINKING_FORMATS = new Set([
   "deepseek",
   "openrouter",
   "kimi",
+  "volcengine",
 ]);
 
 const MODEL_REASONING_PROFILES = new Set([
@@ -226,6 +227,16 @@ function isOfficialKimiOpenAIEndpoint(model: any, context: any = {}) {
   ) || host === "api.moonshot.cn";
 }
 
+function isOfficialVolcengineEndpoint(model: any, context: any = {}) {
+  if (!isOpenAIReasoningApi(model, context)) return false;
+
+  const provider = getProvider(model, context);
+  if (provider === "volcengine" || provider === "volcengine-coding") return true;
+
+  const host = getBaseHost(model, context);
+  return host === "ark.cn-beijing.volces.com" || host.endsWith(".volces.com");
+}
+
 function isMimoFamilyModel(model: any, context: any = {}) {
   const text = getModelText(model, context);
   if (!/\bmimo[-_]?v\d/.test(text)) return false;
@@ -305,6 +316,10 @@ export function getThinkingFormat(model: any, context: any = {}) {
 
   if (isOfficialKimiOpenAIEndpoint(model, context) && model.reasoning === true) {
     return "kimi";
+  }
+
+  if (isOfficialVolcengineEndpoint(model, context) && model.reasoning === true) {
+    return "volcengine";
   }
 
   if (

@@ -3,6 +3,10 @@ import path from "path";
 import { createRequire } from "module";
 import { generateSessionId } from "./id.ts";
 import { normalizeSessionLocatorPath, sessionLocatorKey } from "./path-normalizer.ts";
+import {
+  DEFAULT_SESSION_PERMISSION_MODE,
+  normalizeSessionPermissionMode,
+} from "../session-permission-mode.ts";
 
 export const SESSION_MANIFEST_SCHEMA_VERSION = 1;
 export const SESSION_MANIFEST_DB_USER_VERSION = 3;
@@ -85,7 +89,7 @@ function defaultMemoryPolicy(input: any = {}) {
 
 function defaultPermissionModeSnapshot(input: any = {}, capturedAt) {
   return {
-    mode: input.mode || "ask",
+    mode: normalizeSessionPermissionMode(input.mode || DEFAULT_SESSION_PERMISSION_MODE),
     source: input.source || "global_default_at_create",
     capturedAt: input.capturedAt || capturedAt,
   };

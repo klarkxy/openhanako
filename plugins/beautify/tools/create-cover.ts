@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import path from "node:path";
+import { resourceKeyForRef } from "../../../lib/resource-io/resource-refs.ts";
 import { applyMarkdownCoverFromGeneratedFile } from "../lib/markdown-cover-service.ts";
 import { isBeautifyEnabledForAgentConfig } from "../lib/availability.ts";
 import { t } from "../../../lib/i18n.ts";
@@ -19,6 +21,15 @@ export const promptGuidelines = [
 ].join("\n");
 
 export { isBeautifyEnabledForAgentConfig as isEnabledForAgentConfig };
+
+export const sessionPermission = {
+  kind: "review",
+  describeSideEffect: (input: any = {}) => ({
+    kind: "workspace_write",
+    summary: `Apply a generated cover image to Markdown file ${input.targetFilePath || input.filePath || "unknown"}.`,
+    ruleId: "beautify-markdown-cover-write",
+  }),
+};
 
 export const parameters = {
   type: "object",
@@ -48,17 +59,27 @@ function textResult(text, details = undefined) {
   };
 }
 
-function emitMarkdownCoverUpdated(ctx, filePath) {
+function emitMarkdownCoverChanged(ctx, filePath) {
   try {
-    if (ctx?.appEvents?.emit?.("markdown-cover-updated", { filePath })) return;
-    ctx?.bus?.emit?.({
-      type: "app_event",
-      event: {
-        type: "markdown-cover-updated",
-        payload: { filePath },
-        source: "server",
+    const stat = fs.statSync(filePath);
+    const ok = ctx?.resourceEvents?.changed?.({
+      changeType: "modified",
+      resourceKey: resourceKeyForRef({ kind: "local-file", path: filePath }),
+      resource: {
+        kind: "local-file",
+        provider: "local_fs",
+        path: filePath,
+        filePath,
       },
-    }, null);
+      version: {
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+      },
+      source: "agent_tool",
+      reason: "markdown_cover",
+      ...(ctx?.sessionPath ? { sessionPath: ctx.sessionPath } : {}),
+    });
+    if (!ok) ctx?.log?.warn?.("markdown cover resource event unavailable");
   } catch (err) {
     ctx?.log?.warn?.(`markdown cover refresh event failed: ${err?.message || err}`);
   }
@@ -85,7 +106,7 @@ export async function execute(input, ctx) {
       pixelWidth: input.pixelWidth,
       pixelHeight: input.pixelHeight,
     });
-    emitMarkdownCoverUpdated(ctx, targetFilePath);
+    emitMarkdownCoverChanged(ctx, targetFilePath);
     return textResult(t("toolDef.createCover.applied"), {
       beautifyCover: result,
     });

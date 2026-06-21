@@ -100,4 +100,21 @@ describe("session-list-projection-cache revision", () => {
     expect(projection.path).toBe(linkedFile);
     expect(projection.revision).toBe(sessionFileRevision(fs.statSync(linkedFile)));
   });
+
+  it("does not list repair artifacts as sessions", async () => {
+    const filePath = writeSessionFile(tmpDir, "a.jsonl", [HEADER, USER_MESSAGE]);
+    writeSessionFile(tmpDir, "a.jsonl.repair.jsonl", [
+      HEADER,
+      {
+        ...USER_MESSAGE,
+        message: { role: "user", content: "[omitted 2048 chars by Hana session JSONL guard]" },
+      },
+    ]);
+
+    const cache = new SessionListProjectionCache();
+    const projections = await cache.list(tmpDir);
+
+    expect(projections).toHaveLength(1);
+    expect(projections[0].path).toBe(filePath);
+  });
 });

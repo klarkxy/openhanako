@@ -39,6 +39,7 @@ import { getToolSessionPath, normalizeToolRuntimeContext } from "../lib/tools/to
 import { loadLocale } from "../lib/i18n.ts";
 import { createApprovalGateway, createModelApprovalReviewer } from "../lib/approval-gateway.ts";
 import { callText } from "./llm-client.ts";
+import { SESSION_APPROVAL_POLICIES } from "./session-permission-mode.ts";
 
 /** 已知的外部 AI 工具技能目录（相对 $HOME） */
 export const WELL_KNOWN_SKILL_PATHS = [
@@ -124,6 +125,10 @@ import {
 } from "./llm-utils.ts";
 import { debugLog, createModuleLogger } from "../lib/debug-log.ts";
 import { createSandboxedTools } from "../lib/sandbox/index.ts";
+import { createSandboxResourceIO } from "../lib/resource-io/sandbox-resource-io.ts";
+import { ResourceEventBus } from "../lib/resource-io/resource-event-bus.ts";
+import { resourceKeyForRef } from "../lib/resource-io/resource-refs.ts";
+import { ResourceWatchRegistry } from "../lib/resource-io/resource-watch-registry.ts";
 import { externalReadPathsFromSessionFiles } from "../lib/sandbox/win32-policy.ts";
 import { Win32LegacySandboxCleanupQueue } from "../lib/sandbox/win32-legacy-migration.ts";
 import { t } from "../lib/i18n.ts";
@@ -212,7 +217,10 @@ export class HanaEngine {
   declare _pluginManager: any;
   declare _prefs: any;
   declare _resourceAccess: any;
+  declare _resourceEventBus: any;
   declare _resourceLoader: any;
+  declare _resourceIO: any;
+  declare _resourceWatchRegistry: any;
   declare _resources: any;
   declare _runtimeContext: any;
   declare _sessionCoord: any;
@@ -256,6 +264,8 @@ export class HanaEngine {
     this._runtimeContext = null;
     this._resources = null;
     this._resourceAccess = null;
+    this._resourceIO = null;
+    this._resourceEventBus = null;
     this.agentsDir = path.join(hanakoHome, "agents");
     this.userDir = path.join(hanakoHome, "user");
     this.channelsDir = path.join(hanakoHome, "channels");
@@ -272,6 +282,10 @@ export class HanaEngine {
     this._sessionFiles = new SessionFileRegistry({
       managedCacheRoot: path.join(hanakoHome, "session-files"),
       getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
+    });
+    this._resourceWatchRegistry = new ResourceWatchRegistry({
+      emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
+      resolveWatchTarget: (resource) => this.getResourceIO().resolveWatchTarget(resource),
     });
     this._sessionManifestStoreRecovery = null;
     this._sessionManifestStore = this._openSessionManifestStore();
@@ -647,10 +661,27 @@ export class HanaEngine {
   }
   recordSessionFileOperation(entry) {
     const file = this.registerSessionFile(entry);
-    this._emitSessionFileUpdatedEvent(file, entry);
+    this._emitResourceChangedForSessionFileOperation(file, entry);
     return file;
   }
-  _emitSessionFileUpdatedEvent(file, entry: any = {}) {
+  _resourceEvents() {
+    if (!this._resourceEventBus) {
+      this._resourceEventBus = new ResourceEventBus({
+        emit: (event, sessionPath) => this._emitEvent(event, sessionPath),
+      });
+    }
+    return this._resourceEventBus;
+  }
+  emitResourceChanged(input) {
+    return this._resourceEvents().changed(input);
+  }
+  emitResourceDeleted(input) {
+    return this._resourceEvents().deleted(input);
+  }
+  emitResourceRenamed(input) {
+    return this._resourceEvents().renamed(input);
+  }
+  _emitResourceChangedForSessionFileOperation(file, entry: any = {}) {
     const origin = typeof file?.origin === "string" ? file.origin : entry?.origin;
     if (origin !== "agent_write" && origin !== "agent_edit") return;
 
@@ -662,16 +693,28 @@ export class HanaEngine {
     const operation = entry?.operation || file?.operation || (
       Array.isArray(file?.operations) ? file.operations[file.operations.length - 1] : null
     );
-    this._emitAppEvent("session-file-updated", {
+    this._resourceEvents().changed({
+      changeType: operation === "created" ? "created" : "modified",
+      resourceKey: resourceKeyForRef({ kind: "local-file", path: filePath }),
+      resource: {
+        kind: "local-file",
+        provider: "local_fs",
+        path: filePath,
+        filePath,
+      },
+      version: {
+        ...(file?.mtimeMs !== undefined ? { mtimeMs: file.mtimeMs } : {}),
+        ...(file?.size !== undefined ? { size: file.size } : {}),
+        ...(file?.version ? { sequence: file.version } : {}),
+      },
+      source: "agent_tool",
+      reason: origin,
       sessionPath,
-      filePath,
-      ...(fileId ? { fileId } : {}),
+      fileId,
       origin,
-      ...(operation ? { operation } : {}),
-      ...(file?.mtimeMs !== undefined ? { mtimeMs: file.mtimeMs } : {}),
-      ...(file?.size !== undefined ? { size: file.size } : {}),
-      ...(file?.version ? { version: file.version } : {}),
-    });
+      operation,
+      sessionFile: file,
+    } as any);
   }
   _sessionFileOptionsWithLocator(options: any = {}) {
     const next = { ...(options || {}) };
@@ -757,6 +800,47 @@ export class HanaEngine {
   getResourceAccessService() {
     if (!this._resourceAccess) throw new Error("resource access service is not initialized");
     return this._resourceAccess;
+  }
+  getResourceIO() {
+    if (!this._resourceIO) {
+      if (!this._runtimeContext?.studioId) throw new Error("runtime studioId unavailable");
+      this._resourceIO = createSandboxResourceIO({
+        cwd: this.userDir,
+        agentDir: this.agent?.dir || this.agentsDir,
+        workspace: null,
+        workspaceFolders: [],
+        authorizedFolders: [],
+        hanakoHome: this.hanakoHome,
+        getSandboxEnabled: () => false,
+        getSessionPath: () => this.currentSessionPath || null,
+        emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
+        sessionFiles: this._sessionFiles,
+        resourceService: this.getResourceService(),
+        studioId: this._runtimeContext.studioId,
+      });
+    }
+    return this._resourceIO;
+  }
+  retainResourceWatch(resource) {
+    if (!this._resourceWatchRegistry || typeof this._resourceWatchRegistry.retain !== "function") {
+      throw new Error("resource watch unavailable");
+    }
+    return this._resourceWatchRegistry.retain(resource);
+  }
+  subscribeResourceWatch(input) {
+    if (!this._resourceWatchRegistry || typeof this._resourceWatchRegistry.subscribe !== "function") {
+      throw new Error("resource watch unavailable");
+    }
+    return this._resourceWatchRegistry.subscribe(input);
+  }
+  unsubscribeResourceWatch(subscriptionId) {
+    if (!this._resourceWatchRegistry || typeof this._resourceWatchRegistry.unsubscribe !== "function") {
+      throw new Error("resource watch unavailable");
+    }
+    return this._resourceWatchRegistry.unsubscribe(subscriptionId);
+  }
+  resourceWatchDiagnostics() {
+    return this._resourceWatchRegistry?.diagnostics?.() || { subscriptions: 0, watches: [] };
   }
   getResource(resourceId) { return this.getResourceService().getResource(resourceId); }
   resolveResourceContent(resourceId) { return this.getResourceService().resolveContent(resourceId); }
@@ -1023,6 +1107,7 @@ export class HanaEngine {
   async reloadSessionRuntime(p, opts = {}) { return this._sessionCoord.reloadSessionRuntime(p, opts); }
   /** #1624：当前应展示的"工具能力有更新"提示（无漂移 / 已 dismiss → null） */
   getSessionCapabilityDriftNotice(p) { return this._sessionCoord.getSessionCapabilityDriftNotice(p); }
+  markCapabilitySnapshotsStale(opts = {}) { return this._sessionCoord.markCapabilitySnapshotsStale(opts); }
   /** #1624：记录当前 fingerprint 已被用户关闭，持久化到 session-meta */
   async dismissSessionCapabilityDrift(p, fingerprint) { return this._sessionCoord.dismissSessionCapabilityDrift(p, fingerprint); }
   isSessionStreaming(p) { return this._sessionCoord.isSessionStreaming(p); }
@@ -1967,6 +2052,8 @@ export class HanaEngine {
       appVersion,
       getSessionPath: () => this.currentSessionPath,
       registerSessionFile: (entry) => this.registerSessionFile(entry),
+      emitResourceChanged: (input) => this.emitResourceChanged(input),
+      resourceIO: () => this.getResourceIO(),
       slashRegistry: this._slashSystem?.registry ?? null,
       loadTimeoutMs: undefined,
       lifecycleTimeoutMs: undefined,
@@ -2080,6 +2167,9 @@ export class HanaEngine {
     const getSessionPath = typeof opts.getSessionPath === "function"
       ? opts.getSessionPath
       : (() => null);
+    const allowHumanApproval = opts.allowHumanApproval !== false;
+    const approvalPolicy = opts.approvalPolicy
+      || (allowHumanApproval ? SESSION_APPROVAL_POLICIES.INTERACTIVE : SESSION_APPROVAL_POLICIES.DENY_ON_PROMPT);
 
     // Append plugin tools
     const pluginTools = this._pluginManager?.getAllTools() || [];
@@ -2104,6 +2194,8 @@ export class HanaEngine {
             ...(sessionPath ? { sessionPath } : {}),
             ...(opts.bridgeContext ? { bridgeContext: opts.bridgeContext } : {}),
             ...(opts.notificationContext ? { notificationContext: opts.notificationContext } : {}),
+            allowHumanApproval,
+            approvalPolicy,
             agentId,
             ...executionScope,
           };
@@ -2125,6 +2217,8 @@ export class HanaEngine {
           ...(sessionPath ? { sessionPath } : {}),
           ...(opts.bridgeContext ? { bridgeContext: opts.bridgeContext } : {}),
           ...(opts.notificationContext ? { notificationContext: opts.notificationContext } : {}),
+          allowHumanApproval,
+          approvalPolicy,
           agentId,
           ...executionScope,
         };
@@ -2180,6 +2274,22 @@ export class HanaEngine {
       });
     };
 
+    const resourceIO = createSandboxResourceIO({
+      cwd,
+      agentDir: effectiveAgentDir,
+      workspace: effectiveWorkspace,
+      workspaceFolders,
+      authorizedFolders: staticAuthorizedFolders,
+      getAuthorizedFolders,
+      hanakoHome: this.hanakoHome,
+      getSandboxEnabled: () => this._readPreferences().sandbox !== false,
+      getExternalReadPaths,
+      getSessionPath,
+      emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
+      sessionFiles: this._sessionFiles,
+      resourceService: this._resources || null,
+      studioId: this._runtimeContext?.studioId || null,
+    });
     let result = createSandboxedTools(cwd, allTools, {
       agentDir: effectiveAgentDir,
       workspace: effectiveWorkspace,
@@ -2202,6 +2312,8 @@ export class HanaEngine {
       recordFileOperation: (entry) => this.recordSessionFileOperation(entry),
       getVisionBridge: () => this.getVisionBridge(),
       isVisionAuxiliaryEnabled: () => this.isVisionAuxiliaryEnabled(),
+      resourceIO,
+      emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
       legacyCleanupQueue: this._win32LegacySandboxCleanupQueue,
     } as any);
 
@@ -2224,14 +2336,19 @@ export class HanaEngine {
       : (sessionPath) => this.getSessionPermissionMode(sessionPath);
     // 拦截上下文（如 { isSubagent }）：classify 据此做与 mode 无关的固定边界（防自递归等）。
     const permissionContext = opts.permissionContext || null;
-    const allowHumanApproval = opts.allowHumanApproval !== false;
     result = {
       ...result,
       tools: wrapWithSessionPermission(result.tools, {
         getSessionPath,
         getPermissionMode,
         permissionContext,
+        agentId,
+        cwd,
+        workspaceFolders,
+        authorizedFolders: staticAuthorizedFolders,
+        getAuthorizedFolders,
         allowHumanApproval,
+        approvalPolicy,
         getConfirmStore: () => this._confirmStore,
         getApprovalGateway: () => this._approvalGateway,
         emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
@@ -2240,7 +2357,13 @@ export class HanaEngine {
         getSessionPath,
         getPermissionMode,
         permissionContext,
+        agentId,
+        cwd,
+        workspaceFolders,
+        authorizedFolders: staticAuthorizedFolders,
+        getAuthorizedFolders,
         allowHumanApproval,
+        approvalPolicy,
         getConfirmStore: () => this._confirmStore,
         getApprovalGateway: () => this._approvalGateway,
         emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),

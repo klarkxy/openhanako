@@ -250,6 +250,17 @@ describe("desktop session path predicates", () => {
     expect(isArchivedDesktopSessionPath(subagent, agentsDir)).toBe(false);
     expect(isDesktopSessionPath(subagent, agentsDir)).toBe(false);
   });
+
+  it("rejects repair artifacts as desktop session paths", () => {
+    const agentsDir = "/tmp/agents";
+    const activeRepair = "/tmp/agents/agent1/sessions/abc.jsonl.repair.jsonl";
+    const archivedRepair = "/tmp/agents/agent1/sessions/archived/abc.jsonl.repair.jsonl";
+
+    expect(isActiveDesktopSessionPath(activeRepair, agentsDir)).toBe(false);
+    expect(isArchivedDesktopSessionPath(archivedRepair, agentsDir)).toBe(false);
+    expect(isDesktopSessionPath(activeRepair, agentsDir)).toBe(false);
+    expect(isDesktopSessionPath(archivedRepair, agentsDir)).toBe(false);
+  });
 });
 
 describe("loadSessionHistoryMessages", () => {

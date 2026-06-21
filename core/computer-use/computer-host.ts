@@ -154,7 +154,7 @@ export class ComputerHost {
     const activeLease = await this._reuseOrReplaceActiveLease(ctx, providerId, target);
     if (activeLease) return activeLease;
     const provider = this._providers.require(providerId);
-    this._assertAppApproved(provider, providerId, target);
+    this._assertAppApproved(provider, providerId, target, ctx);
     const providerLease = await provider.createLease?.(ctx, target);
     return this._leases.createLease(ctx, {
       providerId,
@@ -444,7 +444,7 @@ export class ComputerHost {
     });
   }
 
-  _assertAppApproved(provider, providerId, target: any = {}) {
+  _assertAppApproved(provider, providerId, target: any = {}, ctx: any = {}) {
     if (provider.capabilities?.isolated === true) return;
     const appId = target.appId
       || (target.pid || target.processId ? `pid:${target.pid || target.processId}` : null)
@@ -452,6 +452,7 @@ export class ComputerHost {
       || target.appName
       || null;
     if (appId && isComputerUseAppApproved(this._getSettings?.() || {}, { providerId, appId })) return;
+    if (appId && ctx?.computerUseAppApproval?.mode === "session") return;
     throw computerUseError(
       COMPUTER_USE_ERRORS.APP_APPROVAL_REQUIRED,
       "Computer Use requires app approval before controlling this target.",

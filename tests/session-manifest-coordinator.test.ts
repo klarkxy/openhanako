@@ -148,7 +148,7 @@ describe("SessionCoordinator session manifest integration", () => {
       lifecycle: "active",
       memoryPolicy: { mode: "enabled", inheritedFrom: "session_create" },
       permissionModeSnapshot: {
-        mode: "ask",
+        mode: "auto",
         source: "session_create",
       },
       pinnedAt,

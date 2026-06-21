@@ -1,6 +1,7 @@
 
 import { createStructuredOutputTool } from "./structured-output.ts";
 import { WorkflowJournal } from "./journal.ts";
+import { resolveSubagentToolAccess } from "../tools/subagent-tool-policy.ts";
 
 /**
  * 组装注入沙箱的宿主 API。引擎层不认识 agent 名字，agentType→agentId 的解析由调用方注入 resolveAgentId。
@@ -28,7 +29,7 @@ export function createHostApi(deps) {
   let nodeSeq = 0;
   let currentPhase = null;
 
-  async function agent(prompt, opts: { label?: string; model?: string; agentType?: string; toolFilter?: any; schema?: any } = {}) {
+  async function agent(prompt, opts: { label?: string; model?: string; agentType?: string; toolFilter?: any; access?: "read"|"write"; schema?: any } = {}) {
     // nodeId 在调用入口分配：用纯计数器，不依赖沙箱里被禁用的 Date.now/Math.random。
     const seq = ++nodeSeq;
     const nodeId = `node-${seq}`;
@@ -63,6 +64,15 @@ export function createHostApi(deps) {
       if (threadId) {
         isoOpts.subagentThreadId = threadId;
         isoOpts.subagentThreadKind = threadKind;
+      }
+      if (opts.access === "read" || opts.access === "write") {
+        const toolAccess = resolveSubagentToolAccess({
+          access: opts.access,
+          parentPermissionMode: baseIsoOpts.permissionMode || null,
+        });
+        isoOpts.permissionMode = toolAccess.permissionMode;
+        if (toolAccess.customToolFilter) isoOpts.toolFilter = toolAccess.customToolFilter;
+        if (toolAccess.builtinToolFilter) isoOpts.builtinFilter = toolAccess.builtinToolFilter;
       }
       if (opts.model) isoOpts.model = opts.model;
       let nodeAgentId = isoOpts.agentId ?? null;

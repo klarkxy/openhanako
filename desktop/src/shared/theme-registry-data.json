@@ -78,7 +78,7 @@
     },
     "coral": {
       "cssPath": "themes/coral.css",
-      "backgroundColor": "#FDFDFB",
+      "backgroundColor": "#FDF6EC",
       "i18nName": "settings.appearance.coral",
       "i18nMode": "settings.appearance.coralMode"
     }

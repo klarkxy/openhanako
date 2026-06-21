@@ -4,6 +4,7 @@ import {
   readDirectoryLikeDirentsSync,
   readFileLikePathsSync,
 } from "../../shared/link-aware-fs.ts";
+import { isSessionJsonlFilename } from "../../lib/session-jsonl.ts";
 import { normalizeSessionPermissionMode } from "../session-permission-mode.ts";
 import { normalizeSessionLocatorPath } from "./path-normalizer.ts";
 
@@ -93,7 +94,8 @@ function listDirectories(directory) {
 
 function listJsonlFiles(directory) {
   try {
-    return readFileLikePathsSync(directory, { extension: ".jsonl" });
+    return readFileLikePathsSync(directory, { extension: ".jsonl" })
+      .filter((filePath) => isSessionJsonlFilename(path.basename(filePath)));
   } catch {
     return [];
   }

@@ -23,6 +23,7 @@ import * as kimi from "./provider-compat/kimi.ts";
 import * as mimo from "./provider-compat/mimo.ts";
 import * as qwen from "./provider-compat/qwen.ts";
 import * as zhipu from "./provider-compat/zhipu.ts";
+import * as volcengine from "./provider-compat/volcengine.ts";
 import * as agnes from "./provider-compat/agnes.ts";
 import * as openaiInputAudio from "./provider-compat/openai-input-audio.ts";
 import * as openaiVideoUrl from "./provider-compat/openai-video-url.ts";
@@ -57,6 +58,7 @@ const PROVIDER_MODULES: ProviderModule[] = [
   mimo,
   qwen,
   zhipu,
+  volcengine,
   agnes,
   openaiInputAudio,
   openaiVideoUrl,
@@ -93,6 +95,7 @@ export function getThinkingFormat(model) {
   if (declared) return declared;
   if (isDeepSeekModel(model)) return "deepseek";
   if (zhipu.matches(model)) return "zhipu";
+  if (volcengine.matches(model)) return "volcengine";
   return null;
 }
 
@@ -112,12 +115,18 @@ function stripEmptyTools(payload) {
 
 function stripIncompatibleThinking(payload, model) {
   if (!payload.thinking) return payload;
-  // payload.thinking 只对 Anthropic-style / DeepSeek-style / Kimi-style 请求体有效。
+  // payload.thinking 只对 Anthropic-style / DeepSeek-style / Kimi-style 等请求体有效。
   // Qwen/openrouter 等格式即使支持 reasoning，也不接收这个字段。
   // 没有 model 信息时保守保留（旧降级路径），避免误删 anthropic 调用。
   if (!model) return payload;
   const thinkingFormat = getThinkingFormat(model);
-  if (thinkingFormat === "anthropic" || thinkingFormat === "deepseek" || thinkingFormat === "zhipu" || thinkingFormat === "kimi") return payload;
+  if (
+    thinkingFormat === "anthropic"
+    || thinkingFormat === "deepseek"
+    || thinkingFormat === "zhipu"
+    || thinkingFormat === "kimi"
+    || thinkingFormat === "volcengine"
+  ) return payload;
   const { thinking, ...rest } = payload;
   return rest;
 }

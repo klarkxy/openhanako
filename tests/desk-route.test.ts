@@ -185,6 +185,7 @@ describe("desk route", () => {
       for (const dir of [cwd, extra, sibling]) fs.mkdirSync(dir, { recursive: true });
 
       const engine = {
+        hanakoHome: path.join(tempRoot, "hana-home"),
         deskCwd: cwd,
         homeCwd: cwd,
         isApprovedWorkspaceDir: vi.fn((dir) => dir === cwd || dir === extra),
@@ -216,6 +217,7 @@ describe("desk route", () => {
       fs.writeFileSync(path.join(selectedHome, "mio.md"), "ok");
 
       const engine = {
+        hanakoHome: path.join(tempRoot, "hana-home"),
         deskCwd: currentHome,
         homeCwd: currentHome,
         getExplicitHomeCwd: vi.fn((agentId) => (agentId === "mio" ? selectedHome : null)),
@@ -249,6 +251,7 @@ describe("desk route", () => {
       fs.writeFileSync(path.join(selectedWorkspace, "visible.txt"), "ok");
 
       const engine = {
+        hanakoHome: path.join(tempRoot, "hana-home"),
         config: { cwd_history: [selectedWorkspace] },
         deskCwd: agentHome,
         homeCwd: agentHome,
@@ -374,6 +377,7 @@ describe("desk route", () => {
       fs.writeFileSync(path.join(cwd, "notes", "chapter.md"), "chapter", "utf-8");
 
       const engine = {
+        hanakoHome: path.join(tempRoot, "hana"),
         deskCwd: cwd,
         homeCwd: cwd,
       };
@@ -413,6 +417,7 @@ describe("desk route", () => {
       fs.writeFileSync(path.join(cwd, "old.md"), "old", "utf-8");
 
       const engine = {
+        hanakoHome: path.join(tempRoot, "hana"),
         deskCwd: cwd,
         homeCwd: cwd,
       };
@@ -455,6 +460,7 @@ describe("desk route", () => {
       fs.mkdirSync(cwd, { recursive: true });
 
       const engine = {
+        hanakoHome: path.join(tempRoot, "hana"),
         deskCwd: cwd,
         homeCwd: cwd,
       };
@@ -529,6 +535,7 @@ describe("desk route", () => {
       fs.writeFileSync(path.join(cwd, ".git", "desk-private"), "hidden", "utf-8");
 
       const engine = {
+        hanakoHome: path.join(tempRoot, "hana-home"),
         deskCwd: cwd,
         homeCwd: cwd,
       };
@@ -610,6 +617,7 @@ describe("desk route", () => {
       fs.writeFileSync(draggedFile, "dragged content", "utf-8");
 
       const engine = {
+        hanakoHome: path.join(tempRoot, "hana"),
         deskCwd: cwd,
         homeCwd: cwd,
       };

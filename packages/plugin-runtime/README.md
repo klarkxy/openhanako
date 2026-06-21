@@ -118,6 +118,68 @@ private-network targets, timeout, cache TTL, and response byte limit. Keep API
 keys in plugin configuration and read them from route or lifecycle code; do not
 ship secrets in iframe assets.
 
+## User resource access
+
+Use `ctx.resources` when runtime plugin code needs user resources such as local
+workspace files, mounted files, `SessionFile` references, Resource records, or
+URLs.
+
+```json
+{
+  "capabilities": ["resource.read", "resource.search", "resource.write"]
+}
+```
+
+```ts
+export const updateNote = defineTool({
+  name: 'update_note',
+  description: 'Update a mounted note',
+  async execute(input: { mountId: string; path: string }, ctx) {
+    const ref = { kind: 'mount' as const, mountId: input.mountId, path: input.path };
+    const file = await ctx.resources.read(ref);
+    await ctx.resources.write(ref, file.content.toString() + '\nupdated\n');
+    return 'updated';
+  },
+});
+```
+
+`resource.read` covers `stat`, `read`, and `list`; `resource.search` covers
+search, including filename search through provider options; `resource.write`
+covers `write`, `writeExpectedVersion`, `edit`, `mkdir`, `delete`, `copy`,
+`rename`, `move`, and `trash`;
+`resource.materialize` is required before asking the host for a concrete local
+path; `resource.watch` resolves watch targets. URL resources are read-only.
+Plugin-generated artifacts can still be written under `ctx.dataDir` and returned
+with `stageFile()`, but user resource edits should go through `ctx.resources`.
+
+## Tool session permissions
+
+Declare `sessionPermission` on Agent-callable tools so Hana can apply the current
+session permission mode before the tool runs. Use `readOnly: true` for pure reads,
+`kind: 'plugin_output'` for bounded plugin-data writes returned through
+`stageFile()`, and `kind: 'external_side_effect'` for provider, network, platform,
+or account actions that Auto mode should send to the reviewer. Workspace edits
+should stay reviewer-bound unless `describeSideEffect(input)` clearly describes
+the target and write behavior.
+
+```ts
+export const renderImage = defineTool({
+  name: 'render_image',
+  description: 'Render an image and return it as SessionFile media.',
+  sessionPermission: {
+    kind: 'plugin_output',
+    describeSideEffect: () => ({
+      kind: 'session_file_output',
+      summary: 'Writes output under plugin data and registers SessionFile media.',
+      ruleId: 'plugin-output-session-file',
+    }),
+  },
+  async execute(input, ctx) {
+    // write under ctx.dataDir, then ctx.stageFile(...)
+  },
+});
+```
+
 ## Session, Agent, model, and media helpers
 
 Plugins that need their own chat surface should use the typed helpers instead of

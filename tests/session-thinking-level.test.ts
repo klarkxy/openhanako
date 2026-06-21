@@ -4,6 +4,7 @@ import {
   normalizeSessionThinkingLevel,
   modelSupportsAnthropicMaxEffort,
   modelSupportsXhigh,
+  normalizePiSdkThinkingLevel,
   normalizeThinkingLevelForModel,
   resolveModelDefaultThinkingLevel,
 } from "../core/session-thinking-level.ts";
@@ -23,6 +24,12 @@ describe("session thinking level capabilities", () => {
     expect(modelSupportsXhigh(model)).toBe(true);
     expect(normalizeThinkingLevelForModel("max", model)).toBe("max");
     expect(normalizeThinkingLevelForModel("max", { id: "plain-model", provider: "test" })).toBe("high");
+  });
+
+  it("maps Hana-visible max to Pi SDK xhigh only at the SDK boundary", () => {
+    expect(normalizePiSdkThinkingLevel("max")).toBe("xhigh");
+    expect(normalizePiSdkThinkingLevel("xhigh")).toBe("xhigh");
+    expect(normalizePiSdkThinkingLevel("auto")).toBe("medium");
   });
 
   it("shows the unified Max level for GPT-5.5", () => {

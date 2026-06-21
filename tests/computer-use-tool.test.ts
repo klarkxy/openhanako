@@ -196,6 +196,11 @@ function makeApprovalTool(confirmAction = "confirmed", {
   permissionMode = "ask",
   approvalGateway = null,
   sessionId = null,
+  allowHumanApproval = true,
+  approvalPolicy = undefined,
+  cwd = undefined,
+  workspaceFolders = undefined,
+  authorizedFolders = undefined,
 } = {}) {
   const provider = createMockComputerProvider({ providerId: "mock" });
   provider.capabilities.isolated = false;
@@ -228,6 +233,9 @@ function makeApprovalTool(confirmAction = "confirmed", {
     getConfirmStore: () => confirmStore,
     getPermissionMode: () => permissionMode,
     getApprovalGateway: () => approvalGateway,
+    ...(cwd ? { getSessionCwd: () => cwd } : {}),
+    ...(workspaceFolders ? { getSessionWorkspaceFolders: () => workspaceFolders } : {}),
+    ...(authorizedFolders ? { getSessionAuthorizedFolders: () => authorizedFolders } : {}),
     approveComputerUseApp: approve,
     isAgentToolEnabled: () => true,
     emitEvent: (event, sessionPath) => emitted.push({ event, sessionPath }),
@@ -235,6 +243,8 @@ function makeApprovalTool(confirmAction = "confirmed", {
   const ctx = {
     sessionManager: { getSessionFile: () => "/tmp/session.jsonl" },
     ...(sessionId ? { sessionId } : {}),
+    allowHumanApproval,
+    ...(approvalPolicy ? { approvalPolicy } : {}),
     agentId: "hana",
     model,
   };
@@ -607,6 +617,35 @@ describe("computer tool", () => {
     });
   });
 
+  it("operate mode starts an unapproved app with a session-scoped lease and no approval UI", async () => {
+    const approvalGateway = {
+      review: vi.fn(async () => ({
+        action: "deny_and_continue",
+        reviewer: "large_tool_model",
+        reason: "should not run",
+        risk: "high",
+      })),
+    };
+    const { tool, ctx, emitted, confirmStore, approve } = makeApprovalTool("confirmed", {
+      permissionMode: "operate",
+      approvalGateway,
+    });
+
+    const result = await tool.execute("call-approval", {
+      action: "start",
+      appId: "app.notes",
+      appName: "Mock Notes",
+      windowId: "win-1",
+    }, null, null, ctx);
+
+    expect((result.details as any).leaseId).toBeTruthy();
+    expect((result.details as any).confirmation).toBeUndefined();
+    expect(approvalGateway.review).not.toHaveBeenCalled();
+    expect(confirmStore.create).not.toHaveBeenCalled();
+    expect(approve).not.toHaveBeenCalled();
+    expect(emitted.some((entry) => entry.event?.type === "session_confirmation")).toBe(false);
+  });
+
   it("resolves appName to appId before asking for app approval", async () => {
     const { tool, ctx, confirmStore, approve } = makeApprovalTool("confirmed");
 
@@ -674,13 +713,91 @@ describe("computer tool", () => {
       status: "approved",
       reviewer: "large_tool_model",
     });
-    expect(approve).toHaveBeenCalledWith(expect.objectContaining({
-      providerId: "mock",
-      appId: "app.notes",
-    }));
+    expect(approve).not.toHaveBeenCalled();
   });
 
-  it("auto mode falls back to app approval confirmation when the gateway asks the user", async () => {
+  it("passes trust context to the auto reviewer for app access", async () => {
+    const approvalGateway = {
+      review: vi.fn(async () => ({
+        action: "allow",
+        reviewer: "large_tool_model",
+        reason: "app control matches the current user task",
+        risk: "high",
+      })),
+    };
+    const { tool, ctx } = makeApprovalTool("confirmed", {
+      permissionMode: "auto",
+      approvalGateway,
+      sessionId: "sess_computer_approval",
+      cwd: "/workspace/project",
+      workspaceFolders: ["/workspace/project", "/workspace/shared"],
+      authorizedFolders: ["/external/assets"],
+    });
+
+    await tool.execute("call-approval", {
+      action: "start",
+      appId: "app.notes",
+      appName: "Mock Notes",
+      windowId: "win-1",
+    }, null, null, {
+      ...ctx,
+      userIntentSummary: "Open Notes and write the requested summary",
+      explicitUserAuthorization: "User asked Hana to control Notes in this session.",
+    });
+
+    expect(approvalGateway.review).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "computer_app_approval",
+        toolName: "computer",
+        agentId: "hana",
+        sessionPath: "/tmp/session.jsonl",
+      }),
+      expect.objectContaining({
+        sessionPath: "/tmp/session.jsonl",
+        cwd: "/workspace/project",
+        workspaceFolders: ["/workspace/project", "/workspace/shared"],
+        authorizedFolders: ["/external/assets"],
+        userIntentSummary: "Open Notes and write the requested summary",
+        explicitUserAuthorization: "User asked Hana to control Notes in this session.",
+      }),
+    );
+  });
+
+  it("auto mode returns unavailable instead of showing app approval when the context cannot ask", async () => {
+    const approvalGateway = {
+      review: vi.fn(async () => ({
+        action: "ask_user",
+        reviewer: "large_tool_model",
+        reason: "new app target needs user confirmation",
+        risk: "high",
+      })),
+    };
+    const { tool, ctx, emitted, confirmStore, approve } = makeApprovalTool("confirmed", {
+      permissionMode: "auto",
+      approvalGateway,
+      allowHumanApproval: false,
+    });
+
+    const result = await tool.execute("call-approval", {
+      action: "start",
+      appId: "app.notes",
+      appName: "Mock Notes",
+      windowId: "win-1",
+    }, null, null, ctx);
+
+    expect(approvalGateway.review).toHaveBeenCalledOnce();
+    expect(confirmStore.create).not.toHaveBeenCalled();
+    expect(approve).not.toHaveBeenCalled();
+    expect((result.details as any).confirmation).toMatchObject({
+      kind: "computer_app_approval",
+      status: "needs_user_approval_but_unavailable",
+      reviewStatus: "ask_user",
+      reason: "new app target needs user confirmation",
+    });
+    expect(emitted.some((entry) => entry.event?.type === "session_confirmation")).toBe(false);
+  });
+
+  it("auto mode does not fall back to app approval confirmation when the gateway asks the user", async () => {
     const approvalGateway = {
       review: vi.fn(async () => ({
         action: "ask_user",
@@ -702,22 +819,17 @@ describe("computer tool", () => {
     }, null, null, ctx);
 
     expect(approvalGateway.review).toHaveBeenCalledOnce();
-    expect(confirmStore.create).toHaveBeenCalledWith(
-      "computer_app_approval",
-      expect.objectContaining({
-        approval: expect.objectContaining({ providerId: "mock", appId: "app.notes" }),
-      }),
-      "/tmp/session.jsonl",
-    );
-    expect(emitted[0].event).toMatchObject({
-      type: "session_confirmation",
-      request: { kind: "computer_app_approval" },
+    expect(confirmStore.create).not.toHaveBeenCalled();
+    expect(emitted.some((entry) => entry.event?.type === "session_confirmation")).toBe(false);
+    expect((result.details as any).confirmation).toMatchObject({
+      kind: "computer_app_approval",
+      status: "needs_user_approval_but_unavailable",
+      reviewStatus: "ask_user",
+      reason: "new app target needs user confirmation",
+      reviewer: "large_tool_model",
+      risk: "high",
     });
-    expect((result.details as any).confirmation.status).toBe("confirmed");
-    expect(approve).toHaveBeenCalledWith(expect.objectContaining({
-      providerId: "mock",
-      appId: "app.notes",
-    }));
+    expect(approve).not.toHaveBeenCalled();
   });
 
   it("does not approve or retry when app approval is rejected", async () => {

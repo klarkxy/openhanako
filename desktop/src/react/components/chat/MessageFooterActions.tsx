@@ -43,10 +43,10 @@ export const MessageFooterActions = memo(function MessageFooterActions({
       ].filter(Boolean).join(' ')}
       data-testid={testId}
     >
+      {timeText && <span className={styles.messageFooterTime}>{timeText}</span>}
       {leadingActions.map(action => (
         <FooterActionButton key={action.id} action={action} />
       ))}
-      {timeText && <span className={styles.messageFooterTime}>{timeText}</span>}
       {actions.map(action => (
         <FooterActionButton key={action.id} action={action} />
       ))}

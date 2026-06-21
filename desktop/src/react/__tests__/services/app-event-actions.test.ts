@@ -14,8 +14,6 @@ const mockActivateWorkspaceDesk = vi.fn(async () => {});
 const mockLoadChannels = vi.fn(async () => {});
 const mockApplyChatLayout = vi.fn();
 const mockApplyEditorTypography = vi.fn();
-const mockRefreshPreviewDocumentTarget = vi.fn(async () => {});
-const mockPreviewDocumentChangeRefreshOptions = { retryMissing: true, retryUnchanged: true };
 
 vi.mock('../../stores', () => ({
   useStore: {
@@ -61,11 +59,6 @@ vi.mock('../../editor/typography', () => ({
   applyEditorTypography: mockApplyEditorTypography,
 }));
 
-vi.mock('../../utils/preview-document-refresh', () => ({
-  PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS: mockPreviewDocumentChangeRefreshOptions,
-  refreshPreviewDocumentTarget: mockRefreshPreviewDocumentTarget,
-}));
-
 function jsonResponse(body: unknown): Response {
   return { json: async () => body } as unknown as Response;
 }
@@ -88,7 +81,6 @@ describe('handleAppEvent', () => {
     mockLoadChannels.mockReset();
     mockApplyChatLayout.mockReset();
     mockApplyEditorTypography.mockReset();
-    mockRefreshPreviewDocumentTarget.mockReset();
     vi.resetModules();
 
     (globalThis as Record<string, unknown>).window = {
@@ -372,49 +364,6 @@ describe('handleAppEvent', () => {
     expect(mockState.selectedFolder).toBe('/new-home');
     expect(mockState.cwdHistory).toEqual(['/old-home']);
     expect(mockActivateWorkspaceDesk).not.toHaveBeenCalled();
-  });
-
-  it('refreshes open preview items when a markdown cover is updated by a tool', async () => {
-    const { handleAppEvent } = await import('../../services/app-event-actions');
-
-    handleAppEvent('markdown-cover-updated', { filePath: '/notes/demo.md' });
-
-    expect(mockRefreshPreviewDocumentTarget).toHaveBeenCalledWith(
-      { kind: 'local-file', filePath: '/notes/demo.md' },
-      mockPreviewDocumentChangeRefreshOptions,
-    );
-  });
-
-  it('refreshes remote workbench preview items when a markdown cover event carries a target', async () => {
-    const { handleAppEvent } = await import('../../services/app-event-actions');
-    const target = {
-      kind: 'workbench-file',
-      mountId: 'mount_docs',
-      subdir: 'notes',
-      name: 'remote.md',
-    };
-
-    handleAppEvent('markdown-cover-updated', { target });
-
-    expect(mockRefreshPreviewDocumentTarget).toHaveBeenCalledWith(
-      { kind: 'workbench-file', target },
-      mockPreviewDocumentChangeRefreshOptions,
-    );
-  });
-
-  it('refreshes open preview items when an agent updates a session file', async () => {
-    const { handleAppEvent } = await import('../../services/app-event-actions');
-
-    handleAppEvent('session-file-updated', {
-      sessionPath: '/sessions/a.jsonl',
-      filePath: '/notes/demo.md',
-      origin: 'agent_edit',
-    });
-
-    expect(mockRefreshPreviewDocumentTarget).toHaveBeenCalledWith(
-      { kind: 'local-file', filePath: '/notes/demo.md' },
-      mockPreviewDocumentChangeRefreshOptions,
-    );
   });
 
   it('agent-created reloads both agents and channels so the new DM appears immediately', async () => {

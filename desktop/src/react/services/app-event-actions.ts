@@ -7,11 +7,6 @@ import { activateWorkspaceDesk } from '../stores/desk-actions';
 import { loadChannels } from '../stores/channel-actions';
 import { applyChatLayout } from '../chat/layout';
 import { applyEditorTypography } from '../editor/typography';
-import {
-  PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
-  refreshPreviewDocumentTarget,
-} from '../utils/preview-document-refresh';
-import { isRemoteWorkbenchContentRef } from '../utils/remote-file-preview';
 import { mergeWorkspaceHistory } from '../../../../shared/workspace-history.ts';
 
 declare const i18n: {
@@ -228,27 +223,6 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
     }
     case 'agent-workspace-changed':
       handleAgentWorkspaceChanged(data);
-      break;
-    case 'markdown-cover-updated':
-      if (typeof data.filePath === 'string' && data.filePath) {
-        void refreshPreviewDocumentTarget(
-          { kind: 'local-file', filePath: data.filePath },
-          PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
-        );
-      } else if (isRemoteWorkbenchContentRef(data.target)) {
-        void refreshPreviewDocumentTarget(
-          { kind: 'workbench-file', target: data.target },
-          PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
-        );
-      }
-      break;
-    case 'session-file-updated':
-      if (typeof data.filePath === 'string' && data.filePath) {
-        void refreshPreviewDocumentTarget(
-          { kind: 'local-file', filePath: data.filePath },
-          PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
-        );
-      }
       break;
     case 'session-authorized-folders-updated':
       if (typeof data.sessionPath === 'string' && data.sessionPath) {

@@ -153,6 +153,7 @@ export class Hub {
    * @param {string}  [opts.cwd]         工作目录覆盖
    * @param {string}  [opts.model]       模型覆盖
    * @param {string}  [opts.persist]     持久化目录（activity session）
+   * @param {string}  [opts.permissionMode] 后台隔离执行权限档，默认 auto
    * @returns {Promise<*>}
    */
   async send(text, opts: any = {}) {
@@ -165,6 +166,7 @@ export class Hub {
       cwd,
       model,
       persist,
+      permissionMode,
       from,
       to,
       onDelta,
@@ -182,7 +184,7 @@ export class Hub {
       displayMessage,
       sessionFileRefs,
     } = opts;
-    const o = { sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, from, to, onDelta, images, imageAttachmentPaths, videos, videoAttachmentPaths, audios, audioAttachmentPaths, inboundFiles, clientMessageId, sessionPath, agentId, uiContext, displayMessage, sessionFileRefs };
+    const o = { sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, permissionMode, from, to, onDelta, images, imageAttachmentPaths, videos, videoAttachmentPaths, audios, audioAttachmentPaths, inboundFiles, clientMessageId, sessionPath, agentId, uiContext, displayMessage, sessionFileRefs };
 
     // ── 图片预处理：持久化到磁盘 + 插入 [attached_image] 标记 ──
     // 在路由之前统一处理，所有消息路径（WS / Bridge DM / Bridge Group）共享
@@ -269,7 +271,14 @@ export class Hub {
       },
       { // 隔离执行（cron/heartbeat/channel）
         match: o => o.ephemeral,
-        handle: () => this._engine.executeIsolated(text, { cwd: o.cwd, model: o.model, persist: o.persist }),
+        handle: () => this._engine.executeIsolated(text, {
+          cwd: o.cwd,
+          model: o.model,
+          persist: o.persist,
+          permissionMode: o.permissionMode || "auto",
+          approvalPolicy: "deny_on_prompt",
+          allowHumanApproval: false,
+        }),
       },
     ];
 
@@ -825,6 +834,17 @@ export class Hub {
       await engine.updateConfig(partial || {}, { agentId });
       const { agent: fresh } = resolveAgentForBus(engine, agentId);
       return { config: fresh?.config || agent.config };
+    }));
+
+    this._sessionHandlerCleanups.push(bus.handle("session:capability-drift:mark-stale", async (payload: any = {}) => {
+      if (typeof engine.markCapabilitySnapshotsStale !== "function") {
+        return { error: "capability_drift_unavailable" };
+      }
+      try {
+        return engine.markCapabilitySnapshotsStale(payload);
+      } catch (err) {
+        return { error: err.message || String(err) };
+      }
     }));
   }
 

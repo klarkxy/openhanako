@@ -1,9 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, MouseEvent as ReactMouseEvent, RefObject } from 'react';
+import type { RefObject } from 'react';
+import { TimelineRailNavigator, type TimelineRailItem } from '../shared/TimelineRailNavigator';
 import type { TimelineAnchor } from './timeline-anchors';
-import styles from './Chat.module.css';
-
-const TIMELINE_MAX_VISIBLE_ROWS = 10;
 
 interface MarkerLayout {
   targetTop: number;
@@ -37,37 +35,7 @@ export const ChatTimelineNavigator = memo(function ChatTimelineNavigator({
 }: Props) {
   const [layouts, setLayouts] = useState<Record<string, MarkerLayout>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [focusOpen, setFocusOpen] = useState(false);
-  const [cardHover, setCardHover] = useState(false);
   const rafRef = useRef<number | null>(null);
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const hoverCloseTimerRef = useRef<number | null>(null);
-
-  const openHoverCard = useCallback(() => {
-    if (hoverCloseTimerRef.current != null) {
-      window.clearTimeout(hoverCloseTimerRef.current);
-      hoverCloseTimerRef.current = null;
-    }
-    setCardHover(true);
-  }, []);
-
-  const closeHoverCardSoon = useCallback(() => {
-    if (hoverCloseTimerRef.current != null) window.clearTimeout(hoverCloseTimerRef.current);
-    hoverCloseTimerRef.current = window.setTimeout(() => {
-      hoverCloseTimerRef.current = null;
-      setCardHover(false);
-    }, 120);
-  }, []);
-
-  const closeHoverCardFromMarker = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
-    const nextTarget = event.relatedTarget;
-    if (nextTarget instanceof Node && cardRef.current?.contains(nextTarget)) {
-      openHoverCard();
-      return;
-    }
-    closeHoverCardSoon();
-  }, [closeHoverCardSoon, openHoverCard]);
 
   const measure = useCallback(() => {
     const panel = scrollRef.current;
@@ -154,13 +122,6 @@ export const ChatTimelineNavigator = memo(function ChatTimelineNavigator({
     };
   }, [active, scrollRef, updateActive]);
 
-  useEffect(() => () => {
-    if (hoverCloseTimerRef.current != null) {
-      window.clearTimeout(hoverCloseTimerRef.current);
-      hoverCloseTimerRef.current = null;
-    }
-  }, []);
-
   const jumpTo = useCallback((anchor: TimelineAnchor) => {
     const panel = scrollRef.current;
     const layout = layouts[anchor.messageId];
@@ -173,77 +134,24 @@ export const ChatTimelineNavigator = memo(function ChatTimelineNavigator({
     [anchors, layouts],
   );
 
-  const visibleRows = Math.min(renderedAnchors.length, TIMELINE_MAX_VISIBLE_ROWS);
-
-  useLayoutEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    list.scrollTop = finiteNumber(list.scrollHeight);
-  }, [renderedAnchors.length, visibleRows]);
-
   if (!active || anchors.length === 0) return null;
 
-  const cardVars: CSSProperties & { '--timeline-visible-rows': number } = {
-    '--timeline-visible-rows': Math.max(1, visibleRows),
-  };
-  const cardOpen = focusOpen || cardHover;
-  const navVisible = railVisible || cardOpen;
-  const navClassName = [
-    styles.timelineNav,
-    navVisible ? styles.timelineNavVisible : '',
-    cardOpen ? styles.timelineNavExpanded : '',
-  ].filter(Boolean).join(' ');
+  const railItems: Array<TimelineRailItem<TimelineAnchor>> = renderedAnchors.map(anchor => ({
+    id: anchor.messageId,
+    label: anchor.label,
+    markerWidthEm: anchor.markerWidthEm,
+    payload: anchor,
+  }));
 
   return (
-    <nav
-      className={navClassName}
-      aria-label={window.t?.('chat.timeline.navAriaLabel') || 'Turn navigation'}
-      onBlur={(event) => {
-        const nextFocus = event.relatedTarget;
-        if (nextFocus instanceof Node && event.currentTarget.contains(nextFocus)) return;
-        setFocusOpen(false);
-      }}
-    >
-      <div
-        ref={cardRef}
-        className={styles.timelineCard}
-        style={cardVars}
-        onPointerEnter={openHoverCard}
-        onPointerLeave={closeHoverCardSoon}
-      >
-        <div className={styles.timelineList} ref={listRef}>
-          {renderedAnchors.map((anchor) => {
-            const selected = anchor.messageId === activeId;
-            const markerWidthEm = Number.isFinite(anchor.markerWidthEm) && anchor.markerWidthEm > 0
-              ? anchor.markerWidthEm
-              : 1;
-            const markerStyle: CSSProperties & { '--timeline-marker-width': string } = {
-              '--timeline-marker-width': `${markerWidthEm}em`,
-            };
-            return (
-              <button
-                key={anchor.messageId}
-                type="button"
-                className={`${styles.timelineMarker}${selected ? ` ${styles.timelineMarkerActive}` : ''}`}
-                style={markerStyle}
-                aria-label={(window.t?.('chat.timeline.jumpTo') || 'Jump to {label}').replace('{label}', anchor.label)}
-                title={anchor.label}
-                onFocus={() => setFocusOpen(true)}
-                onMouseEnter={openHoverCard}
-                onMouseLeave={closeHoverCardFromMarker}
-                onClick={() => jumpTo(anchor)}
-              >
-                <span className={styles.timelineLabel}>{anchor.label}</span>
-                <span
-                  className={styles.timelineLine}
-                  aria-hidden="true"
-                  onMouseEnter={openHoverCard}
-                />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </nav>
+    <TimelineRailNavigator
+      items={railItems}
+      active={active}
+      activeId={activeId}
+      railVisible={railVisible}
+      ariaLabel={window.t?.('chat.timeline.navAriaLabel') || 'Turn navigation'}
+      jumpLabel={item => (window.t?.('chat.timeline.jumpTo') || 'Jump to {label}').replace('{label}', item.label)}
+      onJump={item => jumpTo(item.payload)}
+    />
   );
 });

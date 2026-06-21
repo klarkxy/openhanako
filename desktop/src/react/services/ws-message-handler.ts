@@ -14,7 +14,6 @@ import { sessionScopedKey, sessionScopedListIncludes, sessionScopedValue } from 
 import { browserStateForPath, setBrowserStateForPath } from '../stores/browser-slice';
 import { scheduleSessionsRefresh } from './session-refresh-scheduler';
 import { handleLegacyArtifactBlock } from '../stores/preview-actions';
-import { loadDeskFiles } from '../stores/desk-actions';
 import {
   appendChannelMessage as appendChannelMessageAction,
   loadChannels as loadChannelsAction,
@@ -25,10 +24,9 @@ import {
 import { showError } from '../utils/ui-helpers';
 import { handleAppEvent } from './app-event-actions';
 import {
-  PREVIEW_DOCUMENT_CATCH_UP_REFRESH_OPTIONS,
   PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
-  refreshOpenPreviewDocuments,
-  refreshPreviewDocumentTarget,
+  markDeskTreeDirtyForResourceChange,
+  refreshOpenPreviewDocumentsForResourceChange,
 } from '../utils/preview-document-refresh';
 import {
   replayStreamResume,
@@ -461,7 +459,6 @@ export function handleServerMessage(msg: any): void {
       } else {
         console.warn('[ws] turn_end missing sessionPath, skipping context_usage request');
       }
-      void refreshOpenPreviewDocuments(PREVIEW_DOCUMENT_CATCH_UP_REFRESH_OPTIONS);
     }
     // tool_end 后更新 todo（兼容新旧工具名 + 新旧格式）
     applyTodoToolEnd(msg);
@@ -479,6 +476,23 @@ export function handleServerMessage(msg: any): void {
 
   // 非聊天渲染事件走传统 switch
   switch (msg.type) {
+    case 'resource.changed': {
+      markDeskTreeDirtyForResourceChange(msg);
+      void refreshOpenPreviewDocumentsForResourceChange(
+        msg,
+        PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+      );
+      break;
+    }
+    case 'resource.deleted':
+    case 'resource.renamed': {
+      markDeskTreeDirtyForResourceChange(msg);
+      void refreshOpenPreviewDocumentsForResourceChange(
+        msg,
+        PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
+      );
+      break;
+    }
     case 'session_branch_reset': {
       const sp = msg.sessionPath;
       const targetId = msg.clientMessageId || msg.messageId;
@@ -508,10 +522,6 @@ export function handleServerMessage(msg: any): void {
     case 'session_created':
       upsertCreatedSession(msg);
       scheduleSessionsRefresh('session_created');
-      break;
-
-    case 'desk_changed':
-      loadDeskFiles();
       break;
 
     case 'browser_status': {
@@ -748,6 +758,9 @@ export function handleServerMessage(msg: any): void {
       if (sp === useStore.getState().currentSessionPath && typeof metadata.thinkingLevel === 'string') {
         useStore.getState().setThinkingLevel(metadata.thinkingLevel);
       }
+      if (Object.prototype.hasOwnProperty.call(metadata, 'capabilityDrift')) {
+        useStore.getState().setSessionCapabilityDrift(sp, metadata.capabilityDrift || null);
+      }
       break;
     }
 
@@ -937,15 +950,6 @@ function applyToolEndSessionFile(msg: any): void {
   const sessionFile = msg.details?.sessionFile;
   if (!sp || !sessionFile) return;
   useStore.getState().upsertSessionRegistryFile?.(sp, sessionFile);
-  const filePath = typeof sessionFile.filePath === 'string' && sessionFile.filePath.trim()
-    ? sessionFile.filePath
-    : null;
-  if (filePath) {
-    void refreshPreviewDocumentTarget(
-      { kind: 'local-file', filePath },
-      PREVIEW_DOCUMENT_CHANGE_REFRESH_OPTIONS,
-    );
-  }
 }
 
 function applyContentBlockSessionFile(msg: any): void {

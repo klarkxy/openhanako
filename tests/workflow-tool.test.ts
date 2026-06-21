@@ -57,6 +57,7 @@ describe("workflow tool", () => {
     const exec = vi.fn(async () => ({ replyText: "bug", error: null }));
     const tool = createWorkflowTool({
       executeIsolated: exec, getAgentId: () => "a1", emitEvent: () => {},
+      getSessionPermissionMode: () => "auto",
       getDeferredStore: () => store, getSubagentRunStore: () => makeRunStore(),
     });
     const res = await tool.execute(
@@ -70,6 +71,7 @@ describe("workflow tool", () => {
     expect((exec.mock.calls[0] as any)[1]).toMatchObject({
       agentId: "a1", parentSessionPath: "/s.jsonl", cwd: "/w",
       subagentContext: true, subagentTaskId: res.details.taskId, emitEvents: true,
+      permissionMode: "auto", approvalPolicy: "deny_on_prompt", allowHumanApproval: false,
     });
   });
 

@@ -97,6 +97,47 @@ describe("Hub media routing", () => {
     );
   });
 
+  it("routes ephemeral activity through non-interactive auto permission", async () => {
+    const engine = createEngine();
+    const hub = new Hub({ engine });
+
+    await hub.send("background tick", {
+      ephemeral: true,
+      cwd: "/work",
+      persist: "/agents/hanako/activity",
+    });
+
+    expect(engine.executeIsolated).toHaveBeenCalledWith(
+      "background tick",
+      expect.objectContaining({
+        cwd: "/work",
+        persist: "/agents/hanako/activity",
+        permissionMode: "auto",
+        approvalPolicy: "deny_on_prompt",
+        allowHumanApproval: false,
+      }),
+    );
+  });
+
+  it("preserves explicit ephemeral permission mode without enabling human approval", async () => {
+    const engine = createEngine();
+    const hub = new Hub({ engine });
+
+    await hub.send("background operate", {
+      ephemeral: true,
+      permissionMode: "operate",
+    });
+
+    expect(engine.executeIsolated).toHaveBeenCalledWith(
+      "background operate",
+      expect.objectContaining({
+        permissionMode: "operate",
+        approvalPolicy: "deny_on_prompt",
+        allowHumanApproval: false,
+      }),
+    );
+  });
+
   it("preserves native audio fields when routing bridge owner messages", async () => {
     const engine = createEngine();
     const hub = new Hub({ engine });

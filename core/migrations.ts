@@ -23,6 +23,7 @@ import {
   readSubagentSessionMetaSync,
 } from "../lib/subagent-executor-metadata.ts";
 import { SessionFileRegistry } from "../lib/session-files/session-file-registry.ts";
+import { isSessionJsonlFilename } from "../lib/session-jsonl.ts";
 import { SubagentRunStore } from "../lib/subagent-run-store.ts";
 import { SubagentThreadStore } from "../lib/subagent-thread-store.ts";
 import { persistBrowserScreenshotFileSync } from "../lib/session-files/browser-screenshot-file.ts";
@@ -446,7 +447,7 @@ function migrateSubagentExecutorMetadata(ctx) {
     let sessionFiles = [];
     try {
       sessionFiles = fs.readdirSync(sessionDir)
-        .filter((name) => name.endsWith(".jsonl"))
+        .filter(isSessionJsonlFilename)
         .map((name) => path.join(sessionDir, name));
     } catch {
       sessionFiles = [];
@@ -513,7 +514,7 @@ function migrateSubagentExecutorMetadata(ctx) {
     let childFiles = [];
     try {
       childFiles = fs.readdirSync(subagentDir)
-        .filter((name) => name.endsWith(".jsonl"))
+        .filter(isSessionJsonlFilename)
         .map((name) => path.join(subagentDir, name));
     } catch {
       childFiles = [];
@@ -2911,7 +2912,7 @@ function collectJsonlRecursive(dir, out, seen = new Set()) {
     const fullPath = path.join(dir, entry.name);
     if (isDirectoryLikeDirentSync(dir, entry)) {
       collectJsonlRecursive(fullPath, out, seen);
-    } else if (entry.name.endsWith(".jsonl") && isFileLikeDirentSync(dir, entry)) {
+    } else if (isSessionJsonlFilename(entry.name) && isFileLikeDirentSync(dir, entry)) {
       out.push(fullPath);
     }
   }
