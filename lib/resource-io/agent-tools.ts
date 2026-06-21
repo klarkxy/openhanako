@@ -4,6 +4,8 @@ import { normalizeWin32ShellPath } from "../sandbox/win32-path.ts";
 
 const RESOURCE_IO_FILE_TOOL_NAMES = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 const WRITE_TOOL_NAMES = new Set(["write", "edit"]);
+const MATERIALIZED_TOOL_NAMES = new Set(["grep", "find"]);
+const SYNTHETIC_RESOURCE_ROOT = ".hana-resource-io-targets";
 
 function textResult(text) {
   return { content: [{ type: "text", text }] };
@@ -53,6 +55,22 @@ function parseResourceObject(resource, cwd) {
 
   const kind = nonEmptyString(resource.kind) || nonEmptyString(resource.type) || nonEmptyString(resource.provider);
   const normalizedKind = kind ? kind.toLowerCase().replace(/_/g, "-") : "";
+  const mountId = nonEmptyString(resource.mountId) || nonEmptyString(resource.rootId);
+  if (normalizedKind === "mount" || mountId) {
+    return mountId ? {
+      kind: "mount",
+      mountId,
+      path: nonEmptyString(resource.path)
+        || nonEmptyString(resource.filePath)
+        || nonEmptyString(resource.file_path)
+        || "",
+    } : null;
+  }
+  const resourceId = nonEmptyString(resource.resourceId)
+    || (normalizedKind === "resource" ? nonEmptyString(resource.id) : null);
+  if (normalizedKind === "resource" || resourceId) {
+    return resourceId ? { kind: "resource", resourceId } : null;
+  }
   if (normalizedKind === "url" || normalizedKind === "remote-url" || normalizedKind === "http") {
     const url = nonEmptyString(resource.url) || nonEmptyString(resource.href) || nonEmptyString(resource.uri);
     return url ? { kind: "url", url } : null;
@@ -107,6 +125,20 @@ function resolveToolTarget(params, cwd) {
     };
   }
 
+  const mountId = nonEmptyString(params.mountId) || nonEmptyString(params.rootId);
+  if (mountId) {
+    return {
+      kind: "mount",
+      mountId,
+      path: pathParam(params) || "",
+    };
+  }
+
+  const resourceId = nonEmptyString(params.resourceId);
+  if (resourceId) {
+    return { kind: "resource", resourceId };
+  }
+
   const rawPath = pathParam(params);
   return rawPath ? { kind: "local", path: normalizeLocalPath(rawPath, cwd) } : null;
 }
@@ -119,6 +151,9 @@ function stripResourceParams(params) {
     target: _target,
     url: _url,
     href: _href,
+    mountId: _mountId,
+    rootId: _rootId,
+    resourceId: _resourceId,
     ...rest
   } = params;
   return rest;
@@ -128,6 +163,74 @@ function paramsForLocalTarget(params, absolutePath) {
   return {
     ...stripResourceParams(params),
     path: absolutePath,
+  };
+}
+
+function paramsForSyntheticTarget(params, syntheticPath) {
+  return {
+    ...stripResourceParams(params),
+    path: syntheticPath,
+  };
+}
+
+function syntheticSegment(value) {
+  return encodeURIComponent(String(value || "root")).replace(/%/g, "_");
+}
+
+function splitResourcePath(value) {
+  const raw = String(value || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  return raw ? raw.split("/").filter(Boolean) : [];
+}
+
+function syntheticRootForTarget(target) {
+  if (target.kind === "mount") {
+    return path.join(SYNTHETIC_RESOURCE_ROOT, "mount", syntheticSegment(target.mountId));
+  }
+  if (target.kind === "resource") {
+    return path.join(SYNTHETIC_RESOURCE_ROOT, "resource", syntheticSegment(target.resourceId));
+  }
+  return path.join(SYNTHETIC_RESOURCE_ROOT, "unknown");
+}
+
+function syntheticPathForTarget(target) {
+  const root = syntheticRootForTarget(target);
+  if (target.kind === "mount") {
+    const segments = splitResourcePath(target.path);
+    return segments.length ? path.join(root, ...segments) : root;
+  }
+  return root;
+}
+
+function rootRefForTarget(target) {
+  if (target.kind === "mount") {
+    return { kind: "mount", mountId: target.mountId, path: "" };
+  }
+  if (target.kind === "resource") {
+    return { kind: "resource", resourceId: target.resourceId };
+  }
+  return null;
+}
+
+function displayTarget(target) {
+  if (target.kind === "mount") {
+    const resourcePath = String(target.path || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    return `mount:${target.mountId}${resourcePath ? `:${resourcePath}` : ""}`;
+  }
+  if (target.kind === "resource") return `resource:${target.resourceId}`;
+  return target.path || target.url || target.fileId || "resource";
+}
+
+function replaceSyntheticPathInResult(result, syntheticPath, displayPath) {
+  if (!result || !Array.isArray(result.content)) return result;
+  return {
+    ...result,
+    content: result.content.map((item) => {
+      if (!item || item.type !== "text" || typeof item.text !== "string") return item;
+      return {
+        ...item,
+        text: item.text.split(syntheticPath).join(displayPath),
+      };
+    }),
   };
 }
 
@@ -148,7 +251,7 @@ function addResourceParameters(parameters, toolName) {
       ...properties,
       resource: {
         type: "object",
-        description: "Optional ResourceIO target. Use { kind: 'local-file', path }, { kind: 'session-file', fileId }, or { kind: 'url', url }. Existing path/fileId/url parameters also work.",
+        description: "Optional ResourceIO target. Use { kind: 'local-file', path }, { kind: 'mount', mountId, path }, { kind: 'session-file', fileId }, { kind: 'resource', resourceId }, or { kind: 'url', url }. Existing path/fileId/url parameters also work.",
         additionalProperties: true,
       },
       url: {
@@ -220,6 +323,39 @@ function wrapResourceIoTool(tool, options) {
           return tool.execute(toolCallId, paramsForLocalTarget(params, materialized.filePath), ...rest);
         }
         return textResult(`SessionFile ${target.fileId} is a reference and cannot be written or edited directly. Resolve or materialize it to a local path first.`);
+      }
+
+      if (target.kind === "mount" || target.kind === "resource") {
+        if (target.kind === "resource" && WRITE_TOOL_NAMES.has(toolName)) {
+          return textResult(`Resource ${target.resourceId} is read-only for Agent ${toolName}. Resolve a writable mount or local path first.`);
+        }
+        if (MATERIALIZED_TOOL_NAMES.has(toolName)) {
+          if (typeof options.resourceIO.materialize !== "function") {
+            return textResult(`ResourceIO ${target.kind} ${toolName} requires materialize support.`);
+          }
+          const materialized = await options.resourceIO.materialize(target);
+          const normalizedParams = paramsForLocalTarget(params, materialized.filePath);
+          if (typeof options.withResourceTarget === "function") {
+            return options.withResourceTarget({
+              rootPath: materialized.filePath,
+              ref: target,
+            }, () => tool.execute(toolCallId, normalizedParams, ...rest));
+          }
+          return tool.execute(toolCallId, normalizedParams, ...rest);
+        }
+
+        if (typeof options.withResourceTarget !== "function") {
+          return textResult(`ResourceIO ${target.kind} targets require bound file-tool operations.`);
+        }
+        const syntheticRoot = syntheticRootForTarget(target);
+        const syntheticPath = syntheticPathForTarget(target);
+        const rootRef = rootRefForTarget(target);
+        const normalizedParams = paramsForSyntheticTarget(params, syntheticPath);
+        const result = await options.withResourceTarget({
+          rootPath: syntheticRoot,
+          ref: rootRef,
+        }, () => tool.execute(toolCallId, normalizedParams, ...rest));
+        return replaceSyntheticPathInResult(result, syntheticPath, displayTarget(target));
       }
 
       if (!target.path) return tool.execute(toolCallId, params, ...rest);

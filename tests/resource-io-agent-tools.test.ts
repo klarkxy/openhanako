@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { wrapResourceIoFileTools } from "../lib/resource-io/agent-tools.ts";
+import { wrapResourceIoFileTools, __resourceIoAgentToolsForTest } from "../lib/resource-io/agent-tools.ts";
 
 describe("ResourceIO agent tools", () => {
   let tmpDir;
@@ -11,6 +11,18 @@ describe("ResourceIO agent tools", () => {
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
     tmpDir = null;
     vi.unstubAllGlobals();
+  });
+
+  it("parses mount ResourceRefs before falling back to local path aliases", () => {
+    const target = __resourceIoAgentToolsForTest.resolveToolTarget({
+      resource: { kind: "mount", mountId: "mount_docs", path: "notes/a.md" },
+    }, "/workspace");
+
+    expect(target).toEqual({
+      kind: "mount",
+      mountId: "mount_docs",
+      path: "notes/a.md",
+    });
   });
 
   it("normalizes local path aliases before delegating write through the ResourceIO-backed tool", async () => {
@@ -138,5 +150,24 @@ describe("ResourceIO agent tools", () => {
     expect(resourceIO.read).toHaveBeenCalledWith({ kind: "url", url: "https://example.com/a.txt" });
     expect(writeResult.content[0].text).toContain("read-only");
     expect(delegateExecute).not.toHaveBeenCalled();
+  });
+
+  it("rejects direct writes to read-only resource ids before delegated path handling", async () => {
+    const execute = vi.fn();
+    const [write] = wrapResourceIoFileTools([
+      { name: "write", parameters: { type: "object", required: ["path"], properties: {} }, execute },
+    ], {
+      cwd: "/workspace",
+      resourceIO: {},
+      withResourceTarget: vi.fn(),
+    });
+
+    const result = await write.execute("write-resource", {
+      resource: { kind: "resource", resourceId: "res_1" },
+      content: "new",
+    });
+
+    expect(result.content[0].text).toContain("read-only");
+    expect(execute).not.toHaveBeenCalled();
   });
 });

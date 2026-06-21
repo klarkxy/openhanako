@@ -147,7 +147,10 @@ export function createSandboxedTools(cwd, customTools, {
   const readOps = {
     ...resourceOps.read,
     readFile: async (p) => {
-      await resourceIO.stat({ kind: "local-file", path: p });
+      if (resourceOps.hasBoundTarget?.(p)) {
+        return resourceOps.read.readFile(p);
+      }
+      await resourceOps.read.access(p);
       return enhancedReadFile(p);
     },
   };
@@ -183,6 +186,7 @@ export function createSandboxedTools(cwd, customTools, {
     getSessionPath,
     resolveSessionFile,
     emitEvent,
+    withResourceTarget: resourceOps.withResourceTarget,
   });
 
   // ── Windows: PathGuard 包装 + restricted-token exec，关闭沙盒时走 direct fallback ──
