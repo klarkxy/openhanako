@@ -19,6 +19,12 @@ import {
   parseDeferredResultRecord,
 } from "../../lib/deferred-result-notification.ts";
 import {
+  TURN_INPUT_CONSUMPTION_EVENT_TYPE,
+  TURN_INPUT_PRESENTATION_EVENT_TYPE,
+  parseTurnInputConsumptionRecord,
+  parseTurnInputPresentationRecord,
+} from "../../lib/turn-input-presentation.ts";
+import {
   materializeExecutorIdentity,
   normalizeExecutorMetadata,
   readSubagentSessionMetaSync,
@@ -209,6 +215,19 @@ function isDisplayableHistoryMessage(message) {
       || hasToolUseContent(message.content);
   }
   return false;
+}
+
+function nextImmediateDisplayableAssistantIndex(sourceMessages, sourceIndex, displayIdxAtSource) {
+  let displayIdx = displayIdxAtSource;
+  for (let i = sourceIndex + 1; i < sourceMessages.length; i += 1) {
+    const message = sourceMessages[i];
+    if (!isDisplayableHistoryMessage(message)) continue;
+    const currentIndex = displayIdx;
+    displayIdx += 1;
+    if (message.role === "user") return null;
+    if (message.role === "assistant") return currentIndex;
+  }
+  return null;
 }
 
 function resolveHistoryPageBounds(sourceMessages, { beforeId, limit, forceAll }) {
@@ -910,21 +929,78 @@ export function createSessionsRoute(engine, hub = null) {
       const blocks = [];
       const mediaGenerationResults = new Map();
       const standaloneMediaGenerationResults = [];
-      const deferredInterludeTaskIds = new Set();
+      const deferredInterludeDeliveryIds = new Set();
+      const turnInputConsumptionDeliveryIds = new Set();
+      const turnInputConsumptionEntryIds = new Set();
       const deferredStore = engine.deferredResults;
       const receiverName = resolveDeferredReceiverName(engine, resolvedSessionPath);
-      const recordMediaGenerationResult = (parsed, afterIndex) => {
+      for (const message of sourceMessages) {
+        if (message?.role !== "custom" || message.customType !== TURN_INPUT_CONSUMPTION_EVENT_TYPE) continue;
+        const parsed = parseTurnInputConsumptionRecord(message.data);
+        const deliveryId = typeof parsed?.deliveryId === "string" && parsed.deliveryId.trim()
+          ? parsed.deliveryId.trim()
+          : null;
+        const entryId = typeof parsed?.input?.entryId === "string" && parsed.input.entryId.trim()
+          ? parsed.input.entryId.trim()
+          : null;
+        if (deliveryId) turnInputConsumptionDeliveryIds.add(deliveryId);
+        if (entryId) turnInputConsumptionEntryIds.add(entryId);
+      }
+      const recordMediaGenerationResult = (parsed, afterIndex, sourceIndex = null) => {
         if (!parsed?.taskId || !isMediaGenerationDeferredResult(parsed)) return;
         mediaGenerationResults.set(parsed.taskId, parsed);
         if (parsed.status === "success") {
           standaloneMediaGenerationResults.push({
             ...parsed,
             afterIndex,
+            ...(Number.isInteger(sourceIndex) ? { sourceIndex } : {}),
           });
         }
       };
-      const recordDeferredInterlude = (parsed, afterIndex) => {
-        if (!parsed?.taskId || afterIndex < 0 || deferredInterludeTaskIds.has(parsed.taskId)) return;
+      const recordTurnInputConsumptionInterlude = (message, afterIndex, sourceIndex = null) => {
+        if (!Number.isInteger(afterIndex) || afterIndex < 0) return;
+        const parsed = parseTurnInputConsumptionRecord(message?.data);
+        const block = parsed?.block;
+        if (!block || block.type !== "interlude") return;
+        const normalizedDeliveryId = typeof parsed.deliveryId === "string" && parsed.deliveryId.trim()
+          ? parsed.deliveryId.trim()
+          : null;
+        if (normalizedDeliveryId && deferredInterludeDeliveryIds.has(normalizedDeliveryId)) return;
+        blocks.push({
+          ...block,
+          ...(normalizedDeliveryId ? { deliveryId: normalizedDeliveryId } : {}),
+          afterIndex,
+          ...(Number.isInteger(sourceIndex) ? { sourceIndex } : {}),
+        });
+        if (normalizedDeliveryId) deferredInterludeDeliveryIds.add(normalizedDeliveryId);
+      };
+      const recordTurnInputPresentationInterlude = (message, afterIndex, sourceIndex = null) => {
+        if (!Number.isInteger(afterIndex) || afterIndex < 0) return;
+        const parsed = parseTurnInputPresentationRecord(message?.data);
+        const block = parsed?.block;
+        if (!block || block.type !== "interlude") return;
+        const normalizedDeliveryId = typeof parsed.deliveryId === "string" && parsed.deliveryId.trim()
+          ? parsed.deliveryId.trim()
+          : null;
+        if (normalizedDeliveryId && deferredInterludeDeliveryIds.has(normalizedDeliveryId)) return;
+        blocks.push({
+          ...block,
+          ...(normalizedDeliveryId ? { deliveryId: normalizedDeliveryId } : {}),
+          afterIndex,
+          ...(Number.isInteger(sourceIndex) ? { sourceIndex } : {}),
+        });
+        if (normalizedDeliveryId) deferredInterludeDeliveryIds.add(normalizedDeliveryId);
+      };
+      const recordDeferredInterlude = (parsed, afterIndex, deliveryId = null, sourceIndex = null) => {
+        if (!parsed?.taskId || !Number.isInteger(afterIndex) || afterIndex < 0) return;
+        const normalizedDeliveryId = typeof deliveryId === "string" && deliveryId.trim() ? deliveryId.trim() : null;
+        const sourceMessage = Number.isInteger(sourceIndex) ? sourceMessages[sourceIndex] : null;
+        const sourceEntryId = typeof sourceMessage?.id === "string" && sourceMessage.id.trim()
+          ? sourceMessage.id.trim()
+          : null;
+        if (normalizedDeliveryId && turnInputConsumptionDeliveryIds.has(normalizedDeliveryId)) return;
+        if (sourceEntryId && turnInputConsumptionEntryIds.has(sourceEntryId)) return;
+        if (normalizedDeliveryId && deferredInterludeDeliveryIds.has(normalizedDeliveryId)) return;
         const task = deferredStore?.query?.(parsed.taskId) || null;
         const run = engine.subagentRuns?.query?.(parsed.taskId) || null;
         const runTask = taskFromSubagentRun(run);
@@ -936,20 +1012,25 @@ export function createSessionsRoute(engine, hub = null) {
         };
         const event = {
           taskId: parsed.taskId,
+          deliveryId: normalizedDeliveryId,
           status: parsed.status === "failed" || parsed.status === "aborted" ? parsed.status : "success",
           result: Object.prototype.hasOwnProperty.call(parsed, "result") ? parsed.result : metadataTask?.result,
           reason: parsed.reason || metadataTask?.reason || null,
           meta,
         };
-        if (!meta.interlude) return;
         const block = buildDeferredResultInterludeBlock(event, { receiverName });
         if (!block) return;
-        blocks.push({ ...block, afterIndex });
-        deferredInterludeTaskIds.add(parsed.taskId);
+        blocks.push({
+          ...block,
+          afterIndex,
+          ...(Number.isInteger(sourceIndex) ? { sourceIndex } : {}),
+        });
+        if (normalizedDeliveryId) deferredInterludeDeliveryIds.add(normalizedDeliveryId);
       };
       let displayIdx = 0;
 
-      for (const m of sourceMessages) {
+      for (let sourceIndex = 0; sourceIndex < sourceMessages.length; sourceIndex += 1) {
+        const m = sourceMessages[sourceIndex];
         if (m.role === "user") {
           if (!isDisplayableHistoryMessage(m)) continue;
           const currentIndex = displayIdx;
@@ -959,6 +1040,7 @@ export function createSessionsRoute(engine, hub = null) {
             const visibleImages = filterUnreferencedInlineImages(text, images);
             messages.push({
               id: String(currentIndex),
+              sourceIndex,
               ...(m.id ? { entryId: m.id } : {}),
               role: "user",
               content: text,
@@ -974,6 +1056,7 @@ export function createSessionsRoute(engine, hub = null) {
             const { text, thinking, toolUses } = extractTextContent(m.content, { stripThink: true });
             messages.push({
               id: String(currentIndex),
+              sourceIndex,
               ...(m.id ? { entryId: m.id } : {}),
               role: "assistant",
               content: text,
@@ -987,7 +1070,7 @@ export function createSessionsRoute(engine, hub = null) {
           if (afterIndex >= pageBounds.startIdx && afterIndex < pageBounds.endIdx) {
             const extracted = extractBlocks(m.toolName, m.details, m);
             for (const b of extracted) {
-              blocks.push({ ...b, afterIndex });
+              blocks.push({ ...b, afterIndex, sourceIndex });
             }
           }
         } else if (m.role === "custom") {
@@ -995,12 +1078,26 @@ export function createSessionsRoute(engine, hub = null) {
           if (m.display !== false && afterIndex >= pageBounds.startIdx && afterIndex < pageBounds.endIdx) {
             const extracted = extractBlocks(m.customType, m.details, m);
             for (const b of extracted) {
-              blocks.push({ ...b, afterIndex });
+              blocks.push({ ...b, afterIndex, sourceIndex });
             }
           }
           const parsed = parseHistoryDeferredResult(m);
-          recordMediaGenerationResult(parsed, afterIndex);
-          recordDeferredInterlude(parsed, afterIndex);
+          recordMediaGenerationResult(parsed, afterIndex, sourceIndex);
+          if (m.customType === TURN_INPUT_CONSUMPTION_EVENT_TYPE) {
+            recordTurnInputConsumptionInterlude(m, afterIndex, sourceIndex);
+          }
+          if (m.customType === TURN_INPUT_PRESENTATION_EVENT_TYPE) {
+            recordTurnInputPresentationInterlude(m, afterIndex, sourceIndex);
+          }
+          if (m.customType === DEFERRED_RESULT_MESSAGE_TYPE) {
+            const nextAssistantIndex = nextImmediateDisplayableAssistantIndex(sourceMessages, sourceIndex, displayIdx);
+            recordDeferredInterlude(
+              parsed,
+              nextAssistantIndex == null ? null : nextAssistantIndex - 1,
+              historyDeferredDeliveryId(m, sourceIndex),
+              sourceIndex,
+            );
+          }
         }
       }
 
@@ -1009,7 +1106,7 @@ export function createSessionsRoute(engine, hub = null) {
           if (!isTerminalDeferredTask(task)) continue;
           const parsed = buildDeferredResultRecord(task.taskId, task);
           recordMediaGenerationResult(parsed, pageBounds.total - 1);
-          recordDeferredInterlude(parsed, pageBounds.total - 1);
+          recordDeferredInterlude(parsed, null);
         }
       }
       const resolvedBlocks = resolveMediaGenerationBlocks(
@@ -1912,6 +2009,15 @@ function parseHistoryDeferredResult(message) {
     return parseDeferredResultNotification(message.content);
   }
   return null;
+}
+
+function historyDeferredDeliveryId(message, sourceIndex) {
+  const details = message?.details && typeof message.details === "object" ? message.details : null;
+  const fromDetails = typeof details?.deliveryId === "string" && details.deliveryId.trim()
+    ? details.deliveryId.trim()
+    : null;
+  if (fromDetails) return fromDetails;
+  return `history:${sourceIndex}`;
 }
 
 function isTerminalDeferredTask(task) {

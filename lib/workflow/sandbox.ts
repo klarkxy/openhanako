@@ -1,5 +1,6 @@
 import vm from "node:vm";
 import { extractMeta } from "./meta.ts";
+import { WORKFLOW_RUNTIME_CONTRACT } from "./host-api.ts";
 
 const DEFAULT_DEADLINE_MS = 5 * 60 * 1000;
 
@@ -49,6 +50,7 @@ export async function runWorkflowScript(script, hostApi, opts: { signal?: AbortS
   }
 
   const result = await raceDeadline(scriptPromise, { signal, deadlineMs, name: meta.name });
+  hostApi?.[WORKFLOW_RUNTIME_CONTRACT]?.assertNoUnawaitedAgentCalls?.();
   return { meta, result };
 }
 

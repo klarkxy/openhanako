@@ -34,6 +34,13 @@ import { AppError } from "../../shared/errors.ts";
 import { errorBus } from "../../shared/error-bus.ts";
 import { createRequestContext } from "../http/boundary.ts";
 import { buildDeferredResultInterludeBlock, resolveDeferredReceiverName } from "../deferred-result-interlude.ts";
+import { DEFERRED_RESULT_MESSAGE_TYPE } from "../../lib/deferred-result-notification.ts";
+import {
+  TURN_INPUT_CONSUMPTION_EVENT_TYPE,
+  TURN_INPUT_PRESENTATION_EVENT_TYPE,
+  buildTurnInputConsumptionRecord,
+  buildTurnInputPresentationEvent,
+} from "../../lib/turn-input-presentation.ts";
 import { buildAutomationSuggestionBlock } from "../suggestion-blocks.ts";
 import { isAllowedChatImageMime, isChatImageBase64WithinLimit } from "../../shared/image-mime.ts";
 import { isAllowedChatVideoMime, isChatVideoBase64WithinLimit } from "../../shared/video-mime.ts";
@@ -300,6 +307,8 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         titleRequested: false,
         titlePreview: "",
         pendingDeferredContentEvents: [],
+        pendingTurnInputConsumptions: [],
+        flushedTurnInputConsumptionKeys: new Set(),
         pendingTurnCompletionNotification: null,
         pendingPhaseTextByIndex: new Map(),
         turnStallTimer: null,
@@ -439,12 +448,6 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
 
   function buildDeferredResultContentEvents(sessionPath, event) {
     const events = [];
-    if (event.meta?.interlude) {
-      const interlude = buildDeferredResultInterludeBlock(event, {
-        receiverName: resolveDeferredReceiverName(engine, sessionPath),
-      });
-      if (interlude) events.push({ type: "content_block", block: interlude });
-    }
 
     if (event.status === "success") {
       for (const block of enrichSessionFileBlocks(deferredResultFileBlocks(event.result, event.taskId), engine, sessionPath)) {
@@ -478,6 +481,186 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
     if (!pending.length) return;
     ss.pendingDeferredContentEvents = [];
     emitDeferredContentEvents(sessionPath, ss, pending);
+  }
+
+  function beginStreamingTurnState(sessionPath, ss, { streamId = null, flushDeferred = false } = {}) {
+    if (flushDeferred) flushPendingDeferredContentEvents(sessionPath, ss);
+    ss.pendingTurnCompletionNotification = null;
+    ss.lastStreamActivityAt = Date.now();
+    ss.turnActive = true;
+    ss.thinkTagParser.reset();
+    ss.moodParser.reset();
+    ss.cardParser.reset();
+    ss.pendingPhaseTextByIndex?.clear?.();
+    ss._cardHints = [];
+    ss._cardEmitted = false;
+    ss.isThinking = false;
+    ss.hasOutput = false;
+    ss.hasToolCall = false;
+    ss.hasThinking = false;
+    ss.hasError = false;
+    ss.isAborted = false;
+    ss.titleRequested = false;
+    ss.titlePreview = "";
+    const statusStreamId = beginSessionStream(ss, streamId);
+    scheduleTurnStallWatchdog(sessionPath, ss);
+    return statusStreamId;
+  }
+
+  function textOrNull(value) {
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  }
+
+  function turnInputConsumptionKey(item) {
+    const entryId = item?.input?.entryId || null;
+    if (entryId) return `entry:${entryId}`;
+    const deliveryId = item?.deliveryId || item?.block?.deliveryId || null;
+    if (deliveryId) return `delivery:${deliveryId}`;
+    return item?.block?.id ? `block:${item.block.id}` : null;
+  }
+
+  function turnInputConsumptionAlreadyQueued(ss, item) {
+    const key = turnInputConsumptionKey(item);
+    if (!key) return false;
+    if (ss.flushedTurnInputConsumptionKeys?.has?.(key)) return true;
+    return (ss.pendingTurnInputConsumptions || []).some((queued) => (
+      turnInputConsumptionKey(queued) === key
+    ));
+  }
+
+  function buildPreReplyInterludeBlock(sessionPath, presentation) {
+    if (presentation?.kind !== "pre_reply_interlude" || !presentation.taskId) return null;
+    const task = engine.deferredResults?.query?.(presentation.taskId) || null;
+    const taskStatus = task?.status === "failed" || task?.status === "aborted"
+      ? task.status
+      : presentation.status;
+    const status = taskStatus === "failed" || taskStatus === "aborted" ? taskStatus : "success";
+    const meta = {
+      ...(task?.meta || {}),
+      type: presentation.resultType || task?.meta?.type || "background-task",
+    };
+    const result = Object.prototype.hasOwnProperty.call(presentation, "result")
+      ? presentation.result
+      : task?.result;
+    const reason = presentation.reason || task?.reason || null;
+    return buildDeferredResultInterludeBlock({
+      taskId: presentation.taskId,
+      deliveryId: presentation.deliveryId || null,
+      status,
+      result,
+      reason,
+      meta,
+    }, {
+      receiverName: resolveDeferredReceiverName(engine, sessionPath),
+    });
+  }
+
+  function isUiOnlyMediaTurnInput(presentation) {
+    const resultType = presentation?.resultType || "";
+    return presentation?.status === "success" && (
+      resultType === "image-generation" ||
+      resultType === "video-generation"
+    );
+  }
+
+  function buildTurnInputConsumptionItem(sessionPath, message) {
+    if (message?.role !== "custom") return null;
+    if (message.display !== false) return null;
+    if (message.customType !== DEFERRED_RESULT_MESSAGE_TYPE) return null;
+    const event = buildTurnInputPresentationEvent(message, { deliveryMode: "consumed" });
+    const presentation = event?.presentation;
+    if (!presentation || isUiOnlyMediaTurnInput(presentation)) return null;
+    const details = message.details && typeof message.details === "object" ? message.details : null;
+    const entryId = textOrNull(message.id);
+    const deliveryId =
+      textOrNull(presentation.deliveryId) ||
+      textOrNull(details?.deliveryId) ||
+      (entryId ? `turn-input:${entryId}` : `turn-input:${crypto.randomUUID()}`);
+    const normalizedPresentation = {
+      ...presentation,
+      deliveryId,
+      deliveryMode: "consumed",
+    };
+    const block = buildPreReplyInterludeBlock(sessionPath, normalizedPresentation);
+    if (!block) return null;
+    return {
+      kind: normalizedPresentation.kind,
+      deliveryId,
+      presentation: normalizedPresentation,
+      input: {
+        ...(entryId ? { entryId } : {}),
+        customType: message.customType,
+        deliveryId,
+        taskId: normalizedPresentation.taskId,
+        status: normalizedPresentation.status,
+        resultType: normalizedPresentation.resultType,
+        ...(textOrNull(message.timestamp) ? { timestamp: textOrNull(message.timestamp) } : {}),
+      },
+      block,
+    };
+  }
+
+  function queueConsumedTurnInput(sessionPath, ss, message) {
+    const item = buildTurnInputConsumptionItem(sessionPath, message);
+    if (!item || turnInputConsumptionAlreadyQueued(ss, item)) return;
+    ss.pendingTurnInputConsumptions = [...(ss.pendingTurnInputConsumptions || []), item];
+  }
+
+  function emitTurnInputConsumption(sessionPath, ss, item) {
+    const block = item?.block;
+    if (!block) return;
+    emitStreamEvent(sessionPath, ss, { type: "content_block", block });
+  }
+
+  function persistTurnInputConsumption(sessionPath, item, assistantMessage = null) {
+    if (!sessionPath || typeof engine.recordCustomEntry !== "function") return;
+    const record = buildTurnInputConsumptionRecord({
+      input: item?.input,
+      assistant: assistantMessage && typeof assistantMessage === "object"
+        ? {
+            ...(textOrNull(assistantMessage.id) ? { entryId: textOrNull(assistantMessage.id) } : {}),
+            ...(textOrNull(assistantMessage.parentId) ? { parentId: textOrNull(assistantMessage.parentId) } : {}),
+            ...(textOrNull(assistantMessage.timestamp) ? { timestamp: textOrNull(assistantMessage.timestamp) } : {}),
+          }
+        : null,
+      presentation: item?.presentation,
+      block: item?.block,
+    });
+    if (!record) return;
+    try {
+      engine.recordCustomEntry(sessionPath, TURN_INPUT_CONSUMPTION_EVENT_TYPE, record);
+    } catch (err) {
+      log.warn(`turn input consumption persistence failed: ${err.message}`);
+    }
+  }
+
+  function takePendingTurnInputConsumptionsForAssistant(ss, assistantMessage = null) {
+    const pending = ss.pendingTurnInputConsumptions || [];
+    if (!pending.length) return { items: [], remaining: [] };
+    const parentId = textOrNull(assistantMessage?.parentId);
+    if (!parentId) return { items: pending, remaining: [] };
+    const matchIndex = pending.findIndex((item) => item?.input?.entryId === parentId);
+    if (matchIndex < 0) return { items: [], remaining: pending };
+    return {
+      items: pending.slice(0, matchIndex + 1),
+      remaining: pending.slice(matchIndex + 1),
+    };
+  }
+
+  function flushPendingTurnInputConsumptions(sessionPath, ss, assistantMessage = null) {
+    const { items, remaining } = takePendingTurnInputConsumptionsForAssistant(ss, assistantMessage);
+    if (!items.length) return [];
+    ss.pendingTurnInputConsumptions = remaining;
+    if (!(ss.flushedTurnInputConsumptionKeys instanceof Set)) {
+      ss.flushedTurnInputConsumptionKeys = new Set();
+    }
+    for (const item of items) {
+      persistTurnInputConsumption(sessionPath, item, assistantMessage);
+      emitTurnInputConsumption(sessionPath, ss, item);
+      const key = turnInputConsumptionKey(item);
+      if (key) ss.flushedTurnInputConsumptionKeys.add(key);
+    }
+    return items;
   }
 
   function finishStreamingState(ss, sessionPath = null) {
@@ -785,6 +968,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
     const emitVisibleTextDelta = (delta) => {
       const text = typeof delta === "string" ? delta : "";
       if (!text) return;
+      flushPendingTurnInputConsumptions(sessionPath, ss, event.message);
       ss.hasOutput = true;
       if (ss.isThinking) {
         ss.isThinking = false;
@@ -836,6 +1020,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         if (getAssistantTextPhase(block) === "commentary") return;
         emitVisibleTextDelta(buffered ?? subEvent.content ?? block?.text ?? "");
       } else if (sub === "thinking_delta") {
+        flushPendingTurnInputConsumptions(sessionPath, ss, event.message);
         ss.hasThinking = true;
         if (!ss.isThinking) {
           ss.isThinking = true;
@@ -853,6 +1038,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
       }
     } else if (event.type === "tool_execution_start") {
       if (!ss) return;
+      flushPendingTurnInputConsumptions(sessionPath, ss, event.message);
       ss.hasToolCall = true;
       if (ss.isThinking) {
         ss.isThinking = false;
@@ -995,6 +1181,20 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
         patch: event.patch,
         sessionPath,
       });
+    } else if (event.type === TURN_INPUT_PRESENTATION_EVENT_TYPE) {
+      // Delivery notifications are advisory only. The timeline UI is bound to the
+      // actual hidden custom_message once the SDK consumes it for an assistant turn.
+    } else if (event.type === "turn_start") {
+      if (!ss) return;
+      if (!ss.turnActive) {
+        const statusStreamId = beginStreamingTurnState(sessionPath, ss);
+        broadcast({
+          type: "status",
+          isStreaming: true,
+          sessionPath,
+          streamId: statusStreamId,
+        });
+      }
     } else if (event.type === "todo_update") {
       broadcast({
         type: "todo_update",
@@ -1045,26 +1245,10 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
           ? event.streamId
           : null;
         if (event.isStreaming) {
-          flushPendingDeferredContentEvents(sessionPath, ss);
-          ss.pendingTurnCompletionNotification = null;
-          ss.lastStreamActivityAt = Date.now();
-          ss.turnActive = true;
-          ss.thinkTagParser.reset();
-          ss.moodParser.reset();
-          ss.cardParser.reset();
-          ss.pendingPhaseTextByIndex?.clear?.();
-          ss._cardHints = [];
-          ss._cardEmitted = false;
-          ss.isThinking = false;
-          ss.hasOutput = false;
-          ss.hasToolCall = false;
-          ss.hasThinking = false;
-          ss.hasError = false;
-          ss.isAborted = false;
-          ss.titleRequested = false;
-          ss.titlePreview = "";
-          statusStreamId = beginSessionStream(ss, eventStreamId);
-          scheduleTurnStallWatchdog(sessionPath, ss);
+          statusStreamId = beginStreamingTurnState(sessionPath, ss, {
+            streamId: eventStreamId,
+            flushDeferred: true,
+          });
         } else if (ss.isStreaming) {
           statusStreamId = eventStreamId || ss.streamId || null;
           flushTerminalParsers();
@@ -1142,6 +1326,9 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
     } else if (event.type === "message_end") {
       // Provider 级别错误（超时、连接断开等）通过 message_end 传递，不经过 message_update
       if (!ss) return;
+      if (event.message?.role === "custom" && event.message.display === false) {
+        queueConsumedTurnInput(sessionPath, ss, event.message);
+      }
       if (event.message?.role === "custom" && event.message.display !== false) {
         const blocks = enrichSessionFileBlocks(
           extractBlocks(event.message.customType, event.message.details, event.message),
@@ -1211,6 +1398,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
       ss.hasThinking = false;
       ss.hasError = false;
       ss.isAborted = false;
+      ss.pendingTurnInputConsumptions = [];
       ss.thinkTagParser.reset();
       ss.moodParser.reset();
       ss.cardParser.reset();

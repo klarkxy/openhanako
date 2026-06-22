@@ -1,4 +1,5 @@
 // tests/workflow-tool.test.js
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkflowTool } from "../lib/tools/workflow-tool.ts";
 
@@ -73,6 +74,29 @@ describe("workflow tool", () => {
       subagentContext: true, subagentTaskId: res.details.taskId, emitEvents: true,
       permissionMode: "auto", approvalPolicy: "deny_on_prompt", allowHumanApproval: false,
     });
+  });
+
+  it("workflow node session 持久化到 workflow-sessions/<runId>，ActivityHub 记录的 child path 不指向 ephemeral", async () => {
+    const store = makeStore();
+    const seenPersistDirs = [];
+    const tool = createWorkflowTool({
+      executeIsolated: async (_p, o) => {
+        seenPersistDirs.push(o.persist);
+        o.onSessionReady?.(`${o.persist}/child.jsonl`);
+        return { replyText: "ok", error: null };
+      },
+      getAgentId: () => "a1",
+      emitEvent: () => {},
+      getWorkflowSessionDir: () => "/agents/hanako/workflow-sessions",
+      getDeferredStore: () => store,
+      getSubagentRunStore: () => makeRunStore(),
+    });
+
+    const res = await tool.execute("c1", { script: META + `return await agent('x')` }, undefined, undefined, makeCtx()) as any;
+    await flush();
+
+    expect(seenPersistDirs[0]).toBe(path.join("/agents/hanako/workflow-sessions", res.details.taskId));
+    expect(seenPersistDirs[0]).not.toContain(".ephemeral");
   });
 
   it("派出后台任务时用 parentSessionId 作为内部运行时归属，sessionPath 只作 locator", async () => {
@@ -157,6 +181,24 @@ describe("workflow tool", () => {
     expect(runStore.fail).toHaveBeenCalled();
   });
 
+  it("workflow 返回 undefined 时按执行失败处理，不写入成功结果", async () => {
+    const store = makeStore();
+    const runStore = makeRunStore();
+    const tool = createWorkflowTool({
+      executeIsolated: async () => ({ replyText: "ok", error: null }),
+      emitEvent: () => {},
+      getDeferredStore: () => store,
+      getSubagentRunStore: () => runStore,
+    });
+
+    const res = await tool.execute("c1", { script: META + `return undefined` }, undefined, undefined, makeCtx()) as any;
+    await flush();
+
+    expect(store.resolve).not.toHaveBeenCalled();
+    expect(store.fail).toHaveBeenCalledWith(res.details.taskId, expect.stringMatching(/undefined|没有返回结果/));
+    expect(runStore.fail).toHaveBeenCalledWith(res.details.taskId, expect.stringMatching(/undefined|没有返回结果/));
+  });
+
   it("deferred 基础设施不可用时同步兜底执行，直接返回 result", async () => {
     const exec = vi.fn(async () => ({ replyText: "bug", error: null }));
     const tool = createWorkflowTool({
@@ -170,6 +212,16 @@ describe("workflow tool", () => {
     ) as any;
     expect(res.details.result).toBe("bug");
     expect(res.details.agentsSpawned).toBe(1);
+  });
+
+  it("同步执行路径返回 undefined 时返回 toolError", async () => {
+    const tool = createWorkflowTool({
+      executeIsolated: async () => ({ replyText: "ok", error: null }),
+      emitEvent: () => {},
+      // 不提供 getDeferredStore → 同步兜底
+    });
+    const res = await tool.execute("c1", { script: META + `return undefined` }, undefined, undefined, makeCtx()) as any;
+    expect(res.details.error).toMatch(/undefined|没有返回结果/);
   });
 
   it("emitEvent 收到 workflow_progress（phase/log），带 taskId", async () => {

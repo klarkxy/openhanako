@@ -252,13 +252,14 @@ function extractMediaGenerationBlocks(details, fallbackKind) {
   return blocks.length ? blocks : null;
 }
 
-function resultSessionFileBlocks(result, taskId, afterIndex) {
+function resultSessionFileBlocks(result, taskId, block) {
   if (!result || typeof result !== "object" || Array.isArray(result)) return [];
   const sessionFiles = Array.isArray(result.sessionFiles) ? result.sessionFiles : [];
   return sessionFiles
     .map((file) => sessionFileToContentBlock(file, {
       replacesTaskId: taskId,
-      ...(afterIndex !== undefined ? { afterIndex } : {}),
+      ...(block?.afterIndex !== undefined ? { afterIndex: block.afterIndex } : {}),
+      ...(block?.sourceIndex !== undefined ? { sourceIndex: block.sourceIndex } : {}),
     }))
     .filter(Boolean);
 }
@@ -298,7 +299,7 @@ function mediaGenerationFallbackBlock(block, result) {
 function mediaGenerationReplacementBlocks(block, result) {
   if (!result) return [block];
   if (result.status === "success" || result.status === "resolved") {
-    const fileBlocks = resultSessionFileBlocks(result.result, block.taskId, block.afterIndex);
+    const fileBlocks = resultSessionFileBlocks(result.result, block.taskId, block);
     return fileBlocks.length ? fileBlocks : [mediaGenerationFallbackBlock(block, {
       status: "failed",
       reason: t("deferred.mediaNoDisplayableFiles"),
@@ -364,6 +365,7 @@ export function resolveMediaGenerationBlocks(blocks, results = new Map(), standa
       kind: mediaKindFromDeferredType(result.type),
       status: "pending",
       ...(result.afterIndex !== undefined ? { afterIndex: result.afterIndex } : {}),
+      ...(result.sourceIndex !== undefined ? { sourceIndex: result.sourceIndex } : {}),
     };
     pushInterludesForTask(result.taskId);
     for (const replacement of mediaGenerationReplacementBlocks(syntheticBlock, result)) {

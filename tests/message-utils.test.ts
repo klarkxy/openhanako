@@ -23,6 +23,7 @@ import {
   isDesktopSessionPath,
 } from "../core/message-utils.ts";
 import { SessionManager } from "../lib/pi-sdk/index.ts";
+import { TURN_INPUT_CONSUMPTION_EVENT_TYPE } from "../lib/turn-input-presentation.ts";
 
 let tmpDir;
 
@@ -378,6 +379,55 @@ describe("loadSessionHistoryMessages", () => {
         taskId: "task-img",
         status: "success",
         type: "image-generation",
+      },
+      display: false,
+    });
+    expect(result[1].id).toEqual(expect.any(String));
+    expect(result[1].timestamp).toEqual(expect.any(String));
+  });
+
+  it("从 Pi session 分支恢复 turn input consumption 作为可重建的 UI 时间线事件", async () => {
+    const sessionDir = path.join(tmpDir, "sessions");
+    const manager = SessionManager.create(tmpDir, sessionDir);
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "before" }] } as any);
+    manager.appendCustomEntry(TURN_INPUT_CONSUMPTION_EVENT_TYPE, {
+      schemaVersion: 1,
+      deliveryId: "delivery-1",
+      input: {
+        entryId: "custom-1",
+        customType: "hana-background-result",
+        taskId: "task-1",
+        deliveryId: "delivery-1",
+      },
+      assistant: {
+        entryId: "assistant-1",
+      },
+      block: {
+        type: "interlude",
+        id: "interlude-delivery-1",
+        deliveryId: "delivery-1",
+        taskId: "task-1",
+        variant: "deferred_result",
+        text: "Hana 收到了回复",
+      },
+    });
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "after" }] } as any);
+
+    const result = await loadSessionHistoryMessages({}, manager.getSessionFile());
+
+    expect(result).toHaveLength(3);
+    expect(result[1]).toMatchObject({
+      role: "custom",
+      customType: TURN_INPUT_CONSUMPTION_EVENT_TYPE,
+      data: {
+        schemaVersion: 1,
+        deliveryId: "delivery-1",
+        block: {
+          type: "interlude",
+          deliveryId: "delivery-1",
+          taskId: "task-1",
+          text: "Hana 收到了回复",
+        },
       },
       display: false,
     });

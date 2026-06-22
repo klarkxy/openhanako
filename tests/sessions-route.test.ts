@@ -1410,14 +1410,15 @@ describe("sessions route", () => {
     });
   });
 
-  it("restores deferred subagent result as an interlude block", async () => {
+  it("restores deferred subagent result as an interlude block before the following assistant reply", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.ts");
     const msgUtils = await import("../core/message-utils.ts");
     const app = new Hono();
     const sessionPath = "/tmp/agents/hana/sessions/subagent-result.jsonl";
 
     vi.mocked(msgUtils.extractTextContent)
-      .mockReturnValueOnce({ text: "parent says hi", images: [], thinking: "", toolUses: [] });
+      .mockReturnValueOnce({ text: "parent says hi", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "received child result", images: [], thinking: "", toolUses: [] });
     vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
       { role: "assistant", content: "parent says hi" },
       {
@@ -1436,6 +1437,7 @@ describe("sessions route", () => {
         content: "<hana-background-result task-id=\"subagent-1\" status=\"success\" type=\"subagent\">\n子助手完整回复\n</hana-background-result>",
         display: false,
       },
+      { role: "assistant", content: "received child result" },
     ]);
 
     const engine = {
@@ -1475,6 +1477,354 @@ describe("sessions route", () => {
       detailMarkdown: "子助手完整回复",
     });
     expect(interlude.text).not.toContain("长任务说明");
+  });
+
+  it("restores repeated deferred result occurrences for the same task as distinct interludes", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const sessionPath = "/tmp/agents/hana/sessions/subagent-result-repeat.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "card from checked results", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "received first delivery", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "received second delivery", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "card from checked results" },
+      {
+        role: "custom",
+        customType: "hana-background-result",
+        content: "<hana-background-result task-id=\"subagent-1\" status=\"success\" type=\"subagent\">\n子助手完整回复\n</hana-background-result>",
+        display: false,
+      },
+      { role: "assistant", content: "received first delivery" },
+      {
+        role: "custom",
+        customType: "hana-background-result",
+        content: "<hana-background-result task-id=\"subagent-1\" status=\"success\" type=\"subagent\">\n子助手完整回复\n</hana-background-result>",
+        display: false,
+      },
+      { role: "assistant", content: "received second delivery" },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: sessionPath,
+      agentIdFromSessionPath: vi.fn(() => "hana"),
+      getAgent: vi.fn((id) => (id === "hana" ? { agentName: "小花" } : null)),
+      deferredResults: {
+        query: vi.fn(() => ({
+          status: "resolved",
+          result: "子助手完整回复",
+          meta: {
+            type: "subagent",
+            interlude: true,
+            executorAgentNameSnapshot: "明",
+            label: "大纲评估",
+          },
+        })),
+      },
+      subagentRuns: { query: vi.fn(() => null) },
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request(`/api/sessions/messages?path=${encodeURIComponent(sessionPath)}`);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    const interludes = data.blocks.filter((b) => b.type === "interlude");
+    expect(interludes).toHaveLength(2);
+    expect(interludes.map((b) => b.taskId)).toEqual(["subagent-1", "subagent-1"]);
+    expect(interludes.map((b) => b.afterIndex)).toEqual([0, 1]);
+    expect(new Set(interludes.map((b) => b.id)).size).toBe(2);
+  });
+
+  it("exposes JSONL source order for messages and deferred interludes during restore", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const sessionPath = "/tmp/agents/hana/sessions/source-order.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "生成图片", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "最终报告", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "收到后台回复", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "生成图片" },
+      {
+        role: "toolResult",
+        toolName: "media_generate-image",
+        details: {
+          mediaGeneration: {
+            kind: "image",
+            tasks: [{ taskId: "task-img" }],
+          },
+        },
+      },
+      {
+        role: "custom",
+        customType: "hana-deferred-result",
+        data: {
+          schemaVersion: 1,
+          taskId: "task-img",
+          status: "success",
+          type: "image-generation",
+          result: {
+            sessionFiles: [{
+              fileId: "sf_img",
+              filePath: "/tmp/generated.png",
+              label: "generated.png",
+              ext: "png",
+              mime: "image/png",
+              kind: "image",
+            }],
+          },
+        },
+        display: false,
+      },
+      { role: "assistant", content: "最终报告" },
+      {
+        role: "custom",
+        customType: "hana-background-result",
+        content: "<hana-background-result task-id=\"subagent-1\" status=\"success\" type=\"subagent\">\n后台回复\n</hana-background-result>",
+        display: false,
+        details: { deliveryId: "delivery-after-final" },
+      },
+      { role: "assistant", content: "收到后台回复" },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: sessionPath,
+      agentIdFromSessionPath: vi.fn(() => "hana"),
+      getAgent: vi.fn((id) => (id === "hana" ? { agentName: "小花" } : null)),
+      deferredResults: {
+        query: vi.fn(() => ({
+          status: "resolved",
+          result: "后台回复",
+          meta: {
+            type: "subagent",
+            interlude: true,
+            executorAgentNameSnapshot: "明",
+            label: "后台任务",
+          },
+        })),
+      },
+      subagentRuns: { query: vi.fn(() => null) },
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request(`/api/sessions/messages?path=${encodeURIComponent(sessionPath)}`);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.messages.map((m) => [m.content, m.sourceIndex])).toEqual([
+      ["生成图片", 0],
+      ["最终报告", 3],
+      ["收到后台回复", 5],
+    ]);
+    const imageBlock = data.blocks.find((b) => b.type === "file" && b.replacesTaskId === "task-img");
+    expect(imageBlock).toMatchObject({
+      afterIndex: 0,
+      sourceIndex: 1,
+      replacesTaskId: "task-img",
+    });
+    const interlude = data.blocks.find((b) => b.type === "interlude");
+    expect(interlude).toMatchObject({
+      afterIndex: 1,
+      sourceIndex: 4,
+      taskId: "subagent-1",
+    });
+  });
+
+  it("restores consumed turn input ledger records as durable interludes before their assistant reply", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const sessionPath = "/tmp/agents/hana/sessions/turn-input-consumption.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "before delivery", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "收到 task-a", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "before delivery" },
+      {
+        role: "custom",
+        id: "custom-task-a",
+        customType: "hana-background-result",
+        content: "<hana-background-result task-id=\"task-a\" status=\"success\" type=\"subagent\">\ndone\n</hana-background-result>",
+        display: false,
+        details: { deliveryId: "delivery-consumed" },
+      },
+      {
+        role: "custom",
+        customType: "turn_input_consumption",
+        data: {
+          schemaVersion: 1,
+          deliveryId: "delivery-consumed",
+          input: {
+            entryId: "custom-task-a",
+            customType: "hana-background-result",
+            taskId: "task-a",
+            deliveryId: "delivery-consumed",
+          },
+          assistant: {
+            entryId: "assistant-task-a",
+          },
+          block: {
+            type: "interlude",
+            id: "interlude-delivery-consumed",
+            deliveryId: "delivery-consumed",
+            variant: "deferred_result",
+            taskId: "task-a",
+            status: "success",
+            sourceKind: "subagent",
+            sourceLabel: "Hanako · queued-task",
+            text: "Hana 收到了来自 Hanako · queued-task 的回复",
+            detailMarkdown: "done",
+          },
+        },
+        display: false,
+      },
+      { role: "assistant", id: "assistant-task-a", content: "收到 task-a" },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: sessionPath,
+      agentIdFromSessionPath: vi.fn(() => "hana"),
+      getAgent: vi.fn((id) => (id === "hana" ? { agentName: "Hana" } : null)),
+      deferredResults: {
+        query: vi.fn(() => ({
+          status: "resolved",
+          result: "done",
+          meta: {
+            type: "subagent",
+            interlude: true,
+            executorAgentNameSnapshot: "Hanako",
+            label: "queued-task",
+          },
+        })),
+      },
+      subagentRuns: { query: vi.fn(() => null) },
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request(`/api/sessions/messages?path=${encodeURIComponent(sessionPath)}`);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    const interludes = data.blocks.filter((b) => b.type === "interlude");
+    expect(interludes).toHaveLength(1);
+    expect(interludes[0]).toMatchObject({
+      afterIndex: 0,
+      sourceIndex: 2,
+      deliveryId: "delivery-consumed",
+      taskId: "task-a",
+      text: "Hana 收到了来自 Hanako · queued-task 的回复",
+      detailMarkdown: "done",
+    });
+  });
+
+  it("keeps deferred subagent interlude hidden in history until an assistant reply exists", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const sessionPath = "/tmp/agents/hana/sessions/subagent-result-pending-reply.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "parent says hi", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "parent says hi" },
+      {
+        role: "custom",
+        customType: "hana-background-result",
+        content: "<hana-background-result task-id=\"subagent-1\" status=\"success\" type=\"subagent\">\n子助手完整回复\n</hana-background-result>",
+        display: false,
+      },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: sessionPath,
+      agentIdFromSessionPath: vi.fn(() => "hana"),
+      getAgent: vi.fn((id) => (id === "hana" ? { agentName: "小花" } : null)),
+      deferredResults: {
+        query: vi.fn(() => ({
+          status: "resolved",
+          result: "子助手完整回复",
+          meta: {
+            type: "subagent",
+            interlude: true,
+            executorAgentNameSnapshot: "明",
+            label: "大纲评估",
+          },
+        })),
+      },
+      subagentRuns: { query: vi.fn(() => null) },
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request(`/api/sessions/messages?path=${encodeURIComponent(sessionPath)}`);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.blocks.some((b) => b.type === "interlude")).toBe(false);
+  });
+
+  it("does not attach a hidden deferred interlude across a later user message", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const msgUtils = await import("../core/message-utils.ts");
+    const app = new Hono();
+    const sessionPath = "/tmp/agents/hana/sessions/subagent-result-cross-user.jsonl";
+
+    vi.mocked(msgUtils.extractTextContent)
+      .mockReturnValueOnce({ text: "parent says hi", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "new user question", images: [], thinking: "", toolUses: [] })
+      .mockReturnValueOnce({ text: "reply to user question", images: [], thinking: "", toolUses: [] });
+    vi.mocked(msgUtils.loadSessionHistoryMessages).mockResolvedValueOnce([
+      { role: "assistant", content: "parent says hi" },
+      {
+        role: "custom",
+        customType: "hana-background-result",
+        content: "<hana-background-result task-id=\"subagent-1\" status=\"success\" type=\"subagent\">\n子助手完整回复\n</hana-background-result>",
+        display: false,
+      },
+      { role: "user", content: "new user question" },
+      { role: "assistant", content: "reply to user question" },
+    ]);
+
+    const engine = {
+      agentsDir: "/tmp/agents",
+      currentSessionPath: sessionPath,
+      agentIdFromSessionPath: vi.fn(() => "hana"),
+      getAgent: vi.fn((id) => (id === "hana" ? { agentName: "小花" } : null)),
+      deferredResults: {
+        query: vi.fn(() => ({
+          status: "resolved",
+          result: "子助手完整回复",
+          meta: {
+            type: "subagent",
+            interlude: true,
+            executorAgentNameSnapshot: "明",
+            label: "大纲评估",
+          },
+        })),
+      },
+      subagentRuns: { query: vi.fn(() => null) },
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+
+    const res = await app.request(`/api/sessions/messages?path=${encodeURIComponent(sessionPath)}`);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.blocks.some((b) => b.type === "interlude")).toBe(false);
   });
 
   it("loads session messages by sessionId and treats path as a legacy locator", async () => {
@@ -1652,12 +2002,14 @@ describe("sessions route", () => {
     expect(data.messages).toEqual([
       {
         id: "0",
+        sourceIndex: 0,
         role: "user",
         content: "hello",
         timestamp: "2026-05-07T05:42:00.000Z",
       },
       {
         id: "1",
+        sourceIndex: 1,
         role: "assistant",
         content: "hi back",
         timestamp: "2026-05-07T05:43:00.000Z",
@@ -1691,6 +2043,7 @@ describe("sessions route", () => {
     expect(res.status).toBe(200);
     expect(data.messages).toEqual([{
       id: "0",
+      sourceIndex: 0,
       role: "assistant",
       content: "",
       thinking: "",
@@ -1804,6 +2157,7 @@ describe("sessions route", () => {
     );
     expect(data.messages[0]).toEqual({
       id: "0",
+      sourceIndex: 0,
       role: "user",
       content: "[attached_image: /tmp/a.png]\nsee image",
     });
@@ -2185,6 +2539,7 @@ describe("sessions route", () => {
       {
         type: "file",
         afterIndex: 0,
+        sourceIndex: 2,
         replacesTaskId: "task-img",
         fileId: "sf_img",
         filePath: "/cache/generated.png",
@@ -2238,6 +2593,7 @@ describe("sessions route", () => {
     expect(data.blocks).toEqual([{
       type: "plugin_card",
       afterIndex: 0,
+      sourceIndex: 1,
       card: {
         pluginId: "finance-market",
         route: "/card?id=quote",
@@ -2308,6 +2664,7 @@ describe("sessions route", () => {
       {
         type: "file",
         afterIndex: 0,
+        sourceIndex: 1,
         replacesTaskId: "task-img",
         fileId: "sf_img",
         filePath: "/cache/generated.png",

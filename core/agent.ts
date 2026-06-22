@@ -700,6 +700,8 @@ export class Agent {
       getUsageLedger: () => this._cb?.getEngine?.()?.usageLedger,
       // journal 断点续跑：存储在 agent 数据目录下。
       getJournalDir: () => path.join(this.agentDir, "workflow-journals"),
+      // workflow node session 是审计证据，不能落到 executeIsolated 默认 .ephemeral 后被删掉。
+      getWorkflowSessionDir: () => path.join(this.agentDir, "workflow-sessions"),
     });
 
     // 12. 组装 system prompt（按 master 构建，与 per-session 开关解耦）
