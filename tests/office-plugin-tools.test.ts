@@ -114,6 +114,38 @@ describe("office plugin tools", () => {
     expect(result.content[0].text).toContain('"sheetCount": 1');
   });
 
+  it("reads documents from ResourceIO refs by materializing through plugin resources", async () => {
+    const filePath = path.join(tempDir, "resource-note.md");
+    fs.writeFileSync(filePath, "hello from resource ref", "utf-8");
+    const materialize = vi.fn(async () => ({
+      filePath,
+      resourceKey: "mount:docs/resource-note.md",
+      resource: { kind: "mount", mountId: "docs", path: "resource-note.md" },
+    }));
+
+    const result = await readDocument({
+      resource: { kind: "mount", mountId: "docs", path: "resource-note.md" },
+    }, {
+      resources: { materialize },
+    });
+
+    expect(materialize).toHaveBeenCalledWith({ kind: "mount", mountId: "docs", path: "resource-note.md" });
+    expect(result.content[0].text).toContain("hello from resource ref");
+    expect(result.details.office).toMatchObject({
+      filePath,
+      resourceKey: "mount:docs/resource-note.md",
+    });
+  });
+
+  it("declares ResourceIO materialize/read capabilities for Office document reads", () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(process.cwd(), "plugins", "office", "manifest.json"), "utf-8"));
+
+    expect(manifest.capabilities).toEqual(expect.arrayContaining([
+      "resource.read",
+      "resource.materialize",
+    ]));
+  });
+
   it("reads xlsm workbooks through the same structured workbook path", async () => {
     const filePath = path.join(tempDir, "macro-report.xlsm");
     const workbook = new ExcelJS.Workbook();

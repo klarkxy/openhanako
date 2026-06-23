@@ -29,6 +29,8 @@ type Options = {
 };
 
 export class MountProvider {
+  readonly id = "mount" as const;
+
   declare hanakoHome: string;
   declare studioId: string;
   declare localFsProviderFactory: LocalFsProviderFactory;

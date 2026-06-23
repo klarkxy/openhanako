@@ -968,6 +968,8 @@ export function createPluginsRoute(engine: any) {
         pluginId: c.req.param("id"),
         toolName: c.req.param("toolName"),
         input: body.input || {},
+        sessionId: body.sessionId,
+        sessionRef: body.sessionRef,
         sessionPath: body.sessionPath,
         agentId: body.agentId,
       }));

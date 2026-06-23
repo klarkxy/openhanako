@@ -39,7 +39,7 @@ Read `.docs/PLUGIN-DEVELOPMENT.md` for the end-to-end workflow. Pick the plugin 
 |------|----------|------------|
 | Tool-only | No UI, adds Agent-callable tools | `restricted` |
 | Runtime | Lifecycle, EventBus, background tasks, dynamic tools | `full-access` |
-| UI | Page / widget / iframe card | `full-access` |
+| UI | Page / widget / WebView/iframe card / `chat.surface` | `full-access` |
 | Marketplace entry | Makes the plugin discoverable in the marketplace | `OH-Plugins/plugins/<id>.yaml` |
 
 Start with the `hana-plugin-creator` scaffold, then delete what you do not need:
@@ -213,6 +213,8 @@ export async function execute(input, ctx) {
 
 `resource.read` covers `stat`, `read`, and `list`; `resource.search` covers search, including filename search through provider options; `resource.write` covers `write`, `writeExpectedVersion`, `edit`, `mkdir`, `delete`, `copy`, `rename`, `move`, and `trash`; `resource.materialize` is for turning a resource into a concrete local path; `resource.watch` resolves watch targets. URL resources stay read-only. Plugin-generated artifacts may still be written under `ctx.dataDir` and returned with `stageFile()`, but user resource reads and writes should not use raw local paths or `fs.writeFileSync`.
 
+ResourceIO is the only authority path for user resources. `local-file`, `mount`, `session-file`, `resource`, and `url` refs are resource identities, not guarantees that the plugin can see a host-local path. `stageFile()` is only for plugin-generated artifacts entering the `SessionFile` delivery flow. `ctx.dataDir` and packaged `assets/` are plugin-owned storage where raw `fs` is acceptable; workspace, mount, URL, and SessionFile inputs are not covered by that exception. If a third-party library needs a concrete local path, call `ctx.resources.materialize(ref)` and keep any write-back as an explicit ResourceIO operation instead of mutating the materialized file as the source.
+
 #### Media Delivery
 
 When a tool needs to deliver files, first stage the local file as a `SessionFile` for the current session, then return the staged media item through `details.media.items`:
@@ -293,14 +295,19 @@ Both static `tools/*.js` exports and dynamic `ctx.registerTool()` tools receive 
 
 #### Visual Cards
 
-Tools can automatically render visual cards (iframes) in the chat by declaring `card` in the return value's `details`:
+Tools can automatically render visual cards in the chat by declaring `card` in the return value's `details`. Current stable shapes are:
+
+- `type: "iframe"` / `type: "webview"` for plugin web UI, remote pages, standalone HTML, or complex browser UI. The old `iframe` type remains compatible; new docs treat it as the WebView escape hatch.
+- `type: "chat.surface"` for showing a plugin-owned `plugin_private` / `private` session transcript natively in the current chat stream. It accepts `sessionId/sessionRef`; the host verifies same-plugin ownership before rendering.
+
+Naming boundary: future composable native cards belong to Infinity Chalkboard / Card Kernel. `workbench` is a legacy code namespace, not a public concept for new plugin authors. See `.docs/INFINITY-CHALKBOARD.md`.
 
 ```js
 return {
   content: [{ type: "text", text: "Data summary..." }],
   details: {
     card: {
-      type: "iframe",
+      type: "webview",
       route: "/card/chart?symbol=sh600519&period=daily",
       title: "Kweichow Moutai Daily K",
       description: "Kweichow Moutai price 1450.00 change +2.11%",
@@ -309,7 +316,7 @@ return {
 };
 ```
 
-- `route`: Plugin route path; the iframe fetches data and renders from this path
+- `route`: Plugin route path; the WebView/iframe fetches data and renders from this path
 - `title`: Card title (optional)
 - `description`: Plain text summary, used for IM platform fallback and when the plugin is uninstalled
 - `pluginId` is auto-injected by the framework; tools don't need to set it
@@ -317,6 +324,31 @@ return {
 - Card data is stored in JSONL with the toolResult and auto-restored on session reload
 - Custom messages sent by plugin routes or the Session Bus use the same `details.card` extraction path and are restored as `plugin_card` blocks during history replay
 - Cards can be adapted by Bridge, Mobile PWA, or future remote clients, while their related files still restore through the `SessionFile` lifecycle
+
+Native chat surface example:
+
+```js
+import { createChatSurfaceCard, createSession } from "@hana/plugin-runtime";
+
+const child = await createSession(ctx, {
+  kind: "tavern-run",
+  visibility: "plugin_private",
+  cwd: ctx.dataDir,
+});
+
+return {
+  content: [{ type: "text", text: "Created a plugin-private session." }],
+  details: {
+    card: createChatSurfaceCard(ctx, child.sessionRef ?? child, {
+      title: "Tavern run",
+      description: "Plugin-private transcript",
+    }),
+  },
+};
+```
+
+In main, `chat.surface` is a thin native transcript surface. Rich composer and
+native card composition belong to the Infinity Chalkboard / Card Kernel layer.
 
 ### Skills (Knowledge Injection)
 
@@ -552,7 +584,7 @@ Declare in `manifest.json` under `contributes`:
 - Hovering over the tab shows the plugin's full name (tooltip)
 - When there are more than 5 tabs, extras are collapsed into an overflow dropdown menu; users can drag to reorder
 
-Plugin pages are rendered via iframe. New plugins should use `@hana/plugin-sdk` for handshake and host requests:
+Plugin pages are rendered via WebView/iframe. New plugins should use `@hana/plugin-sdk` for handshake and host requests:
 
 ```js
 import { hana } from '@hana/plugin-sdk';
@@ -562,6 +594,7 @@ hana.ui.resize({ height: 320 });
 await hana.toast.show({ message: 'Refreshed', type: 'success' });
 await hana.external.open('https://example.com');
 await hana.clipboard.writeText('Copied text');
+await hana.resources.open({ resource: { kind: 'session-file', fileId: 'sf_1' }, mode: 'preview' });
 ```
 
 The lower-level `hana.host.request(type, payload)` remains available for future or experimental capabilities. Prefer typed helpers for stable capabilities.
@@ -572,7 +605,7 @@ For compatibility, the host still accepts the legacy handshake:
 window.parent.postMessage({ type: 'ready' }, '*');
 ```
 
-The host accepts messages only from the current iframe window and matching origin. SDK requests go through the capability registry. Current built-in capabilities include `toast.show` (no grant required), `external.open` (grant required), and `clipboard.writeText` (grant required).
+The host accepts messages only from the current iframe window and matching origin. SDK requests go through the capability registry. Current built-in capabilities include `toast.show` (no grant required), `external.open` (grant required), `clipboard.writeText` (grant required), and resource request helpers `resource.open`, `resource.pick`, and `resource.requestAccess` (grant required).
 
 Grant-required iframe host capabilities must be declared in the manifest:
 
@@ -580,12 +613,14 @@ Grant-required iframe host capabilities must be declared in the manifest:
 {
   "manifestVersion": 1,
   "ui": {
-    "hostCapabilities": ["external.open", "clipboard.writeText"]
+    "hostCapabilities": ["external.open", "clipboard.writeText", "resource.open"]
   }
 }
 ```
 
 Sensitive capabilities that are not declared return `CAPABILITY_DENIED`. Unknown capability names are ignored at load time; `toast.show` does not need to be declared.
+
+`hana.resources.*` only sends host-mediated requests from the iframe: it can ask Hana to open a resource, pick resources, or request access, but it cannot read or write file contents directly. Actual user-resource reads and writes stay in server-side plugin routes, tools, or lifecycle code through `ctx.resources` and ResourceIO.
 
 The host appends `hana-theme` and `hana-css` query parameters to the iframe URL. Plugins can optionally reference the theme CSS for visual consistency:
 
@@ -674,7 +709,7 @@ A plugin can register a component in the right-side Jian sidebar. A widget and a
 
 Field rules are the same as Page. The widget appears alongside the desk in the Jian sidebar, controlled by a button on the right side of the titlebar. When no widgets are registered, the button area is automatically hidden.
 
-Widgets are also rendered via iframe and must send the `ready` handshake signal.
+Widgets are also rendered via WebView/iframe and must send the `ready` handshake signal.
 
 ### SettingsTab (Native Settings Page, Built-ins Only) ⚡ full-access
 
@@ -704,7 +739,7 @@ Bundled built-in plugins can register a native settings page shown in the settin
 Most plugins don't need a manifest. Only required for:
 
 - Declaring `trust: "full-access"` for full permissions
-- Declaring iframe UI host capabilities (`ui.hostCapabilities`)
+- Declaring WebView/iframe UI host capabilities (`ui.hostCapabilities`)
 - Declaring ordinary plugin capabilities (`capabilities`) or future user-granted sensitive capabilities (`sensitiveCapabilities`)
 - Declaring outbound HTTP data boundaries (`network.allowedHosts`, `network.methods`, etc.)
 - Configuration schema (JSON Schema declarations)
@@ -1113,7 +1148,7 @@ If the installed version is newer than the highest compatible marketplace versio
 
 ## Forward Compatibility
 
-The system ignores unrecognized directories and manifest fields. Old plugins always work on new systems; new plugins on old systems simply have new contribution types silently ignored. `manifestVersion` remains optional for compatibility; new iframe UI plugins that declare `ui.hostCapabilities` should use `manifestVersion: 1` to match the host and SDK docs, but old plugins do not need a migration. Existing plugins that created static-resource compatibility handlers for earlier asset limitations also remain allowed; diagnostics and Agent rules should treat them as cleanup candidates, not load blockers.
+The system ignores unrecognized directories and manifest fields. Old plugins always work on new systems; new plugins on old systems simply have new contribution types silently ignored. `manifestVersion` remains optional for compatibility; new WebView/iframe UI plugins that declare `ui.hostCapabilities` should use `manifestVersion: 1` to match the host and SDK docs, but old plugins do not need a migration. Existing plugins that created static-resource compatibility handlers for earlier asset limitations also remain allowed; diagnostics and Agent rules should treat them as cleanup candidates, not load blockers.
 
 ## Error Isolation
 

@@ -1,10 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import { ResourceIO } from "../lib/resource-io/resource-io.ts";
+import { providerIdForResourceRef } from "../lib/resource-io/resource-refs.ts";
 
 describe("ResourceIO provider contract", () => {
+  it("maps ResourceRef kinds to stable provider ids", () => {
+    expect(providerIdForResourceRef({ kind: "local-file", path: "/repo/a.md" })).toBe("local_fs");
+    expect(providerIdForResourceRef({ kind: "mount", mountId: "docs", path: "a.md" })).toBe("mount");
+    expect(providerIdForResourceRef({ kind: "session-file", fileId: "sf_1" })).toBe("session_file");
+    expect(providerIdForResourceRef({ kind: "resource", resourceId: "res_1" })).toBe("resource");
+    expect(providerIdForResourceRef({ kind: "url", url: "https://example.com/a.txt" })).toBe("url");
+  });
+
   it("dispatches by ResourceRef kind, checks capabilities, and emits mutation events", async () => {
     const changed = vi.fn();
     const localProvider = {
+      id: "local_fs" as const,
       capabilities: () => ({ stat: true, read: true, write: true, edit: true }),
       stat: vi.fn(async () => ({
         resourceKey: "local_fs:/repo/a.md",
@@ -62,6 +72,7 @@ describe("ResourceIO provider contract", () => {
     const resourceIO = new ResourceIO({
       providers: {
         local_fs: {
+          id: "local_fs",
           capabilities: () => ({ read: false }),
         },
       },
@@ -76,8 +87,8 @@ describe("ResourceIO provider contract", () => {
   it("rejects cross-provider copy with a typed ResourceIO error", async () => {
     const resourceIO = new ResourceIO({
       providers: {
-        local_fs: { capabilities: () => ({ copy: true }), copy: vi.fn() },
-        mount: { capabilities: () => ({ copy: true }), copy: vi.fn() },
+        local_fs: { id: "local_fs", capabilities: () => ({ copy: true }), copy: vi.fn() },
+        mount: { id: "mount", capabilities: () => ({ copy: true }), copy: vi.fn() },
       },
     });
 
@@ -97,6 +108,7 @@ describe("ResourceIO provider contract", () => {
     const renamed = vi.fn();
     const deleted = vi.fn();
     const provider = {
+      id: "local_fs" as const,
       capabilities: () => ({
         writeExpectedVersion: true,
         rename: true,

@@ -1,6 +1,4 @@
-import fs from "node:fs";
 import path from "node:path";
-import { resourceKeyForRef } from "../../../lib/resource-io/resource-refs.ts";
 import { applyMarkdownCoverFromGeneratedFile } from "../lib/markdown-cover-service.ts";
 import { isBeautifyEnabledForAgentConfig } from "../lib/availability.ts";
 import { t } from "../../../lib/i18n.ts";
@@ -59,32 +57,6 @@ function textResult(text, details = undefined) {
   };
 }
 
-function emitMarkdownCoverChanged(ctx, filePath) {
-  try {
-    const stat = fs.statSync(filePath);
-    const ok = ctx?.resourceEvents?.changed?.({
-      changeType: "modified",
-      resourceKey: resourceKeyForRef({ kind: "local-file", path: filePath }),
-      resource: {
-        kind: "local-file",
-        provider: "local_fs",
-        path: filePath,
-        filePath,
-      },
-      version: {
-        mtimeMs: stat.mtimeMs,
-        size: stat.size,
-      },
-      source: "agent_tool",
-      reason: "markdown_cover",
-      ...(ctx?.sessionPath ? { sessionPath: ctx.sessionPath } : {}),
-    });
-    if (!ok) ctx?.log?.warn?.("markdown cover resource event unavailable");
-  } catch (err) {
-    ctx?.log?.warn?.(`markdown cover refresh event failed: ${err?.message || err}`);
-  }
-}
-
 export async function execute(input, ctx) {
   const targetFilePath = resolveTargetFilePath(input);
   if (!targetFilePath || !path.isAbsolute(targetFilePath)) {
@@ -105,8 +77,24 @@ export async function execute(input, ctx) {
       generatedFilePath,
       pixelWidth: input.pixelWidth,
       pixelHeight: input.pixelHeight,
+      resourceIO: ctx?.resources,
+      operationContext: {
+        source: "plugin",
+        reason: "plugin:beautify:create-cover",
+        sessionId: ctx?.sessionId || null,
+        sessionPath: ctx?.sessionPath || null,
+        principal: {
+          kind: "plugin",
+          pluginId: ctx?.pluginId || "beautify",
+          userId: ctx?.userId || null,
+          studioId: ctx?.studioId || null,
+          sessionId: ctx?.sessionId || null,
+          sessionPath: ctx?.sessionPath || null,
+          connectionKind: ctx?.connectionKind || null,
+          credentialKind: ctx?.credentialKind || null,
+        },
+      },
     });
-    emitMarkdownCoverChanged(ctx, targetFilePath);
     return textResult(t("toolDef.createCover.applied"), {
       beautifyCover: result,
     });

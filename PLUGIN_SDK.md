@@ -4,10 +4,10 @@ Hana's plugin SDK is split into small packages so plugin authors can choose only
 
 | Package | Runs In | Purpose |
 | --- | --- | --- |
-| `@hana/plugin-protocol` | iframe / host | Shared protocol constants and message shapes for plugin UI. |
-| `@hana/plugin-sdk` | iframe browser code | Typed helpers for `ready`, asset URLs, resize, toast, external links, clipboard, and lower-level host requests. |
+| `@hana/plugin-protocol` | WebView/iframe / host | Shared protocol constants and message shapes for plugin UI. |
+| `@hana/plugin-sdk` | WebView/iframe browser code | Typed helpers for `ready`, asset URLs, resize, toast, external links, clipboard, and lower-level host requests. |
 | `@hana/plugin-runtime` | plugin Node runtime | Helpers for tools, lifecycle plugins, EventBus handlers, SessionFile media details, providers, and Pi SDK extensions. |
-| `@hana/plugin-components` | iframe React UI | Hana-styled React primitives with theme fallback: controls, cards, rows, lists, and empty states. |
+| `@hana/plugin-components` | WebView/iframe React UI | Hana-styled React primitives with theme fallback: controls, cards, rows, lists, and empty states. |
 
 For the end-to-end plugin author workflow, read `.docs/PLUGIN-DEVELOPMENT.md` first, then use this file as the SDK package map.
 
@@ -19,11 +19,11 @@ npm run build:packages
 
 ## Runtime Boundary
 
-The SDK packages are developer-facing source/build dependencies. The app package still excludes `packages/**`, so plugin UI code should bundle `@hana/plugin-sdk` and `@hana/plugin-components` into its iframe assets. Runtime helpers from `@hana/plugin-runtime` should be bundled or installed with the plugin when the plugin is distributed outside the monorepo.
+The SDK packages are developer-facing source/build dependencies. The app package still excludes `packages/**`, so plugin UI code should bundle `@hana/plugin-sdk` and `@hana/plugin-components` into its WebView/iframe assets. Runtime helpers from `@hana/plugin-runtime` should be bundled or installed with the plugin when the plugin is distributed outside the monorepo.
 
 Built-in plugins may use the same source patterns, but they should be checked against the packaged server bundle before release. The host does not silently provide these SDK packages as global runtime modules.
 
-Plugin server code is installed and loaded by the Studio server. Plugin iframe assets are also served by that server; the desktop renderer, Mobile PWA, or browser client may cache them, but client locality must not decide whether a plugin surface, provider, task, config, or tool exists. Declare true client-machine-only actions separately from server workspace actions.
+Plugin server code is installed and loaded by the Studio server. Plugin WebView/iframe assets are also served by that server; the desktop renderer, Mobile PWA, or browser client may cache them, but client locality must not decide whether a plugin surface, provider, task, config, or tool exists. Declare true client-machine-only actions separately from server workspace actions.
 
 ## Production Install Checklist
 
@@ -52,8 +52,8 @@ The production smoke test is: install the exact folder or zip that users will re
 
 - Tool-only plugins can stay `restricted`. No-build tools may export the static tool contract directly; tools that import `@hana/plugin-runtime` must still satisfy the production install checklist above.
 - Runtime plugins use `index.js` for lifecycle, EventBus handlers, background tasks, schedules, or dynamic tools. They require `trust: "full-access"`.
-- UI plugins use iframe routes plus `@hana/plugin-sdk` and, for React UI, `@hana/plugin-components`. They require `trust: "full-access"` and explicit `ui.hostCapabilities` grants for host calls such as `external.open` or `clipboard.writeText`.
-- Provider contribution plugins use `providers/*.js` declarations. They require `trust: "full-access"` and should declare `capabilities.chat` separately from `capabilities.media.*` so chat selectors stay clean while image, video, or speech tools discover media providers. Provider declarations are the long-term model discovery entrypoint; legacy `media-gen:*` adapter/runtime events remain compatibility-only for older image generation plugins.
+- UI plugins use WebView/iframe routes plus `@hana/plugin-sdk` and, for React UI, `@hana/plugin-components`. They require `trust: "full-access"` and explicit `ui.hostCapabilities` grants for host calls such as `external.open`, `clipboard.writeText`, `resource.open`, `resource.pick`, or `resource.requestAccess`. Native `chat.surface` cards are declarative transcript surfaces for plugin-owned private sessions and use `createChatSurfaceCard()`. Future rich native cards belong to Infinity Chalkboard / Card Kernel, not a separate SDK under the old internal name.
+- Provider contribution plugins use `providers/*.js` declarations. They require `trust: "full-access"` and should declare `capabilities.chat` separately from `capabilities.media.*` so chat selectors stay clean while image, video, or speech tools discover media providers. Provider declarations, `listMediaProviders()`, and `resolveMediaModel()` are the stable discovery entrypoints; media adapter / executor authoring remains a separate API surface. Legacy `media-gen:*` adapter/runtime events remain compatibility-only for older image generation plugins.
 - Pi SDK extension plugins use `extensions/*.js` factories. They require `trust: "full-access"` because they run inside the LLM request pipeline. Hana reloads idle sessions after full-access plugin install/enable/reload so existing chats can pick up new extension handlers without requiring an app restart; busy sessions are not reloaded and will retain old extension handlers until the session is naturally rebuilt.
 - Marketplace metadata lives outside the app repo in `OH-Plugins`, the official community plugin catalog. The app reads the generated catalog URL by default, installs `distribution.kind = "release"` entries by downloading the zip package and verifying `sha256`, and keeps `distribution.kind = "source"` for local file marketplace development only. `versions[]` lets the catalog keep multiple SemVer releases; Hana selects the highest app-compatible version, blocks implicit downgrades, backs up old installs, and records successful installs in `${HANA_HOME}/plugin-installs.json`. `readmePath` is resolved relative to the catalog when the official URL is used.
 
@@ -65,7 +65,7 @@ Agent-assisted plugin work should use Hana's dev loop instead of copying work-in
 - `plugin.dev.install` copies the source into `${HANA_HOME}/plugins-dev/<pluginId>` and loads it through the normal `PluginManager`.
 - `plugin.dev.reload` replaces the dev copy from the same source slot.
 - `plugin.dev.disable`, `plugin.dev.enable`, `plugin.dev.reset`, and `plugin.dev.uninstall` control only the remembered dev slot. They do not write normal plugin preferences and do not remove community installs.
-- `plugin.dev.invokeTool` runs a tool smoke test with explicit input.
+- `plugin.dev.invokeTool` runs a tool smoke test with explicit input. Pass `sessionId` or `sessionRef` for session-scoped tools; `sessionPath` remains a legacy locator compatibility field.
 - `plugin.dev.diagnostics` returns dev slots, load status, logs, surfaces, and plugin diagnostics.
 - `plugin.dev.listSurfaces` and `plugin.dev.describeSurfaceDebug` drive UI debugging.
 
@@ -85,6 +85,7 @@ import { hana } from '@hana/plugin-sdk';
 hana.ready();
 hana.ui.resize({ height: 320 });
 await hana.toast.show({ message: 'Ready' });
+await hana.resources.open({ resource: { kind: 'session-file', fileId: 'sf_1' }, mode: 'preview' });
 ```
 
 Use `hana.api.fetch(path, init)` for browser-side calls to this plugin's own dynamic route handlers. It derives the current plugin id from the iframe route and sends the `X-Hana-Plugin-Surface-Session` header that Hana issued with the iframe URL:
@@ -99,7 +100,9 @@ const res = await hana.api.fetch('api/translate', {
 
 Website-to-plugin conversions should rewrite same-plugin `fetch('/api/...')` calls to `hana.api.fetch(...)`. Do not hard-code `/api/plugins/{pluginId}/...` in browser code, and do not reuse `pluginIframeTicket` for XHR/fetch calls; that ticket is only for the iframe document load.
 
-Browser-side code should not call third-party APIs directly. If a plugin needs live data from the public internet, call a same-plugin route with `hana.api.fetch(...)`; the route should use the runtime `ctx.network.fetch()` helper described below. This keeps API keys out of iframe assets and lets Hana diagnose missing host, method, timeout, and response-size declarations.
+Browser-side code should not call third-party APIs directly. If a plugin needs live data from the public internet, call a same-plugin route with `hana.api.fetch(...)`; the route should use the runtime `ctx.network.fetch()` helper described below. When a route calls sensitive host capabilities, read the request-scoped context with `getPluginRequestContext(c)` and use `req.bus`. This keeps API keys out of iframe assets and lets Hana diagnose missing host, method, timeout, response-size, and capability declarations.
+
+Browser-side resource helpers are host-mediated only: `hana.resources.open()`, `hana.resources.pick()`, and `hana.resources.requestAccess()` can ask Hana to open, choose, or grant access to a resource, but they do not expose filesystem reads or writes inside the iframe. Actual user-resource reads and writes belong in server-side plugin code through `ctx.resources`.
 
 Use `hana.assets.url(path)` for browser-side references to files bundled under the plugin's `assets/` directory:
 
@@ -120,7 +123,7 @@ Keep source files, secrets, config, and private data outside `assets/`. The host
 
 Agent-generated plugins and scaffold updates should not create custom routes only to serve static resources such as CSS, JS, images, fonts, or MP4 files. Existing plugins that already use static-file compatibility handlers remain loadable. The documented contract for new work is to put those resources in `assets/` and reference them through `hana.assets.url(...)` or the same host-served assets path in the route shell. Treat `pluginIframeTicket` as a document-load credential only; do not manually append it to asset URLs.
 
-Use `@hana/plugin-components` for iframe UI:
+Use `@hana/plugin-components` for WebView/iframe UI:
 
 ```tsx
 import { Button, CardShell, HanaThemeProvider } from '@hana/plugin-components';
@@ -203,7 +206,11 @@ export async function execute(input, ctx) {
 }
 ```
 
-`resource.read` covers `stat`, `read`, and `list`; `resource.search` covers search, including filename search with provider options; `resource.write` covers `write`, `writeExpectedVersion`, `edit`, `mkdir`, `delete`, `copy`, `rename`, `move`, and `trash`; `resource.materialize` is required before asking the host for a concrete local path; `resource.watch` covers watch-target resolution. URL resources are read-only and write attempts fail at the provider boundary. Plugin-generated artifacts may still be written under `ctx.dataDir` and returned with `stageFile()`, but user resource edits should not use raw local path writes.
+`resource.read` covers `stat`, `read`, and `list`; `resource.search` covers search, including filename search with provider options; `resource.write` covers `write`, `writeExpectedVersion`, `edit`, `mkdir`, `delete`, `copy`, `rename`, `move`, and `trash`; `resource.materialize` is required before asking the host for a concrete local path; `resource.watch` covers backend watch subscriptions through `ctx.resources.watch()` and `ctx.resources.subscribe()`. URL resources are read-only and write attempts fail at the provider boundary. Plugin ResourceIO mutations run with `principal.kind = "plugin"` so audit logs and resource events can identify the plugin source. Plugin-generated artifacts may still be written under `ctx.dataDir` and returned with `stageFile()`, but user resource edits should not use raw local path writes.
+
+Use `ctx.resources.watch(ref)` for a single resource and `ctx.resources.subscribe([refA, refB])` for a set. Both return `{ subscriptionId, resourceKeys, unsubscribe, close }`; lifecycle plugins should pass `unsubscribe` to `register()`, and short-lived tools should release it in `finally`. Resource events arrive through the normal plugin bus as `resource.changed`, `resource.deleted`, or `resource.renamed`; filter by `resourceKeys` before refreshing.
+
+Treat ResourceIO as the only user-resource authority. `local-file`, `mount`, `session-file`, `resource`, and `url` refs are identity inputs, not promises that the plugin can see a host-local path. `stageFile()` is for plugin-generated artifacts that should be delivered as `SessionFile` media. `ctx.dataDir` and packaged `assets/` are plugin-owned storage; workspace, mount, URL, and SessionFile inputs are not. When a library needs a real path, call `ctx.resources.materialize(ref)` and keep the write-back path explicit through ResourceIO rather than editing the materialized file as if it were the source.
 
 Scheduled automation plugin actions reuse plugin tools in v0. A cron executor saved as `plugin_action` with `{ pluginId, actionId, params }` maps to the loaded tool named `pluginId_actionId`. The scheduler stores only JSON data and invokes the tool at runtime; plugin-authored static `tools/*.js` tools and dynamic `ctx.registerTool()` tools both receive the SDK-style `(input, ctx)` call. If the plugin or tool is unavailable, the run fails explicitly and is recorded in cron history.
 
@@ -263,6 +270,7 @@ Plugins can use the same session-facing operations that Hana's own UI and server
 ```js
 import {
   createAgent,
+  createChatSurfaceCard,
   createSession,
   getAgentProfile,
   listSessions,
@@ -304,6 +312,22 @@ const off = subscribeSessionEvents(ctx, sessionTarget, (event) => {
 
 `visibility: 'plugin_private'` keeps plugin-owned agents and sessions out of Hana's main agent/session lists by default. The owning plugin can list them with `listAgents(ctx, { ownerPluginId: ctx.pluginId })` or `listSessions(ctx, { ownerPluginId: ctx.pluginId })`.
 
+To show one of those plugin-owned private sessions inside the main chat stream, return a declarative `chat.surface` card:
+
+```js
+return {
+  content: [{ type: 'text', text: 'Created a plugin-private run.' }],
+  details: {
+    card: createChatSurfaceCard(ctx, session.sessionRef ?? session, {
+      title: 'Tavern run',
+      description: 'Plugin-private transcript',
+    }),
+  },
+};
+```
+
+`createChatSurfaceCard()` requires `sessionId` / `sessionRef`; path-only locators are rejected. Hana resolves the current session path from the manifest and only renders sessions owned by the same plugin with `visibility: 'plugin_private'` or `'private'`. In main this is a thin native transcript surface. Rich composer and native card composition belong to the Infinity Chalkboard / Card Kernel layer.
+
 ### Runtime Model and Media API
 
 Plugins can call the configured utility text model for routing, summaries, RAG query rewriting, and similar background work:
@@ -316,7 +340,7 @@ const { text } = await sampleText(ctx, {
 });
 ```
 
-Media helpers expose Hana's configured provider stack. `listMediaProviders()` and `resolveMediaModel()` read configured image/video/speech-capable providers. `generateImage()` submits an image generation task through the built-in media task pipeline and returns a task/batch result; by default generated files are delivered as `SessionFile` resources when the task completes. Use `referenceImages` with `SessionFile` references for multi-reference image generation. Image/video adapters must declare reference-image support on the selected model mode with `modes[].inputLimits.referenceImages`, for example `{ min: 1, max: 1 }` for single-image-to-video or `{ min: 0, max: 0 }` for text-only generation. The task pipeline rejects unsupported reference images before enqueueing. `generateVideo()`, `generateMedia()`, and `transcribeAudio()` use the same native media manager for video tasks and ASR. `transcribeAudio()` returns `{ ok: true, transcription }`.
+Media helpers expose Hana's configured provider stack. `listMediaProviders()` and `resolveMediaModel()` are stable discovery helpers for configured image/video/speech-capable providers; they do not make adapter execution contracts stable by themselves. `generateImage()` submits an image generation task through the built-in media task pipeline and returns a task/batch result; by default generated files are delivered as `SessionFile` resources when the task completes. Use `referenceImages` with `SessionFile` references for multi-reference image generation. Image/video adapters must declare reference-image support on the selected model mode with `modes[].inputLimits.referenceImages`, for example `{ min: 1, max: 1 }` for single-image-to-video or `{ min: 0, max: 0 }` for text-only generation. The task pipeline rejects unsupported reference images before enqueueing. `generateVideo()`, `generateMedia()`, and `transcribeAudio()` use the same native media manager for video tasks and ASR. `transcribeAudio()` returns `{ ok: true, transcription }`.
 
 Image/video helpers keep a stable top-level shape. Provider-specific controls go through `options`. Parameter support belongs to the model and usually to the mode, not to the provider as a whole: use `models[].modes[].parameterSchema`, `modes[].defaults`, `modes[].inputLimits`, `modes[].pricing`, and `modes[].agentHints` so settings UI, Agent discovery, and runtime validation all read the same contract.
 
@@ -354,7 +378,7 @@ POST /api/media/asr/transcribe
 
 The image/video endpoints require `prompt`; default `delivery.mode = "session"` also requires `sessionId` or legacy `sessionPath`. With `delivery.mode = "response"`, image/video requests may omit both and will not create `SessionFile` records. ASR requires `sessionId` or legacy `sessionPath` plus `fileId`. Image reference fields on the native facade accept only `SessionFile` references such as `{ "kind": "session_file", "fileId": "sf_..." }`; raw local paths are reserved for legacy/internal image-gen calls. These routes require chat-scope host credentials and forward into the same native Media Manager task pipeline as the SDK helpers.
 
-For Agent-assisted development, plugins can declare `manifest.dev.scenarios`. These are not runtime features; they are smoke-test instructions for Hana's dev loop and should only describe repeatable checks such as invoking a tool, expecting text in the result, or opening a declared UI surface.
+For Agent-assisted development, plugins can declare `manifest.dev.scenarios`. These are not runtime features; they are smoke-test instructions for Hana's dev loop and should only describe repeatable checks such as invoking a tool, expecting text in the result, or opening a declared UI surface. `invokeTool` scenario steps may pass `sessionId`, `sessionRef`, `sessionPath`, and `agentId`; prefer `sessionId/sessionRef` for new scenarios.
 
 Pi SDK extension factories live in `extensions/*.js` and are loaded only for full-access plugins:
 
@@ -427,7 +451,7 @@ const provider = defineProvider({
 export const { id, displayName, authType, runtime, capabilities } = provider;
 ```
 
-Provider declarations own model discovery and capability metadata. Media adapters own protocol execution. A plugin that only calls legacy `media-gen:register-adapter` can still provide an executor during the compatibility window, but it should also contribute a ProviderPlugin with `capabilities.media.*`; otherwise the model will not appear in provider settings, default media model selectors, or `listMediaProviders()`.
+Provider declarations own model discovery and capability metadata. Media adapters own protocol execution. A plugin that only calls legacy `media-gen:register-adapter` can still provide an executor during the compatibility window, but it should also contribute a ProviderPlugin with `capabilities.media.*`; otherwise the model will not appear in provider settings, default media model selectors, or `listMediaProviders()`. Agent-generated plugins and new templates must not call `media-gen:*`; use `providers/*.js`, the media helpers, and the formal Adapter Plugin API once that execution surface is available.
 
 Migration rule for older image-generation plugins:
 

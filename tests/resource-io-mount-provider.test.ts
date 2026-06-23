@@ -6,6 +6,24 @@ import { upsertStudioMount } from "../core/studio-mounts.ts";
 import { LocalFsProvider } from "../lib/resource-io/providers/local-fs-provider.ts";
 import { MountProvider } from "../lib/resource-io/providers/mount-provider.ts";
 
+const CAPABILITY_KEYS = [
+  "stat",
+  "read",
+  "write",
+  "writeExpectedVersion",
+  "edit",
+  "list",
+  "search",
+  "watch",
+  "materialize",
+  "copy",
+  "rename",
+  "move",
+  "trash",
+  "delete",
+  "mkdir",
+].sort();
+
 describe("MountProvider", () => {
   let tempRoot: string | null = null;
 
@@ -53,6 +71,13 @@ describe("MountProvider", () => {
       }),
     };
   }
+
+  it("declares the complete provider capability matrix", () => {
+    const { provider } = setup();
+
+    expect(Object.keys(provider.capabilities({ kind: "mount", mountId: "mount_local", path: "docs/a.md" })).sort())
+      .toEqual(CAPABILITY_KEYS);
+  });
 
   it("dispatches local_fs mounts through local path scoping and mount resource keys", async () => {
     const { mountRoot, provider } = setup();

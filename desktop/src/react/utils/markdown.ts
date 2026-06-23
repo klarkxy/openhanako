@@ -918,6 +918,7 @@ function applyMarkdownPlugins(md: MarkdownItInstance): void {
   md.use(trimAutoLinkifiedSuffixes);
   md.use(mermaidFences);
   md.use(markdownImageRenderer);
+  md.use(markdownTableScrollWrapper);
 }
 
 function markdownHeadingAnchors(md: MarkdownItInstance): void {
@@ -982,6 +983,21 @@ function markdownImageRenderer(md: MarkdownItInstance): void {
 
     return self.renderToken(tokens, idx, options);
   };
+}
+
+function markdownTableScrollWrapper(md: MarkdownItInstance): void {
+  const defaultTableOpen = md.renderer.rules.table_open
+    ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  const defaultTableClose = md.renderer.rules.table_close
+    ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+
+  md.renderer.rules.table_open = (tokens, idx, options, env, self) => (
+    `<div class="markdown-table-scroll">\n${defaultTableOpen(tokens, idx, options, env, self)}`
+  );
+
+  md.renderer.rules.table_close = (tokens, idx, options, env, self) => (
+    `${defaultTableClose(tokens, idx, options, env, self)}</div>\n`
+  );
 }
 
 function buildMarkdownEnv(src: string, options: MarkdownPreviewOptions = {}): MarkdownRenderEnv {

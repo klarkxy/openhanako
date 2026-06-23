@@ -260,6 +260,48 @@ describe('plugin SDK', () => {
     await expect(pending).resolves.toEqual({ written: true });
   });
 
+  it('wraps resource helpers as browser-safe host requests', async () => {
+    const parentWindow = makeParentWindow();
+    const sdk = createHanaPluginSdk({
+      parentWindow,
+      targetWindow: window,
+      targetOrigin: 'http://127.0.0.1:3210',
+      idFactory: () => 'resource-1',
+      requestTimeoutMs: 1000,
+    });
+
+    const pending = sdk.resources.open({
+      resource: { kind: 'session-file', fileId: 'sf_1', sessionId: 'sess_1' },
+      mode: 'preview',
+    });
+
+    expect(parentWindow.postMessage).toHaveBeenCalledWith({
+      protocol: PLUGIN_UI_PROTOCOL,
+      version: PLUGIN_UI_PROTOCOL_VERSION,
+      id: 'resource-1',
+      kind: 'request',
+      type: PLUGIN_UI_CAPABILITY.RESOURCE_OPEN,
+      payload: {
+        resource: { kind: 'session-file', fileId: 'sf_1', sessionId: 'sess_1' },
+        mode: 'preview',
+      },
+    }, 'http://127.0.0.1:3210');
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        protocol: PLUGIN_UI_PROTOCOL,
+        version: PLUGIN_UI_PROTOCOL_VERSION,
+        id: 'resource-1',
+        kind: 'response',
+        type: PLUGIN_UI_CAPABILITY.RESOURCE_OPEN,
+        payload: { opened: true },
+      },
+      origin: 'http://127.0.0.1:3210',
+      source: parentWindow,
+    }));
+
+    await expect(pending).resolves.toEqual({ opened: true });
+  });
+
   it('resolves plugin asset URLs from the current iframe route', () => {
     const parentWindow = makeParentWindow();
     const targetWindow = makeTargetWindow('https://hana.example/api/plugins/demo-plugin/page?hana-host-origin=https%3A%2F%2Fhana.example');

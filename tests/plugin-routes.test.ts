@@ -1901,6 +1901,50 @@ describe("plugin management API", () => {
       });
     });
 
+    it("passes sessionId-first dev tool invocation bodies through PluginDevService", async () => {
+      const invokeTool = vi.fn(async () => ({
+        pluginId: "demo",
+        toolName: "demo_echo",
+        result: { content: [{ type: "text", text: "ok" }] },
+      }));
+      const engine = mockEngine({
+        pluginDevService: { invokeTool },
+      });
+      const app = createApp(engine);
+
+      const res = await app.request("/api/plugins/dev/demo/tools/echo/invoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: { text: "hi" },
+          sessionId: "sess_http_dev",
+          sessionRef: {
+            sessionId: "sess_http_dev",
+            sessionPath: "/tmp/s.jsonl",
+            legacySessionPath: "/tmp/legacy.jsonl",
+          },
+          sessionPath: "/tmp/ignored.jsonl",
+          agentId: "hana",
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ toolName: "demo_echo" });
+      expect(invokeTool).toHaveBeenCalledWith({
+        pluginId: "demo",
+        toolName: "echo",
+        input: { text: "hi" },
+        sessionId: "sess_http_dev",
+        sessionRef: {
+          sessionId: "sess_http_dev",
+          sessionPath: "/tmp/s.jsonl",
+          legacySessionPath: "/tmp/legacy.jsonl",
+        },
+        sessionPath: "/tmp/ignored.jsonl",
+        agentId: "hana",
+      });
+    });
+
     it("enables and disables a dev plugin through PluginDevService", async () => {
       const enablePlugin = vi.fn(async () => ({
         ok: true,

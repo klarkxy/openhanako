@@ -4,6 +4,24 @@ import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UrlProvider } from "../lib/resource-io/providers/url-provider.ts";
 
+const CAPABILITY_KEYS = [
+  "stat",
+  "read",
+  "write",
+  "writeExpectedVersion",
+  "edit",
+  "list",
+  "search",
+  "watch",
+  "materialize",
+  "copy",
+  "rename",
+  "move",
+  "trash",
+  "delete",
+  "mkdir",
+].sort();
+
 describe("UrlProvider", () => {
   let tempRoot: string | null = null;
 
@@ -61,5 +79,23 @@ describe("UrlProvider", () => {
       .rejects.toMatchObject({ code: "blocked_private_url" });
     await expect(provider.write({ kind: "url", url: "https://example.com/a" }, "x"))
       .rejects.toMatchObject({ code: "capability_denied" });
+  });
+
+  it("declares complete read-only capabilities and denies direct mutations", async () => {
+    const provider = new UrlProvider({
+      fetch: vi.fn(),
+      resolveHostname: async () => ["93.184.216.34"],
+    });
+    const ref = { kind: "url" as const, url: "https://example.com/a.txt" };
+
+    expect(Object.keys(provider.capabilities()).sort()).toEqual(CAPABILITY_KEYS);
+    await expect(provider.write(ref, "x")).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.writeExpectedVersion(ref, "x", { mtimeMs: 1, size: 1 })).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.edit(ref, [{ oldText: "a", newText: "b" }])).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.rename(ref, ref)).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.move(ref, ref)).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.trash(ref)).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.delete(ref)).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.mkdir(ref)).rejects.toMatchObject({ code: "capability_denied" });
   });
 });

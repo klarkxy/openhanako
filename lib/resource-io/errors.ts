@@ -24,13 +24,15 @@ export function providerNotAvailable(providerId: string): ResourceIOError {
   });
 }
 
-export function resourceAccessDenied(operation: string, filePath: string, reason?: string): ResourceIOError {
-  const err: any = new ResourceIOError(reason || `ResourceIO ${operation} denied: ${filePath}`, {
+export function resourceAccessDenied(operation: string, filePath: string, reason?: string, details: { safeMessage?: string } = {}): ResourceIOError {
+  const err: any = new ResourceIOError(details.safeMessage || reason || `ResourceIO ${operation} denied: ${filePath}`, {
     code: "resource_access_denied",
     status: 403,
   });
   err.operation = operation;
   err.filePath = filePath;
+  if (reason) err.reason = reason;
+  if (details.safeMessage) err.safeMessage = details.safeMessage;
   return err;
 }
 

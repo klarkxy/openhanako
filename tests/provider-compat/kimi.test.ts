@@ -104,4 +104,102 @@ describe("provider-compat/kimi", () => {
       reasoning_content: "I need to inspect the file.",
     });
   });
+
+  it("keeps root tool parameters object-shaped while removing Kimi-incompatible root anyOf", () => {
+    const schemaOnlyKimiModel = {
+      id: "kimi-for-coding",
+      provider: "kimi-coding",
+      api: "openai-completions",
+      baseUrl: "https://api.kimi.com/coding/v1",
+      compat: kimiModel.compat,
+    };
+    const officeReadParameters = {
+      type: "object",
+      properties: {
+        resource: { type: "object", description: "ResourceIO ResourceRef to read." },
+        filePath: { type: "string", description: "Legacy absolute local path." },
+        outputFormat: { type: "string", enum: ["text", "markdown", "html", "json"] },
+      },
+      anyOf: [
+        { required: ["resource"] },
+        { required: ["filePath"] },
+      ],
+    };
+    const payload = {
+      model: "kimi-for-coding",
+      messages: [{ role: "user", content: "read this" }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "office_read-document",
+          description: "Read supported Office/text documents into structured text.",
+          parameters: officeReadParameters,
+        },
+      }],
+    };
+
+    const result = normalizeProviderPayload(payload, schemaOnlyKimiModel, { mode: "chat" });
+    const parameters = result.tools[0].function.parameters;
+
+    expect(result).not.toBe(payload);
+    expect(result.tools).not.toBe(payload.tools);
+    expect(payload.tools[0].function.parameters).toBe(officeReadParameters);
+    expect(payload.tools[0].function.parameters).toHaveProperty("type", "object");
+    expect(parameters).toHaveProperty("type", "object");
+    expect(parameters).toHaveProperty("properties", officeReadParameters.properties);
+    expect(parameters).not.toHaveProperty("anyOf");
+    expect(parameters.description).toContain("required field sets: resource; filePath");
+  });
+
+  it("normalizes nested anyOf schemas without changing other providers", () => {
+    const schemaOnlyKimiModel = {
+      id: "kimi-for-coding",
+      provider: "kimi-coding",
+      api: "openai-completions",
+      baseUrl: "https://api.kimi.com/coding/v1",
+      compat: kimiModel.compat,
+    };
+    const payload = {
+      model: "kimi-for-coding",
+      messages: [{ role: "user", content: "choose" }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "choose",
+          description: "Choose a value.",
+          parameters: {
+            type: "object",
+            properties: {
+              value: {
+                type: "string",
+                description: "The selected value.",
+                anyOf: [
+                  { enum: ["a"] },
+                  { enum: ["b"] },
+                ],
+              },
+            },
+          },
+        },
+      }],
+    };
+
+    const kimiResult = normalizeProviderPayload(payload, schemaOnlyKimiModel, { mode: "chat" });
+    const valueSchema = kimiResult.tools[0].function.parameters.properties.value;
+
+    expect(kimiResult.tools[0].function.parameters).toHaveProperty("type", "object");
+    expect(valueSchema).not.toHaveProperty("type");
+    expect(valueSchema.description).toBe("The selected value.");
+    expect(valueSchema.anyOf).toEqual([
+      { type: "string", enum: ["a"] },
+      { type: "string", enum: ["b"] },
+    ]);
+
+    const nonKimiResult = normalizeProviderPayload(payload, {
+      id: "gpt-test",
+      provider: "openai",
+      api: "openai-completions",
+    }, { mode: "chat" });
+    expect(nonKimiResult).toBe(payload);
+  });
 });

@@ -63,4 +63,53 @@ describe('resource-events', () => {
     releaseFirst();
     releaseSecond();
   });
+
+  it('requests catch-up after reconnect with the last seen resource event sequence', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ stale: false, latestSequence: 5, events: [] }),
+    }));
+    const { createResourceEventClient } = await import('../../services/resource-events');
+    const client = createResourceEventClient({ fetchImpl });
+
+    client.handleEvent({
+      type: 'resource.changed',
+      sequence: 4,
+      resourceKey: 'local_fs:/tmp/a.md',
+      resource: { kind: 'local-file', path: '/tmp/a.md' },
+      changeType: 'modified',
+      source: 'api',
+      occurredAt: '2026-06-22T00:00:00.000Z',
+    });
+    await client.catchUpAfterReconnect();
+
+    expect(fetchImpl).toHaveBeenCalledWith('/api/resource-io/events?since=4', expect.objectContaining({
+      method: 'GET',
+      throwOnHttpError: false,
+    }));
+  });
+
+  it('applies caught-up resource events through the same event handler', async () => {
+    const event = {
+      type: 'resource.changed',
+      sequence: 6,
+      resourceKey: 'local_fs:/tmp/b.md',
+      resource: { kind: 'local-file', path: '/tmp/b.md' },
+      changeType: 'modified',
+      source: 'provider_watch',
+      occurredAt: '2026-06-22T00:00:01.000Z',
+    };
+    const applyEvent = vi.fn();
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ stale: false, latestSequence: 6, events: [event] }),
+    }));
+    const { createResourceEventClient } = await import('../../services/resource-events');
+    const client = createResourceEventClient({ fetchImpl, applyEvent });
+
+    await client.catchUpAfterReconnect();
+
+    expect(applyEvent).toHaveBeenCalledWith(event);
+    expect(client.lastSeenSequence()).toBe(6);
+  });
 });

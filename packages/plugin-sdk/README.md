@@ -1,6 +1,6 @@
 # @hana/plugin-sdk
 
-Browser-side SDK for Hana iframe plugins.
+Browser-side SDK for Hana WebView/iframe plugins.
 
 ```ts
 import { hana } from '@hana/plugin-sdk';
@@ -12,6 +12,7 @@ hana.ui.resize({ height: 320 });
 await hana.toast.show({ message: 'Saved', type: 'success' });
 await hana.external.open('https://example.com');
 await hana.clipboard.writeText('Copied text');
+await hana.resources.open({ resource: { kind: 'session-file', fileId: 'sf_1' }, mode: 'preview' });
 ```
 
 ## Assets
@@ -50,6 +51,9 @@ Stable helpers are thin wrappers around `hana.host.request(type, payload)`.
 | `hana.toast.show(input)` | `toast.show` | no |
 | `hana.external.open(input)` | `external.open` | yes |
 | `hana.clipboard.writeText(input)` | `clipboard.writeText` | yes |
+| `hana.resources.open(input)` | `resource.open` | yes |
+| `hana.resources.pick(input)` | `resource.pick` | yes |
+| `hana.resources.requestAccess(input)` | `resource.requestAccess` | yes |
 
 Grant-required capabilities must be declared in `manifest.json`:
 
@@ -57,10 +61,20 @@ Grant-required capabilities must be declared in `manifest.json`:
 {
   "manifestVersion": 1,
   "ui": {
-    "hostCapabilities": ["external.open", "clipboard.writeText"]
+    "hostCapabilities": ["external.open", "clipboard.writeText", "resource.open"]
   }
 }
 ```
+
+Browser-side resource helpers are host requests only. They can ask Hana to open
+or reveal local/session/url resources, show the host picker, or request access,
+but they do not expose direct filesystem read or write APIs inside the iframe.
+Runtime code that actually reads or edits user resources should use
+`ctx.resources` from `@hana/plugin-runtime`.
+
+Do not mirror runtime ResourceIO operations into iframe code. The browser SDK is
+for presentation and host-mediated actions; server-side plugin tools, routes, or
+lifecycle code own the actual resource read/write path.
 
 ## Theme
 

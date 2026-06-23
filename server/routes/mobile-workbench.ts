@@ -14,6 +14,7 @@ import {
 import { safeJson } from "../hono-helpers.ts";
 import { serveFileContent } from "../http/file-content.ts";
 import { createRequestContext } from "../http/boundary.ts";
+import { createApiResourceOperationContext, requestIdFromHono } from "../http/resource-operation-context.ts";
 import { recordSecurityAuditEvent } from "../http/security-audit.ts";
 import { isLocalOwnerPrincipal } from "../http/route-security.ts";
 
@@ -83,7 +84,7 @@ export function createMobileWorkbenchRoute(engine) {
     const auth = authorizeWorkbench(c, engine, "files.write");
     if (auth.response) return auth.response;
     const body = await safeJson(c);
-    const files = fileService(engine, auth.requestContext);
+    const files = fileService(engine, auth.requestContext, c, body);
     const mountId = workbenchMountIdFromBody(body);
     const subdir = body.subdir || "";
 
@@ -117,7 +118,7 @@ export function createMobileWorkbenchRoute(engine) {
     if (auth.response) return auth.response;
     try {
       const body = await safeJson(c);
-      const filesService = fileService(engine, auth.requestContext);
+      const filesService = fileService(engine, auth.requestContext, c, body);
       const mountId = workbenchMountIdFromBody(body);
       const subdir = body.subdir || "";
       const files = Array.isArray(body.files) ? body.files : [body];
@@ -275,7 +276,7 @@ function routeError(message, code, status) {
   return err;
 }
 
-function fileService(engine, requestContext) {
+function fileService(engine, requestContext, c = null, body = null) {
   const resourceIO = resourceIOForEngine(engine);
   return new MountAwareFileService({
     hanakoHome: engine.hanakoHome,
@@ -287,6 +288,12 @@ function fileService(engine, requestContext) {
     // 只对桌面端 local owner 披露 local_fs 根的 native 路径；远端/配对设备不披露。
     discloseNativeRoot: isLocalOwnerPrincipal(requestContext?.authPrincipal),
     resourceIO,
+    operationContext: createApiResourceOperationContext({
+      requestContext,
+      sessionId: body?.sessionId,
+      sessionPath: body?.sessionPath,
+      requestId: body?.requestId || requestIdFromHono(c),
+    }),
   });
 }
 

@@ -141,6 +141,13 @@ export function createSandboxedTools(cwd, customTools, {
     cwd,
     resourceIO,
     getSessionPath: () => getSessionPath?.() || null,
+    getSessionIdentity: () => {
+      const sessionPath = getSessionPath?.() || null;
+      const sessionId = sessionPath && typeof getSessionIdForPath === "function"
+        ? getSessionIdForPath(sessionPath)
+        : null;
+      return { sessionId, sessionPath };
+    },
     detectImageMimeType: async (p) => IMAGE_MIMES[extname(p).toLowerCase()] || undefined,
   });
   const enhancedReadFile = createEnhancedReadFile();

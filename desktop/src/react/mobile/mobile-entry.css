@@ -775,6 +775,13 @@ html[data-platform="linux"] .tb-toggle-right {
     border-top: 1px solid var(--border);
 }
 
+.md-content .markdown-table-scroll {
+    max-width: 100%;
+    margin: var(--space-sm) 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
 .md-content table {
     width: 100%;
     margin: var(--space-sm) 0;
@@ -782,11 +789,18 @@ html[data-platform="linux"] .tb-toggle-right {
     font-size: 0.9em;
 }
 
+.md-content .markdown-table-scroll > table {
+    width: max-content;
+    max-width: none;
+    margin: 0;
+}
+
 .md-content th,
 .md-content td {
     padding: 0.3em 0.6em;
     border: 1px solid var(--border);
     text-align: left;
+    white-space: nowrap;
 }
 
 .md-content th {

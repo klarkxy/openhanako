@@ -39,7 +39,7 @@ export async function execute(input) {
 |------|----------|------|
 | Tool-only | 没有 UI，只给 Agent 增加工具能力 | `restricted` |
 | Runtime | 需要生命周期、EventBus、后台任务、动态工具 | `full-access` |
-| UI | 需要 page / widget / iframe card | `full-access` |
+| UI | 需要 page / widget / WebView/iframe card / `chat.surface` | `full-access` |
 | Marketplace entry | 让插件出现在插件市场 | 写入 `OH-Plugins/plugins/<id>.yaml` |
 
 推荐先用 `hana-plugin-creator` 脚手架生成，再按需求删减：
@@ -58,7 +58,7 @@ python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "My Plugin"
 2. 调用 EventBus `plugin.dev.install` 或 HTTP `POST /api/plugins/dev/install`，把源码复制到 `${HANA_HOME}/plugins-dev/<pluginId>` 并加载。
 3. 修改源码后调用 `plugin.dev.reload` 或 `POST /api/plugins/dev/:id/reload`。
 4. 需要控制生命周期时调用 `plugin.dev.disable`、`plugin.dev.enable`、`plugin.dev.reset`、`plugin.dev.uninstall`，或对应 HTTP：`PUT /api/plugins/dev/:id/enabled`、`POST /api/plugins/dev/:id/reset`、`DELETE /api/plugins/dev/:id`。
-5. 工具插件用 `plugin.dev.invokeTool` 或 `POST /api/plugins/dev/:id/tools/:toolName/invoke` 做 smoke test。
+5. 工具插件用 `plugin.dev.invokeTool` 或 `POST /api/plugins/dev/:id/tools/:toolName/invoke` 做 smoke test。调用体优先传 `sessionId` 或 `sessionRef`；`sessionPath` 只作为旧插件兼容 locator。
 6. 诊断用 `plugin.dev.diagnostics` 或 `GET /api/plugins/dev/diagnostics`。
 
 Agent 可见的 dev 工具默认关闭。用户需要在设置 → 插件 → 权限中开启"允许 Agent 插件开发工具"，开启后 Agent 才会看到 `plugin_dev_install`、`plugin_dev_reload`、`plugin_dev_disable`、`plugin_dev_enable`、`plugin_dev_reset`、`plugin_dev_uninstall`、`plugin_dev_invoke_tool`、`plugin_dev_diagnostics`、`plugin_dev_list_surfaces`、`plugin_dev_describe_surface`、`plugin_dev_run_scenario`。
@@ -89,7 +89,7 @@ UI 插件调试时，先用 `plugin.dev.listSurfaces` 找到 page / widget，再
 }
 ```
 
-第一阶段支持 `invokeTool`、`expectToolText` 和 `openSurface`。会改外部状态的场景必须声明 `"destructive": true`，运行时还要显式传 `allowDestructive: true`。
+`invokeTool` 步骤可以包含 `sessionId`、`sessionRef`、`sessionPath` 和 `agentId`，其中 `sessionId/sessionRef` 是当前推荐的 session 身份；`sessionPath` 只保留给旧插件和 locator 兼容。第一阶段支持 `invokeTool`、`expectToolText` 和 `openSurface`。会改外部状态的场景必须声明 `"destructive": true`，运行时还要显式传 `allowDestructive: true`。
 
 ## 安装与管理
 
@@ -253,7 +253,11 @@ export async function execute(input, ctx) {
 }
 ```
 
-`resource.read` 覆盖 `stat`、`read`、`list`；`resource.search` 覆盖搜索，包括 provider 选项里的文件名搜索；`resource.write` 覆盖 `write`、`writeExpectedVersion`、`edit`、`mkdir`、`delete`、`copy`、`rename`、`move`、`trash`；`resource.materialize` 用于把资源实体化成本机路径；`resource.watch` 用于解析监听目标。URL resource 保持只读。插件自己生成的文件仍然可以写到 `ctx.dataDir`，再通过 `stageFile()` 返回；用户资源读写不要直接用本地路径和 `fs.writeFileSync`。
+`resource.read` 覆盖 `stat`、`read`、`list`；`resource.search` 覆盖搜索，包括 provider 选项里的文件名搜索；`resource.write` 覆盖 `write`、`writeExpectedVersion`、`edit`、`mkdir`、`delete`、`copy`、`rename`、`move`、`trash`；`resource.materialize` 用于把资源实体化成本机路径；`resource.watch` 覆盖 `ctx.resources.watch()` / `ctx.resources.subscribe()` 后端监听订阅。URL resource 保持只读。插件自己生成的文件仍然可以写到 `ctx.dataDir`，再通过 `stageFile()` 返回；用户资源读写不要直接用本地路径和 `fs.writeFileSync`。
+
+`ctx.resources.watch(ref)` 用于单个资源，`ctx.resources.subscribe([refA, refB])` 用于一组资源，返回 `{ subscriptionId, resourceKeys, unsubscribe, close }`。生命周期插件应把 `unsubscribe` 交给 `register()`，短任务应在 `finally` 中释放。资源变化仍通过插件 bus 的 `resource.changed` / `resource.deleted` / `resource.renamed` 事件到达，消费侧按 `resourceKeys` 过滤后再刷新或重新读取。
+
+ResourceIO 是用户资源的唯一权限入口。`local-file`、`mount`、`session-file`、`resource`、`url` 都是资源身份，不等于插件能拿到宿主本机路径。`stageFile()` 只用于插件生成物进入 `SessionFile` 交付链路，不用于修改用户源文件。`ctx.dataDir` 和插件包内 `assets/` 是插件自有存储，可以使用 raw `fs`；工作区、挂载、URL、SessionFile 输入不能套用这个例外。第三方库必须吃本机路径时，用 `ctx.resources.materialize(ref)`，写回仍然要显式走 ResourceIO，而不是把 materialized 文件当源文件直接改。
 
 #### 媒体交付
 
@@ -329,14 +333,21 @@ route.get("/live-scores", async (c) => {
 
 #### 可视化卡片
 
-工具可以在聊天中自动渲染可视化卡片（iframe），在返回值的 `details` 中声明 `card`：
+工具可以在聊天中自动渲染可视化卡片，在返回值的 `details` 中声明 `card`。当前有两条稳定形态：
+
+- `type: "iframe"` / `type: "webview"`：用于插件自己的 Web UI、远程网站、单独 HTML 或复杂浏览器 UI。旧 `iframe` 卡继续兼容；新文档把它定位成正式 WebView escape hatch。
+- `type: "chat.surface"`：用于把插件自己创建的 `plugin_private` / `private` session 作为原生聊天 transcript 嵌进当前聊天流。它只接受 `sessionId/sessionRef`，宿主会校验该 session 属于当前 plugin 且不是公开 session。
+
+命名边界：未来可组合 native cards 属于 Infinity Chalkboard / Card Kernel。`workbench` 是旧代码 namespace，不作为新插件作者需要学习的公开概念。详见 `.docs/INFINITY-CHALKBOARD.md`。
+
+WebView 卡片示例：
 
 ```js
 return {
   content: [{ type: "text", text: "数据摘要..." }],
   details: {
     card: {
-      type: "iframe",
+      type: "webview",
       route: "/card/chart?symbol=sh600519&period=daily",
       title: "贵州茅台 日K",
       description: "贵州茅台 现价1450.00 涨跌+2.11%",
@@ -345,7 +356,7 @@ return {
 };
 ```
 
-- `route`：插件路由路径，iframe 自行从该路径拉数据渲染
+- `route`：插件路由路径，WebView / iframe 自行从该路径拉数据渲染
 - `title`：卡片标题（可选）
 - `description`：纯文本摘要，用于 IM 平台降级显示和插件卸载后的 fallback
 - `pluginId` 由框架自动注入，工具无需填写
@@ -353,6 +364,30 @@ return {
 - 卡片数据随 toolResult 存入 JSONL，会话重载时自动恢复
 - 插件 route / Session Bus 发送的自定义消息如果携带同样的 `details.card`，也会被提取成 `plugin_card`，历史回放时保持一致
 - 卡片本身可以随 Bridge 或移动端做不同呈现；卡片关联的文件仍通过 `SessionFile` 生命周期恢复
+
+原生聊天 surface 示例：
+
+```js
+import { createChatSurfaceCard, createSession } from "@hana/plugin-runtime";
+
+const child = await createSession(ctx, {
+  kind: "tavern-run",
+  visibility: "plugin_private",
+  cwd: ctx.dataDir,
+});
+
+return {
+  content: [{ type: "text", text: "已创建插件私有会话。" }],
+  details: {
+    card: createChatSurfaceCard(ctx, child.sessionRef ?? child, {
+      title: "Tavern run",
+      description: "插件私有会话 transcript",
+    }),
+  },
+};
+```
+
+`chat.surface` 在 main 当前版本是薄兼容层，只提供原生 transcript 展示；复杂 composer、可组合 native cards 和组件生态会由 Infinity Chalkboard / Card Kernel 继续扩展。
 
 ### Skills（知识注入）
 
@@ -442,11 +477,13 @@ export function register(app, ctx) {
 
 #### 请求级上下文（pluginRequestContext）
 
-每个进入插件 route 的 HTTP 请求都会得到一份独立的请求级上下文，handler 通过 `c.get("pluginRequestContext")` 读取（三种写法都可用）：
+每个进入插件 route 的 HTTP 请求都会得到一份独立的请求级上下文。新 route 建议通过 `@hana/plugin-runtime` 的 `getPluginRequestContext(c)` 读取；老写法 `c.get("pluginRequestContext")` 仍兼容。
 
 ```js
+import { getPluginRequestContext } from "@hana/plugin-runtime";
+
 app.post("/create-session", async (c) => {
-  const reqCtx = c.get("pluginRequestContext");
+  const reqCtx = getPluginRequestContext(c);
   // reqCtx.principal        本次请求的来源身份（owner 设备 / 本插件 iframe surface…），测试直连时为 null
   // reqCtx.agentId          代理层注入的当前 agent id
   // reqCtx.capabilityGrant  { accessLevel, declaredPermissions, legacyDeclaration }
@@ -550,7 +587,7 @@ CLI provider 必须使用结构化参数绑定。不要拼 shell 字符串；Han
 
 媒体 Adapter 负责执行某个 `protocolId` 的 `submit` / `query` / 下载流程。只注册 Adapter 不等于注册供应商；没有 Provider capability 的模型不会自然出现在供应商管理、默认媒体模型选择、媒体 helper 发现结果里。
 
-旧 `media-gen:*` 事件接口仍然保留给历史图片生成插件兼容，例如 `media-gen:register-adapter`、`media-gen:submit-image`、`media-gen:list-adapters`。新插件不要继续依赖这些旧命名空间。迁移方向是：
+旧 `media-gen:*` 事件接口仍然保留给历史图片生成插件兼容，例如 `media-gen:register-adapter`、`media-gen:submit-image`、`media-gen:list-adapters`。新插件和 Agent 生成的模板不要调用这些旧命名空间；新建插件必须先通过 `providers/*.js` 声明 Provider capability，再使用稳定媒体 helper 或正式 Adapter Plugin API。迁移方向是：
 
 ```text
 ProviderPlugin capabilities.media.*
@@ -565,7 +602,7 @@ MediaAdapterRegistry 按 protocolId 选择 Adapter
 UniversalMediaManager 统一任务、占位、轮询、SessionFile 回填
 ```
 
-如果插件需要全新媒体协议，先声明 Provider capability，并为该 `protocolId` 提供 Adapter。正式 Adapter Plugin API 尚未稳定前，内置或受信插件可以继续使用旧 `media-gen:register-adapter` 作为过渡，但要把它视为兼容层。
+如果插件需要全新媒体协议，先声明 Provider capability，并为该 `protocolId` 提供 Adapter。正式 Adapter Plugin API 尚未稳定前，内置或受信插件可以继续使用旧 `media-gen:register-adapter` 作为过渡，但要把它视为兼容层，不能把它写进新插件脚手架或新 Agent 指南。
 
 ### Configuration（配置 schema）
 
@@ -641,7 +678,7 @@ const value = await ctx.config.get("agentMode", { scope: "per-agent", agentId: "
 - 悬停 tab 时显示插件全名（tooltip）
 - Tab 超过 5 个时自动折叠到 overflow 下拉菜单，用户可拖拽排序
 
-插件页面通过 iframe 渲染。新插件建议使用 `@hana/plugin-sdk` 发送握手和宿主请求：
+插件页面通过 WebView/iframe 渲染。旧 iframe 是兼容名称，新的插件设计可以把它理解成 WebView：适合展示已有 Web 应用、远程网站或单独 HTML。Hana 原生聊天 surface 和未来 Infinity Chalkboard native cards 不依赖 WebView/iframe。新插件建议使用 `@hana/plugin-sdk` 发送握手和宿主请求：
 
 ```js
 import { hana } from '@hana/plugin-sdk';
@@ -651,6 +688,7 @@ hana.ui.resize({ height: 320 });
 await hana.toast.show({ message: '已刷新', type: 'success' });
 await hana.external.open('https://example.com');
 await hana.clipboard.writeText('复制内容');
+await hana.resources.open({ resource: { kind: 'session-file', fileId: 'sf_1' }, mode: 'preview' });
 ```
 
 底层仍保留 `hana.host.request(type, payload)`，用于未来 capability 或实验能力；稳定能力优先使用 typed helper。
@@ -661,7 +699,7 @@ await hana.clipboard.writeText('复制内容');
 window.parent.postMessage({ type: 'ready' }, '*');
 ```
 
-宿主只接受来自当前 iframe window 且 origin 匹配的消息。SDK 请求会经过 capability registry；当前内置能力包括 `toast.show`（无需授权）、`external.open`（需要授权）和 `clipboard.writeText`（需要授权）。
+宿主只接受来自当前 iframe window 且 origin 匹配的消息。SDK 请求会经过 capability registry；当前内置能力包括 `toast.show`（无需授权）、`external.open`（需要授权）、`clipboard.writeText`（需要授权）以及资源请求类 `resource.open`、`resource.pick`、`resource.requestAccess`（均需要授权）。
 
 需要授权的 iframe 宿主能力必须在 manifest 中声明：
 
@@ -669,12 +707,14 @@ window.parent.postMessage({ type: 'ready' }, '*');
 {
   "manifestVersion": 1,
   "ui": {
-    "hostCapabilities": ["external.open", "clipboard.writeText"]
+    "hostCapabilities": ["external.open", "clipboard.writeText", "resource.open"]
   }
 }
 ```
 
 未声明的敏感能力会返回 `CAPABILITY_DENIED`。未知能力名会在加载时被忽略；`toast.show` 不需要声明。
+
+`hana.resources.*` 只是在 iframe 中向宿主发请求：可以请求打开资源、选择资源、申请访问权限，但不能直接读取或写入文件内容。真正的用户资源读写仍然放在插件服务端 route、tool 或 lifecycle 里，通过 `ctx.resources` 进入 ResourceIO。
 
 宿主会在 iframe URL 上附加 `hana-theme` 和 `hana-css` 参数，插件可选择引用主题 CSS 以保持视觉一致：
 
@@ -793,7 +833,7 @@ Widget 同样通过 iframe 渲染，需要发送 `ready` 握手信号。
 大多数 plugin 不需要 manifest。只有以下场景需要：
 
 - 声明 `trust: "full-access"` 获取完整权限
-- 声明 iframe UI 需要的宿主能力（`ui.hostCapabilities`）
+- 声明 WebView/iframe UI 需要的宿主能力（`ui.hostCapabilities`）
 - 声明插件希望使用的普通能力（`capabilities`）或未来需要用户授权的敏感能力（`sensitiveCapabilities`）
 - 声明外部 HTTP 数据访问边界（`network.allowedHosts`、`network.methods` 等）
 - Configuration schema（JSON Schema 声明）
@@ -1003,7 +1043,7 @@ this.register(
 | `agent:list` / `agent:profile` | 列出 agent、读取 agent 公开资料 |
 | `agent:create` / `agent:update` | 创建或更新插件拥有的 agent，可设置 `visibility: "plugin_private"` |
 | `model:sample-text` | 使用系统配置的 utility 模型做非流式文本采样，适合 RAG 查询改写、摘要、路由 |
-| `provider:media-providers` / `provider:resolve-media-model` | 读取已配置的媒体供应商和模型 |
+| `provider:media-providers` / `provider:resolve-media-model` | 读取已配置的媒体供应商和模型，discovery 语义稳定；具体 media adapter / executor 契约另行收口 |
 | `media:generate-image` | 通过内置媒体任务管线提交生图任务，默认完成后以 `SessionFile` 交付；`delivery.mode="response"` 时只返回任务/文件结果 |
 | `media:generate` / `media:generate-video` / `media:transcribe-audio` | 通过原生 Media Manager 提交通用媒体任务、视频生成任务或音频转录任务 |
 
@@ -1020,6 +1060,7 @@ import {
   transcribeAudio,
   sampleText,
   sendSessionMessage,
+  createChatSurfaceCard,
 } from "@hana/plugin-runtime";
 
 const agent = await createAgent(ctx, {
@@ -1274,7 +1315,7 @@ https://raw.githubusercontent.com/liliMozi/OH-Plugins/main/marketplace.json
 
 ## 前向兼容
 
-系统忽略不认识的目录和 manifest 字段。老 plugin 永远能跑在新系统上，新 plugin 在老系统上只是新贡献类型不生效。`manifestVersion` 仍是可选兼容字段；新 iframe UI 若要声明 `ui.hostCapabilities`，建议写 `manifestVersion: 1` 让宿主和 SDK 文档语义对齐，但旧插件不需要补迁移。已有插件中为了兼容早期资源限制而自建的静态资源 route 继续允许；诊断和 Agent 规则只把它们标记为“可整理项”，不会作为加载失败理由。
+系统忽略不认识的目录和 manifest 字段。老 plugin 永远能跑在新系统上，新 plugin 在老系统上只是新贡献类型不生效。`manifestVersion` 仍是可选兼容字段；新 WebView/iframe UI 若要声明 `ui.hostCapabilities`，建议写 `manifestVersion: 1` 让宿主和 SDK 文档语义对齐，但旧插件不需要补迁移。已有插件中为了兼容早期资源限制而自建的静态资源 route 继续允许；诊断和 Agent 规则只把它们标记为“可整理项”，不会作为加载失败理由。
 
 ## 错误隔离
 

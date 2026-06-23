@@ -5,6 +5,12 @@ import {
   PLUGIN_UI_PROTOCOL,
   PLUGIN_UI_PROTOCOL_VERSION,
   parsePluginUiMessage,
+  type PluginResourceOpenInput,
+  type PluginResourceOpenResult,
+  type PluginResourcePickInput,
+  type PluginResourcePickResult,
+  type PluginResourceRequestAccessInput,
+  type PluginResourceRequestAccessResult,
   type PluginUiError,
   type PluginUiMessage,
 } from '@hana/plugin-protocol';
@@ -89,6 +95,20 @@ export interface HanaPluginSdk {
       input: HanaClipboardWriteTextInput,
       options?: HanaPluginRequestOptions,
     ): Promise<HanaClipboardWriteTextResult>;
+  };
+  resources: {
+    open(
+      input: PluginResourceOpenInput,
+      options?: HanaPluginRequestOptions,
+    ): Promise<PluginResourceOpenResult>;
+    pick(
+      input?: PluginResourcePickInput,
+      options?: HanaPluginRequestOptions,
+    ): Promise<PluginResourcePickResult>;
+    requestAccess(
+      input: PluginResourceRequestAccessInput,
+      options?: HanaPluginRequestOptions,
+    ): Promise<PluginResourceRequestAccessResult>;
   };
 }
 
@@ -427,6 +447,21 @@ export function createHanaPluginSdk(options: HanaPluginSdkOptions = {}): HanaPlu
         );
       },
     },
+    resources: {
+      open(input: PluginResourceOpenInput, options?: HanaPluginRequestOptions) {
+        return request<PluginResourceOpenResult>(PLUGIN_UI_CAPABILITY.RESOURCE_OPEN, input, options);
+      },
+      pick(input: PluginResourcePickInput = {}, options?: HanaPluginRequestOptions) {
+        return request<PluginResourcePickResult>(PLUGIN_UI_CAPABILITY.RESOURCE_PICK, input, options);
+      },
+      requestAccess(input: PluginResourceRequestAccessInput, options?: HanaPluginRequestOptions) {
+        return request<PluginResourceRequestAccessResult>(
+          PLUGIN_UI_CAPABILITY.RESOURCE_REQUEST_ACCESS,
+          input,
+          options,
+        );
+      },
+    },
   };
 }
 
@@ -489,6 +524,17 @@ export const hana: HanaPluginSdk = {
   clipboard: {
     writeText(input: HanaClipboardWriteTextInput, options?: HanaPluginRequestOptions) {
       return getSingleton().clipboard.writeText(input, options);
+    },
+  },
+  resources: {
+    open(input: PluginResourceOpenInput, options?: HanaPluginRequestOptions) {
+      return getSingleton().resources.open(input, options);
+    },
+    pick(input?: PluginResourcePickInput, options?: HanaPluginRequestOptions) {
+      return getSingleton().resources.pick(input, options);
+    },
+    requestAccess(input: PluginResourceRequestAccessInput, options?: HanaPluginRequestOptions) {
+      return getSingleton().resources.requestAccess(input, options);
     },
   },
 };

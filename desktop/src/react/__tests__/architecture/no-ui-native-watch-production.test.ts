@@ -53,4 +53,30 @@ describe('ResourceIO watch architecture', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it('keeps renderer file freshness bridges on backend ResourceIO subscriptions', () => {
+    const subscriptionBridgeFiles = [
+      'desktop/src/react/components/app/OpenPreviewDocumentWatchBridge.tsx',
+      'desktop/src/react/components/app/WorkspaceFileChangeBridge.tsx',
+    ];
+
+    for (const rel of subscriptionBridgeFiles) {
+      const source = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      expect(source).toContain('retainResourceWatch');
+      expect(source).not.toContain('window.platform.watchFile');
+      expect(source).not.toContain('window.platform.watchWorkspace');
+      expect(source).not.toContain('.watchFile(');
+      expect(source).not.toContain('.watchWorkspace(');
+    }
+
+    const aliasBridge = fs.readFileSync(
+      path.join(ROOT, 'desktop/src/react/components/right-workspace/WorkspaceFileWatchBridge.tsx'),
+      'utf-8',
+    );
+    expect(aliasBridge).toContain('WorkspaceFileChangeBridge');
+    expect(aliasBridge).not.toContain('window.platform.watchFile');
+    expect(aliasBridge).not.toContain('window.platform.watchWorkspace');
+    expect(aliasBridge).not.toContain('.watchFile(');
+    expect(aliasBridge).not.toContain('.watchWorkspace(');
+  });
 });

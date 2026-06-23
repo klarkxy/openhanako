@@ -3,6 +3,63 @@ import { describe, expect, it, vi } from "vitest";
 import { createResourceIoRoute } from "../server/routes/resource-io.ts";
 
 describe("resource-io route", () => {
+  it("returns retained resource events for catch-up by cursor", async () => {
+    const resourceEventsSince = vi.fn(() => ({
+      stale: false,
+      latestSequence: 7,
+      events: [{
+        type: "resource.changed",
+        changeType: "modified",
+        resourceKey: "local_fs:/tmp/a.md",
+        resource: { kind: "local-file", path: "/tmp/a.md" },
+        source: "provider_watch",
+        sequence: 7,
+        occurredAt: "2026-06-22T00:00:00.000Z",
+      }],
+    }));
+    const app = new Hono();
+    app.route("/api", createResourceIoRoute({ resourceEventsSince }));
+
+    const res = await app.request("/api/resource-io/events?since=3");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      stale: false,
+      latestSequence: 7,
+      events: [{
+        type: "resource.changed",
+        changeType: "modified",
+        resourceKey: "local_fs:/tmp/a.md",
+        resource: { kind: "local-file", path: "/tmp/a.md" },
+        source: "provider_watch",
+        sequence: 7,
+        occurredAt: "2026-06-22T00:00:00.000Z",
+      }],
+    });
+    expect(resourceEventsSince).toHaveBeenCalledWith(3);
+  });
+
+  it("returns a resync hint when the event cursor is stale", async () => {
+    const app = new Hono();
+    app.route("/api", createResourceIoRoute({
+      resourceEventsSince: vi.fn(() => ({
+        stale: true,
+        latestSequence: 12,
+        events: [],
+      })),
+    }));
+
+    const res = await app.request("/api/resource-io/events?since=1");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      stale: true,
+      latestSequence: 12,
+      events: [],
+      resync: "resource-stat-required",
+    });
+  });
+
   it("subscribes and unsubscribes backend resource watches", async () => {
     const subscribeResourceWatch = vi.fn(() => ({
       subscriptionId: "sub-1",
@@ -112,8 +169,9 @@ describe("resource-io route", () => {
     expect(resourceIO.search).toHaveBeenCalledWith({ kind: "local-file", path: "/tmp" }, { query: "hello" });
   });
 
-  it("routes route-grade mutations through engine ResourceIO", async () => {
+  it("routes route-grade mutations through engine ResourceIO with API principal context", async () => {
     const resourceIO = {
+      write: vi.fn(async () => ({ changeType: "modified", resourceKey: "a" })),
       writeExpectedVersion: vi.fn(async () => ({ ok: false, conflict: true, version: { size: 5 } })),
       rename: vi.fn(async () => ({ oldResourceKey: "a", newResourceKey: "b" })),
       move: vi.fn(async () => ({ oldResourceKey: "b", newResourceKey: "c" })),
@@ -121,6 +179,40 @@ describe("resource-io route", () => {
     };
     const app = new Hono();
     app.route("/api", createResourceIoRoute({ resourceIO }));
+
+    await app.request("/api/resource-io/write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        resource: { kind: "local-file", path: "/tmp/a.md" },
+        content: "next",
+        reason: "route_write",
+        sessionId: "sess_1",
+        sessionPath: "/sessions/a.jsonl",
+        requestId: "req_1",
+        connectionKind: "workbench",
+        credentialKind: "session",
+      }),
+    });
+    expect(resourceIO.write).toHaveBeenCalledWith(
+      { kind: "local-file", path: "/tmp/a.md" },
+      "next",
+      expect.objectContaining({
+        source: "api",
+        reason: "route_write",
+        sessionId: "sess_1",
+        sessionPath: "/sessions/a.jsonl",
+        requestId: "req_1",
+        principal: expect.objectContaining({
+          kind: "api",
+          sessionId: "sess_1",
+          sessionPath: "/sessions/a.jsonl",
+          requestId: "req_1",
+          connectionKind: "workbench",
+          credentialKind: "session",
+        }),
+      }),
+    );
 
     const writeRes = await app.request("/api/resource-io/write-expected-version", {
       method: "POST",
@@ -130,14 +222,30 @@ describe("resource-io route", () => {
         content: "next",
         expectedVersion: { mtimeMs: 1, size: 5 },
         reason: "route_test",
+        sessionId: "sess_1",
+        sessionPath: "/sessions/a.jsonl",
+        requestId: "req_2",
       }),
     });
-    expect(await writeRes.json()).toEqual({ ok: false, conflict: true, version: { size: 5 } });
+    expect(writeRes.status).toBe(409);
+    expect(await writeRes.json()).toEqual({
+      ok: false,
+      conflict: true,
+      version: { size: 5 },
+      safeMessage: "Resource write conflict",
+    });
     expect(resourceIO.writeExpectedVersion).toHaveBeenCalledWith(
       { kind: "local-file", path: "/tmp/a.md" },
       "next",
       { mtimeMs: 1, size: 5 },
-      { source: "api", reason: "route_test", sessionPath: null },
+      expect.objectContaining({
+        source: "api",
+        reason: "route_test",
+        sessionId: "sess_1",
+        sessionPath: "/sessions/a.jsonl",
+        requestId: "req_2",
+        principal: expect.objectContaining({ kind: "api", sessionId: "sess_1" }),
+      }),
     );
 
     await app.request("/api/resource-io/rename", {
@@ -151,7 +259,12 @@ describe("resource-io route", () => {
     expect(resourceIO.rename).toHaveBeenCalledWith(
       { kind: "local-file", path: "/tmp/a.md" },
       { kind: "local-file", path: "/tmp/b.md" },
-      { source: "api", reason: "resource_io_route", sessionPath: null },
+      expect.objectContaining({
+        source: "api",
+        reason: "resource_io_route",
+        sessionPath: null,
+        principal: expect.objectContaining({ kind: "api" }),
+      }),
     );
 
     await app.request("/api/resource-io/move", {
@@ -165,7 +278,12 @@ describe("resource-io route", () => {
     expect(resourceIO.move).toHaveBeenCalledWith(
       { kind: "local-file", path: "/tmp/b.md" },
       { kind: "local-file", path: "/tmp/archive/b.md" },
-      { source: "api", reason: "resource_io_route", sessionPath: null },
+      expect.objectContaining({
+        source: "api",
+        reason: "resource_io_route",
+        sessionPath: null,
+        principal: expect.objectContaining({ kind: "api" }),
+      }),
     );
 
     await app.request("/api/resource-io/trash", {
@@ -179,7 +297,44 @@ describe("resource-io route", () => {
     expect(resourceIO.trash).toHaveBeenCalledWith(
       { kind: "local-file", path: "/tmp/archive/b.md" },
       { namespace: "workbench" },
-      { source: "api", reason: "resource_io_route", sessionPath: null },
+      expect.objectContaining({
+        source: "api",
+        reason: "resource_io_route",
+        sessionPath: null,
+        principal: expect.objectContaining({ kind: "api" }),
+      }),
     );
+  });
+
+  it("returns sanitized ResourceIO denial errors", async () => {
+    const resourceIO = {
+      write: vi.fn(async () => {
+        const err: any = new Error("Denied /Users/example/private/repo/.git/config");
+        err.code = "resource_access_denied";
+        err.status = 403;
+        err.safeMessage = "Resource access denied by authority policy";
+        throw err;
+      }),
+    };
+    const app = new Hono();
+    app.route("/api", createResourceIoRoute({ resourceIO }));
+
+    const res = await app.request("/api/resource-io/write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        resource: { kind: "local-file", path: "/Users/example/private/repo/.git/config" },
+        content: "bad",
+      }),
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body).toEqual({
+      error: "Resource access denied by authority policy",
+      code: "resource_access_denied",
+      safeMessage: "Resource access denied by authority policy",
+    });
+    expect(JSON.stringify(body)).not.toContain("/Users/example");
   });
 });

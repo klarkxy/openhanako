@@ -10,6 +10,7 @@ import {
 } from "../../core/studio-mounts.ts";
 import { safeJson } from "../hono-helpers.ts";
 import { createRequestContext } from "../http/boundary.ts";
+import { createApiResourceOperationContext, requestIdFromHono } from "../http/resource-operation-context.ts";
 import { recordSecurityAuditEvent } from "../http/security-audit.ts";
 import { isLocalOwnerPrincipal } from "../http/route-security.ts";
 
@@ -31,7 +32,7 @@ export function createStudioWorkspacesRoute(engine) {
       const auth = authorizeStudioWorkspace(c, engine, "files.read");
       if (auth.response) return auth.response;
       const mountId = c.req.param("mountId") || "default";
-      return c.json(await fileService(engine, auth.requestContext)
+      return c.json(await fileService(engine, auth.requestContext, c)
         .listFiles(mountId, c.req.query("subdir") || ""));
     } catch (err) {
       return workspaceError(c, err);
@@ -190,7 +191,7 @@ function authorizeStudioWorkspace(c, engine, capability) {
   };
 }
 
-function fileService(engine, requestContext) {
+function fileService(engine, requestContext, c = null) {
   return new MountAwareFileService({
     hanakoHome: engine.hanakoHome,
     defaultRoot: engine.defaultDeskCwd || engine.homeCwd || engine.deskCwd,
@@ -200,6 +201,10 @@ function fileService(engine, requestContext) {
       : null,
     // 只对桌面端 local owner 披露 local_fs 根的 native 路径；远端/配对设备不披露。
     discloseNativeRoot: isLocalOwnerPrincipal(requestContext?.authPrincipal),
+    operationContext: createApiResourceOperationContext({
+      requestContext,
+      requestId: requestIdFromHono(c),
+    }),
   });
 }
 

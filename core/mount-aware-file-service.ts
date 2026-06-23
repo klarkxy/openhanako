@@ -24,6 +24,7 @@ export class MountAwareFileService {
   declare _createCheckpoint: any;
   declare _discloseNativeRoot: boolean;
   declare _resourceIO: any;
+  declare _operationContext: Record<string, any>;
 
   constructor({
     hanakoHome,
@@ -32,6 +33,7 @@ export class MountAwareFileService {
     createCheckpoint,
     discloseNativeRoot = false,
     resourceIO = null,
+    operationContext = null,
   }: Record<string, any> = {}) {
     if (!hanakoHome) throw new Error("hanakoHome required");
     this._hanakoHome = hanakoHome;
@@ -48,6 +50,7 @@ export class MountAwareFileService {
         defaultRoot: this._defaultRoot,
         studioId: this._studioId,
       });
+    this._operationContext = normalizeOperationContext(operationContext);
   }
 
   resolveRoot(rootId = "default") {
@@ -133,7 +136,7 @@ export class MountAwareFileService {
     if (!target) throw fileError("invalid path", "invalid_path", 400);
     const stat = await this._resourceIO.stat(resourceRefForTarget(root, this._normalizeTargetSubpath(subdir, name)));
     if (stat.exists) throw fileError("already exists", "already_exists", 409);
-    await this._resourceIO.mkdir(resourceRefForTarget(root, this._normalizeTargetSubpath(subdir, name)), mutationOptions(options));
+    await this._resourceIO.mkdir(resourceRefForTarget(root, this._normalizeTargetSubpath(subdir, name)), this._mutationOptions(options));
     return workbenchWriteResult(root, "mkdir", { files: await this.filesForDirectory(root.id, subdir) }, this._discloseNativeRoot);
   }
 
@@ -152,8 +155,8 @@ export class MountAwareFileService {
       await this._createCheckpoint({ filePath: target, reason: "mobile-workbench-edit" }).catch(() => null);
     }
     const writeResult = expectedVersion
-      ? await this._resourceIO.writeExpectedVersion(targetRef, String(body.content ?? ""), expectedVersion, mutationOptions(options))
-      : await this._resourceIO.write(targetRef, String(body.content ?? ""), mutationOptions(options));
+      ? await this._resourceIO.writeExpectedVersion(targetRef, String(body.content ?? ""), expectedVersion, this._mutationOptions(options))
+      : await this._resourceIO.write(targetRef, String(body.content ?? ""), this._mutationOptions(options));
     if (writeResult?.conflict) {
       return {
         ok: false,
@@ -187,7 +190,7 @@ export class MountAwareFileService {
     await this._resourceIO.rename(
       resourceRefForTarget(root, this._normalizeTargetSubpath(subdir, oldName)),
       resourceRefForTarget(root, this._normalizeTargetSubpath(subdir, newName)),
-      mutationOptions(options),
+      this._mutationOptions(options),
     );
     return workbenchWriteResult(root, "rename", { files: await this.filesForDirectory(root.id, subdir) }, this._discloseNativeRoot);
   }
@@ -199,11 +202,11 @@ export class MountAwareFileService {
     const source = resolveFileTarget(root.path, dir, name);
     const destDir = resolveInsideRoot(root.path, destSubdir);
     if (!source || !destDir) throw fileError("invalid path", "invalid_path", 400);
-    await this._resourceIO.mkdir(resourceRefForRoot(root, destSubdir), { emit: false });
+    await this._resourceIO.mkdir(resourceRefForRoot(root, destSubdir), this._mutationOptions({ ...options, emit: false }));
     await this._resourceIO.move(
       resourceRefForTarget(root, this._normalizeTargetSubpath(subdir, name)),
       resourceRefForTarget(root, this._normalizeTargetSubpath(destSubdir, name)),
-      mutationOptions(options),
+      this._mutationOptions(options),
     );
     return workbenchWriteResult(root, "move", { files: await this.filesForDirectory(root.id, subdir) }, this._discloseNativeRoot);
   }
@@ -220,7 +223,7 @@ export class MountAwareFileService {
       const destStat = await this._resourceIO.stat(resourceRefForRoot(root, destSubdir));
       if (!destStat.exists || !destStat.isDirectory) throw fileError("destSubdir is not a directory", "dest_not_directory", 400);
     } else {
-      await this._resourceIO.mkdir(resourceRefForRoot(root, destSubdir), { emit: false });
+      await this._resourceIO.mkdir(resourceRefForRoot(root, destSubdir), this._mutationOptions({ ...options, emit: false }));
     }
 
     const touchedSubdirs = new Set([currentSubdir, destSubdir]);
@@ -255,7 +258,7 @@ export class MountAwareFileService {
         continue;
       }
       try {
-        await this._resourceIO.move(sourceRef, targetRef, mutationOptions(options));
+        await this._resourceIO.move(sourceRef, targetRef, this._mutationOptions(options));
         touchedSubdirs.add(sourceSubdir);
         touchedSubdirs.add(destSubdir);
         results.push({ name, ok: true });
@@ -293,7 +296,7 @@ export class MountAwareFileService {
           originalSubdir: normalizedSubdir,
         },
       },
-      mutationOptions(options),
+      this._mutationOptions(options),
     );
     return workbenchWriteResult(root, "safeDelete", {
       trashId: result.trashId,
@@ -328,7 +331,7 @@ export class MountAwareFileService {
     const result = await this._resourceIO.write(
       resourceRefForTarget(target.root, subpath),
       content,
-      mutationOptions(options),
+      this._mutationOptions(options),
     );
     return { ...target, result };
   }
@@ -340,7 +343,7 @@ export class MountAwareFileService {
     const result = await this._resourceIO.copy(
       { kind: "local-file", path: sourcePath },
       resourceRefForTarget(target.root, subpath),
-      mutationOptions(options),
+      this._mutationOptions(options),
     );
     return { ...target, result };
   }
@@ -360,6 +363,10 @@ export class MountAwareFileService {
     const dir = resolveInsideRoot(root.path, normalizedSubdir);
     if (!dir) throw fileError("invalid path", "invalid_path", 400);
     return { root, dir, normalizedSubdir };
+  }
+
+  _mutationOptions(options: Record<string, any> = {}) {
+    return mutationOptions(options, this._operationContext);
   }
 
   _resolveRootInternal(rootId = "default") {
@@ -452,12 +459,27 @@ function isResourceIO(value) {
     && typeof value.list === "function";
 }
 
-function mutationOptions(options: Record<string, any> = {}) {
+function mutationOptions(options: Record<string, any> = {}, base: Record<string, any> = {}) {
+  const out: Record<string, any> = {
+    source: options.source || base.source || "api",
+  };
+  for (const key of ["reason", "sessionId", "sessionPath", "requestId", "principal"]) {
+    const value = options[key] !== undefined ? options[key] : base[key];
+    if (value !== undefined) out[key] = value;
+  }
+  if (options.emit === false || base.emit === false) out.emit = false;
+  return out;
+}
+
+function normalizeOperationContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
   return {
-    source: "api",
-    ...(options.reason ? { reason: options.reason } : {}),
-    ...(options.sessionPath !== undefined ? { sessionPath: options.sessionPath } : {}),
-    ...(options.emit === false ? { emit: false } : {}),
+    ...value,
+    ...(value.principal && typeof value.principal === "object" && !Array.isArray(value.principal)
+      ? { principal: { ...value.principal } }
+      : {}),
   };
 }
 

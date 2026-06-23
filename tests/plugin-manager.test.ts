@@ -756,7 +756,19 @@ describe("tool loading", () => {
     });
 
     expect(result.content[0].text).toBe("mounted note");
-    expect(resourceIO.read).toHaveBeenCalledWith({ kind: "mount", mountId: "docs", path: "note.md" });
+    expect(resourceIO.read).toHaveBeenCalledWith(
+      { kind: "mount", mountId: "docs", path: "note.md" },
+      expect.objectContaining({
+        source: "plugin",
+        reason: "plugin:resource-tool-plugin:read",
+        sessionPath: "/sessions/plugin.jsonl",
+        principal: expect.objectContaining({
+          kind: "plugin",
+          pluginId: "resource-tool-plugin",
+          sessionPath: "/sessions/plugin.jsonl",
+        }),
+      }),
+    );
   });
 
   it("passes sessionId-first runtime context into plugin tools and staged files", async () => {

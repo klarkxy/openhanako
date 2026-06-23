@@ -23,6 +23,7 @@ export type ResourceEventSource =
   | "agent_tool"
   | "provider_watch"
   | "api"
+  | "plugin"
   | "bash_reconcile"
   | "mount"
   | "session_file"
@@ -68,6 +69,18 @@ export type ResourceEvent =
   | ResourceDeletedEvent
   | ResourceRenamedEvent;
 
+export type ResourceEventCatchUpResult =
+  | {
+    stale: false;
+    latestSequence: number;
+    events: ResourceEvent[];
+  }
+  | {
+    stale: true;
+    latestSequence: number;
+    events: [];
+  };
+
 export type ResourceProviderCapabilities = {
   stat?: boolean;
   read?: boolean;
@@ -85,6 +98,15 @@ export type ResourceProviderCapabilities = {
   delete?: boolean;
   mkdir?: boolean;
 };
+
+export type ResourceProviderCapability = keyof ResourceProviderCapabilities;
+
+export type ResourceProviderId =
+  | "local_fs"
+  | "mount"
+  | "session_file"
+  | "resource"
+  | "url";
 
 export type ResourceStat = {
   resourceKey: string;
@@ -188,4 +210,93 @@ export type MaterializeResult = {
   resource: ResourceDescriptor;
   filePath: string;
   version?: ResourceVersion;
+};
+
+export type SessionFileResolution = {
+  ref: Extract<ResourceRef, { kind: "session-file" }>;
+  entry: Record<string, any>;
+  filePath: string;
+  sourceRef?: ResourceRef;
+  displayName?: string;
+  storageKind?: string;
+};
+
+export type ResourceWatchTarget = {
+  ref?: ResourceRef;
+  filePath: string;
+  isDirectory?: boolean;
+  resourceKey: string;
+  resource: ResourceDescriptor;
+  toResource?: (changedPath: string) => {
+    resourceKey: string;
+    resource: ResourceDescriptor;
+    filePath?: string;
+  };
+};
+
+export type ResourceProvider = {
+  id: ResourceProviderId;
+  capabilities?: (ref: ResourceRef) => ResourceProviderCapabilities;
+  watchTarget?: (ref: ResourceRef) => ResourceWatchTarget;
+  stat?: (ref: ResourceRef) => Promise<ResourceStat>;
+  read?: (ref: ResourceRef) => Promise<ResourceReadResult>;
+  write?: (ref: ResourceRef, content: string | Buffer) => Promise<ResourceMutationResult>;
+  writeExpectedVersion?: (ref: ResourceRef, content: string | Buffer, expectedVersion: ResourceVersion) => Promise<ResourceWriteExpectedVersionResult>;
+  edit?: (ref: ResourceRef, edits: ResourceEdit[]) => Promise<ResourceMutationResult>;
+  mkdir?: (ref: ResourceRef) => Promise<ResourceMutationResult>;
+  delete?: (ref: ResourceRef) => Promise<ResourceMutationResult>;
+  list?: (ref: ResourceRef) => Promise<ResourceListResult>;
+  search?: (ref: ResourceRef, options?: Record<string, unknown>) => Promise<ResourceSearchResult>;
+  materialize?: (ref: ResourceRef) => Promise<MaterializeResult>;
+  copy?: (from: ResourceRef, to: ResourceRef) => Promise<ResourceMutationResult>;
+  rename?: (from: ResourceRef, to: ResourceRef) => Promise<ResourceMoveResult>;
+  move?: (from: ResourceRef, to: ResourceRef) => Promise<ResourceMoveResult>;
+  trash?: (ref: ResourceRef, options?: ResourceTrashOptions) => Promise<ResourceTrashResult>;
+};
+
+export type ResourcePrincipal = {
+  kind: "agent" | "plugin" | "api" | "watch" | "system";
+  userId?: string | null;
+  studioId?: string | null;
+  sessionId?: string | null;
+  sessionPath?: string | null;
+  pluginId?: string | null;
+  connectionKind?: string | null;
+  credentialKind?: string | null;
+  requestId?: string | null;
+};
+
+export type ResourceOperationContext = {
+  source?: ResourceEventSource;
+  reason?: string;
+  principal?: ResourcePrincipal;
+  sessionId?: string | null;
+  sessionPath?: string | null;
+  requestId?: string | null;
+  emit?: boolean;
+  auditRead?: boolean;
+};
+
+export type ResourceAuditOutcome = "allowed" | "denied" | "conflict";
+
+export type ResourceAuditEvent = {
+  type: "resource.audit";
+  outcome: ResourceAuditOutcome;
+  operation: ResourceProviderCapability;
+  providerId?: ResourceProviderId;
+  resourceKey?: string;
+  resource?: ResourceDescriptor;
+  principal?: ResourcePrincipal;
+  reason?: string;
+  code?: string;
+  safeMessage?: string;
+  sessionId?: string | null;
+  sessionPath?: string | null;
+  requestId?: string | null;
+  sequence: number;
+  occurredAt: string;
+};
+
+export type ResourceAuditSink = {
+  record(event: Omit<ResourceAuditEvent, "type" | "sequence" | "occurredAt">): ResourceAuditEvent | void;
 };

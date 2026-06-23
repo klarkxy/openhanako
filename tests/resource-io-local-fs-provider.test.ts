@@ -3,6 +3,25 @@ import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocalFsProvider } from "../lib/resource-io/providers/local-fs-provider.ts";
+import { ResourceAccessPolicy } from "../lib/resource-io/resource-access-policy.ts";
+
+const CAPABILITY_KEYS = [
+  "stat",
+  "read",
+  "write",
+  "writeExpectedVersion",
+  "edit",
+  "list",
+  "search",
+  "watch",
+  "materialize",
+  "copy",
+  "rename",
+  "move",
+  "trash",
+  "delete",
+  "mkdir",
+].sort();
 
 describe("LocalFsProvider", () => {
   let tempRoot: string | null = null;
@@ -26,6 +45,12 @@ describe("LocalFsProvider", () => {
       provider: new LocalFsProvider({ cwd, guard: { check }, trashRoot }),
     };
   }
+
+  it("declares the complete provider capability matrix", () => {
+    const { provider } = makeProvider();
+
+    expect(Object.keys(provider.capabilities()).sort()).toEqual(CAPABILITY_KEYS);
+  });
 
   it("writes and stats a local file through PathGuard", async () => {
     const { cwd, realCwd, check, provider } = makeProvider();
@@ -57,6 +82,51 @@ describe("LocalFsProvider", () => {
         operation: "write",
         message: "denied by test",
       });
+  });
+
+  it("propagates typed authority denials without losing safe messages", async () => {
+    const { provider } = makeProvider(vi.fn(() => ({
+      allowed: false,
+      code: "path_outside_authorized_roots",
+      reason: "outside /secret/path",
+      safeMessage: "Resource is outside authorized roots",
+    })));
+
+    await expect(provider.write({ kind: "local-file", path: "blocked.md" }, "x"))
+      .rejects.toMatchObject({
+        code: "resource_access_denied",
+        reason: "path_outside_authorized_roots",
+        safeMessage: "Resource is outside authorized roots",
+      });
+  });
+
+  it("allows missing-path writes under authorized parents and rejects outside writes", async () => {
+    const { cwd, provider } = makeProviderWithPolicy();
+
+    await expect(provider.write({ kind: "local-file", path: "new/deep/note.md" }, "ok"))
+      .resolves.toMatchObject({ changeType: "created" });
+    expect(fs.readFileSync(path.join(cwd, "new", "deep", "note.md"), "utf-8")).toBe("ok");
+
+    await expect(provider.write({ kind: "local-file", path: path.join(path.dirname(cwd), "outside.md") }, "no"))
+      .rejects.toMatchObject({
+        code: "resource_access_denied",
+        reason: "path_outside_authorized_roots",
+      });
+  });
+
+  it("rejects symlink writes that escape the authorized workspace", async () => {
+    const { cwd, provider } = makeProviderWithPolicy();
+    const outside = path.join(path.dirname(cwd), "outside");
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, "secret.md"), "secret");
+    fs.symlinkSync(outside, path.join(cwd, "linked"), "dir");
+
+    await expect(provider.write({ kind: "local-file", path: "linked/secret.md" }, "overwrite"))
+      .rejects.toMatchObject({
+        code: "resource_access_denied",
+        reason: "path_outside_authorized_roots",
+      });
+    expect(fs.readFileSync(path.join(outside, "secret.md"), "utf-8")).toBe("secret");
   });
 
   it("reads, lists, searches, copies, deletes, and materializes local files", async () => {
@@ -168,3 +238,25 @@ describe("LocalFsProvider", () => {
     expect(fs.existsSync(path.join(cwd, "archive", "renamed.md"))).toBe(false);
   });
 });
+
+function makeProviderWithPolicy() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hana-resource-local-fs-policy-"));
+  const cwd = path.join(tempRoot, "workspace");
+  const agentDir = path.join(tempRoot, "hana-home", "agents", "hana");
+  const hanakoHome = path.join(tempRoot, "hana-home");
+  const trashRoot = path.join(tempRoot, "trash");
+  fs.mkdirSync(cwd, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+  const guard = new ResourceAccessPolicy({
+    cwd,
+    agentDir,
+    workspace: cwd,
+    workspaceFolders: [cwd],
+    hanakoHome,
+    getSandboxEnabled: () => true,
+  });
+  return {
+    cwd,
+    provider: new LocalFsProvider({ cwd, guard, trashRoot }),
+  };
+}

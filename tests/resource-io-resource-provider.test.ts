@@ -6,6 +6,24 @@ import { SessionFileRegistry } from "../lib/session-files/session-file-registry.
 import { ResourceService } from "../core/resource-service.ts";
 import { ResourceProvider } from "../lib/resource-io/providers/resource-provider.ts";
 
+const CAPABILITY_KEYS = [
+  "stat",
+  "read",
+  "write",
+  "writeExpectedVersion",
+  "edit",
+  "list",
+  "search",
+  "watch",
+  "materialize",
+  "copy",
+  "rename",
+  "move",
+  "trash",
+  "delete",
+  "mkdir",
+].sort();
+
 describe("ResourceProvider", () => {
   let tempRoot: string | null = null;
 
@@ -62,5 +80,20 @@ describe("ResourceProvider", () => {
 
     await expect(provider.write({ kind: "resource", resourceId }, "changed"))
       .rejects.toMatchObject({ code: "capability_denied" });
+  });
+
+  it("declares complete read-only capabilities and denies direct mutations", async () => {
+    const { entry, provider } = setup();
+    const ref = { kind: "resource" as const, resourceId: `res_${entry.id}` };
+
+    expect(Object.keys(provider.capabilities()).sort()).toEqual(CAPABILITY_KEYS);
+    await expect(provider.write(ref, "x")).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.writeExpectedVersion(ref, "x", { mtimeMs: 1, size: 1 })).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.edit(ref, [{ oldText: "a", newText: "b" }])).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.rename(ref, ref)).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.move(ref, ref)).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.trash(ref)).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.delete(ref)).rejects.toMatchObject({ code: "capability_denied" });
+    await expect(provider.mkdir(ref)).rejects.toMatchObject({ code: "capability_denied" });
   });
 });

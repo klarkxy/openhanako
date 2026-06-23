@@ -673,7 +673,8 @@ describe("HanaEngine.buildTools", () => {
       path: targetPath,
       content: "before\n",
     });
-    expect(blocked.content[0].text).toContain(targetPath);
+    expect(blocked.content[0].text).toContain("Resource is outside authorized roots");
+    expect(blocked.content[0].text).not.toContain(targetPath);
     expect(fs.existsSync(targetPath)).toBe(false);
 
     authorizedFolders = [authorized];
@@ -733,8 +734,8 @@ describe("HanaEngine.buildTools", () => {
       edits: [{ oldText: "yuan: hanako", newText: "yuan: caikangyong" }],
     });
 
-    expect(writeResult.content[0].text).toContain("managed");
-    expect(editResult.content[0].text).toContain("managed");
+    expect(writeResult.content[0].text.toLowerCase()).toContain("managed");
+    expect(editResult.content[0].text.toLowerCase()).toContain("managed");
     expect(fs.readFileSync(configPath, "utf-8")).toContain("yuan: hanako");
     expect(engine.registerSessionFile).not.toHaveBeenCalled();
   });

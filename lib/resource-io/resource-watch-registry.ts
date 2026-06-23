@@ -27,7 +27,8 @@ type StatPath = (targetPath: string) => {
 };
 
 type Options = {
-  emitEvent: (event: object, sessionPath?: string | null) => void;
+  emitEvent?: (event: object, sessionPath?: string | null) => void;
+  eventBus?: ResourceEventBus;
   debounceMs?: number;
   resolveWatchTarget?: ResolveWatchTarget;
   watchPath?: WatchPath;
@@ -63,9 +64,13 @@ export class ResourceWatchRegistry {
   declare watchPath: WatchPath;
   declare statPath: StatPath;
   declare eventBus: ResourceEventBus;
+  declare droppedEventCount: number;
+  declare lastErrorCode: string | null;
+  declare lastErrorMessage: string | null;
 
   constructor({
     emitEvent,
+    eventBus,
     debounceMs = 80,
     resolveWatchTarget = defaultResolveWatchTarget,
     watchPath = defaultWatchPath,
@@ -77,7 +82,10 @@ export class ResourceWatchRegistry {
     this.resolveWatchTarget = resolveWatchTarget;
     this.watchPath = watchPath;
     this.statPath = statPath;
-    this.eventBus = new ResourceEventBus({ emit: emitEvent });
+    this.eventBus = eventBus || new ResourceEventBus({ emit: emitEvent });
+    this.droppedEventCount = 0;
+    this.lastErrorCode = null;
+    this.lastErrorMessage = null;
   }
 
   subscribe(input: { resources?: unknown[]; resource?: unknown; purpose?: string | null; sessionPath?: string | null }) {
@@ -97,6 +105,7 @@ export class ResourceWatchRegistry {
         resourceKeys.push(normalized.resourceKey);
       }
     } catch (err) {
+      this.recordError(err);
       for (const release of releases.splice(0).reverse()) release();
       throw err;
     }
@@ -123,16 +132,26 @@ export class ResourceWatchRegistry {
   diagnostics() {
     return {
       subscriptions: this.subscriptions.size,
+      droppedEventCount: this.droppedEventCount,
+      lastErrorCode: this.lastErrorCode,
+      lastErrorMessage: this.lastErrorMessage,
       watches: [...this.entries.values()].map((entry) => ({
         resourceKey: entry.resourceKey,
         refCount: entry.refCount,
-        filePath: entry.filePath,
+        isDirectory: entry.isDirectory,
       })),
     };
   }
 
   retain(input: unknown): () => void {
-    const { ref, filePath, resourceKey, resource, toResource, isDirectory } = this.normalizeWatchResource(input);
+    let normalized;
+    try {
+      normalized = this.normalizeWatchResource(input);
+    } catch (err) {
+      this.recordError(err);
+      throw err;
+    }
+    const { ref, filePath, resourceKey, resource, toResource, isDirectory } = normalized;
     const existing = this.entries.get(resourceKey);
     if (existing) {
       existing.refCount += 1;
@@ -184,7 +203,10 @@ export class ResourceWatchRegistry {
   }
 
   schedule(entry: Entry, changedPath?: string | null): void {
-    if (!this.entries.has(entry.resourceKey)) return;
+    if (!this.entries.has(entry.resourceKey)) {
+      this.droppedEventCount += 1;
+      return;
+    }
     if (changedPath) entry.pendingPath = changedPath;
     if (entry.timer) clearTimeout(entry.timer);
     entry.timer = setTimeout(() => {
@@ -194,11 +216,21 @@ export class ResourceWatchRegistry {
   }
 
   emitSnapshot(entry: Entry): void {
-    if (!this.entries.has(entry.resourceKey)) return;
+    if (!this.entries.has(entry.resourceKey)) {
+      this.droppedEventCount += 1;
+      return;
+    }
     const eventPath = normalizeChangedPath(entry.filePath, entry.pendingPath, entry.isDirectory);
     entry.pendingPath = null;
-    const stat = this.statPath(eventPath);
-    const snapshot = entry.toResource?.(eventPath) || localWatchSnapshot(eventPath);
+    let stat;
+    let snapshot;
+    try {
+      stat = this.statPath(eventPath);
+      snapshot = entry.toResource?.(eventPath) || localWatchSnapshot(eventPath);
+    } catch (err) {
+      this.recordError(err);
+      return;
+    }
     const { resourceKey, resource } = snapshot;
     if (!stat.exists) {
       this.eventBus.deleted({
@@ -220,6 +252,15 @@ export class ResourceWatchRegistry {
       source: "provider_watch",
       sessionPath: null,
     });
+  }
+
+  recordError(err: unknown): void {
+    this.lastErrorCode = typeof (err as any)?.code === "string" && (err as any).code
+      ? (err as any).code
+      : "resource_watch_failed";
+    this.lastErrorMessage = typeof (err as any)?.safeMessage === "string" && (err as any).safeMessage
+      ? (err as any).safeMessage
+      : "Resource watch failed";
   }
 }
 

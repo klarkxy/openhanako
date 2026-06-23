@@ -4,7 +4,12 @@ import { describe, expect, it } from 'vitest';
 import { calculateInputCardBottomInset } from '../../utils/input-card-layout';
 
 function cssBlock(css: string, selector: string): string {
-  return css.match(new RegExp(`${selector}\\s*\\{(?<body>[^}]*)\\}`))?.groups?.body || '';
+  const exactSelector = new RegExp(`^${selector}$`);
+  for (const match of css.matchAll(/([^{}]+)\{(?<body>[^}]*)\}/g)) {
+    const selectorText = match[1].replace(/\/\*[\s\S]*?\*\//g, '').trim();
+    if (exactSelector.test(selectorText)) return match.groups?.body || '';
+  }
+  return '';
 }
 
 function readOptionalCss(relativePath: string): string | null {

@@ -162,6 +162,29 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<h2 id="same-title-1">Same Title</h2>');
   });
 
+  it('wraps markdown tables in a constrained horizontal scroll container', () => {
+    const html = renderMarkdown([
+      '| 时间 | 处理方式 |',
+      '| --- | --- |',
+      '| 6~10s 连续叙事 | 合并成一个大分镜，内部分镜头一、镜头二 |',
+    ].join('\n'));
+
+    expect(html).toContain('<div class="markdown-table-scroll">');
+    expect(html).toContain('<table>');
+    expect(html).toContain('</table>\n</div>');
+  });
+
+  it('preserves markdown table scroll containers in preview mode', () => {
+    const html = renderMarkdownPreview([
+      '| 时间 | 处理方式 |',
+      '| --- | --- |',
+      '| 6~10s 连续叙事 | 合并成一个大分镜，内部分镜头一、镜头二 |',
+    ].join('\n'));
+
+    expect(html).toContain('<div class="markdown-table-scroll">');
+    expect(html).toContain('</table>\n</div>');
+  });
+
   it('removes dangerous HTML from markdown preview output', () => {
     const html = renderMarkdownPreview([
       '<script>alert(1)</script>',

@@ -9,6 +9,7 @@ import type {
   ResourceReadResult,
   ResourceRef,
   ResourceStat,
+  ResourceVersion,
 } from "../types.ts";
 
 type Options = {
@@ -19,6 +20,8 @@ type Options = {
 };
 
 export class ResourceProvider {
+  readonly id = "resource" as const;
+
   declare resourceService: Options["resourceService"];
 
   constructor({ resourceService }: Options) {
@@ -31,12 +34,16 @@ export class ResourceProvider {
       stat: true,
       read: true,
       materialize: true,
+      writeExpectedVersion: false,
       write: false,
       edit: false,
       list: false,
       search: false,
       watch: false,
       copy: false,
+      rename: false,
+      move: false,
+      trash: false,
       delete: false,
       mkdir: false,
     };
@@ -87,12 +94,17 @@ export class ResourceProvider {
     };
   }
 
-  async write(_ref?: ResourceRef, _content?: string | Buffer): Promise<ResourceMutationResult> { throw capabilityDenied("write", "resource"); }
-  async edit(_ref?: ResourceRef, _edits?: unknown[]): Promise<ResourceMutationResult> { throw capabilityDenied("edit", "resource"); }
-  async list(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("list", "resource"); }
-  async search(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("search", "resource"); }
-  async delete(_ref?: ResourceRef): Promise<ResourceMutationResult> { throw capabilityDenied("delete", "resource"); }
-  async mkdir(_ref?: ResourceRef): Promise<ResourceMutationResult> { throw capabilityDenied("mkdir", "resource"); }
+  async write(_ref?: ResourceRef, _content?: string | Buffer): Promise<ResourceMutationResult> { throw capabilityDenied("write", this.id); }
+  async writeExpectedVersion(_ref?: ResourceRef, _content?: string | Buffer, _expectedVersion?: ResourceVersion): Promise<never> { throw capabilityDenied("writeExpectedVersion", this.id); }
+  async edit(_ref?: ResourceRef, _edits?: unknown[]): Promise<ResourceMutationResult> { throw capabilityDenied("edit", this.id); }
+  async list(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("list", this.id); }
+  async search(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("search", this.id); }
+  async copy(_from?: ResourceRef, _to?: ResourceRef): Promise<never> { throw capabilityDenied("copy", this.id); }
+  async rename(_from?: ResourceRef, _to?: ResourceRef): Promise<never> { throw capabilityDenied("rename", this.id); }
+  async move(_from?: ResourceRef, _to?: ResourceRef): Promise<never> { throw capabilityDenied("move", this.id); }
+  async trash(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("trash", this.id); }
+  async delete(_ref?: ResourceRef): Promise<ResourceMutationResult> { throw capabilityDenied("delete", this.id); }
+  async mkdir(_ref?: ResourceRef): Promise<ResourceMutationResult> { throw capabilityDenied("mkdir", this.id); }
 
   resolveContent(ref: ResourceRef) {
     if (ref.kind !== "resource") {

@@ -140,13 +140,12 @@ def required_sdk_packages(include_tool: bool, include_ui: bool, include_lifecycl
         return []
     packages: list[str] = []
     if include_tool or include_lifecycle:
+        packages.append("@hana/plugin-protocol")
         packages.append("@hana/plugin-runtime")
     if include_ui:
-        packages.extend([
-            "@hana/plugin-protocol",
-            "@hana/plugin-sdk",
-            "@hana/plugin-components",
-        ])
+        if "@hana/plugin-protocol" not in packages:
+            packages.append("@hana/plugin-protocol")
+        packages.extend(["@hana/plugin-sdk", "@hana/plugin-components"])
     return packages
 
 
@@ -705,6 +704,11 @@ const hana = {{
   toast: {{ show: (input) => request("toast.show", input) }},
   external: {{ open: (url) => request("external.open", typeof url === "string" ? {{ url }} : url) }},
   clipboard: {{ writeText: (text) => request("clipboard.writeText", typeof text === "string" ? {{ text }} : text) }},
+  resources: {{
+    open: (input) => request("resource.open", input),
+    pick: (input = {{}}) => request("resource.pick", input),
+    requestAccess: (input) => request("resource.requestAccess", input),
+  }},
   theme: {{
     getSnapshot: () => {{
       const params = new URLSearchParams(window.location.search);
@@ -1163,14 +1167,28 @@ def create_readme(
     lines.extend([
         "",
         "Install by dragging this folder into Hana Settings > Plugins, or place it under the user plugin directory reported by `/api/plugins/settings`.",
+        "",
+        "## File and resource rules",
+        "",
+        "- The sample note tool writes plugin-owned output under `ctx.dataDir`, then returns it through `stageFile()` as SessionFile media.",
+        "- If you add a feature that reads, edits, or watches user files, use `ctx.resources` with ResourceRef inputs and declare the matching `resource.read`, `resource.search`, `resource.write`, `resource.materialize`, or `resource.watch` capability.",
+        "- Use `ctx.resources.watch()` / `ctx.resources.subscribe()` for backend resource watches, release the returned handle, and filter `resource.changed` / `resource.deleted` / `resource.renamed` bus events by `resourceKeys`.",
+        "- Browser iframe code may open, pick, or request access to resources through `hana.resources.*`, but real file reads and writes belong in server-side plugin tools, routes, or lifecycle code.",
+        "- Do not treat `SessionFile`, mount, URL, or future remote resources as host-local paths. Use `ctx.resources.materialize(ref)` only for libraries that require a concrete execution path, and write back through ResourceIO explicitly.",
+        "- If you create plugin-only chat runs, create sessions with `visibility: \"plugin_private\"` and return `createChatSurfaceCard(ctx, session.sessionRef ?? session, options)` from `details.card`. Do not hand-build path-only chat surface payloads.",
     ])
     if include_ui:
-        lines.append("This plugin requires full-access because Hana page and widget contributions are route-backed iframe UI.")
+        lines.extend([
+            "This plugin requires full-access because Hana page and widget contributions are route-backed WebView/iframe UI.",
+            "Use WebView/iframe cards for existing web apps, remote sites, or standalone HTML. Use native `chat.surface` only for plugin-owned private session transcripts.",
+            "The starter manifest grants only the host calls used by the sample panel. If you add `hana.resources.open()`, `hana.resources.pick()`, or `hana.resources.requestAccess()` calls, add the matching `resource.open`, `resource.pick`, or `resource.requestAccess` entries under `ui.hostCapabilities`.",
+        ])
     if include_provider:
         lines.extend([
             "This plugin requires full-access because provider contributions can affect model discovery and runtime execution.",
             "The sample provider is media-only: `chat.projection = \"none\"` keeps it out of chat model selectors.",
             "CLI-backed providers must use structured argument bindings and output contracts; do not replace them with shell command strings.",
+            "Do not call legacy media generation EventBus namespaces from new provider plugins; declare `providers/*.js` with `capabilities.media.*`, then use stable media helpers or the formal Adapter Plugin API when available.",
         ])
     return "\n".join(lines)
 

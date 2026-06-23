@@ -23,12 +23,12 @@ import { buildCoverStyleGuideForAgent } from "../../plugins/beautify/lib/cover-s
 import { createSubmitContext, validateImageModelRef } from "../../plugins/image-gen/lib/image-task-runner.ts";
 import { DEFAULT_ACTIVITY_EXECUTION_TIMEOUT_MS, activityTimeoutPatch } from "../../lib/desk/activity-store.ts";
 import { t } from "../../lib/i18n.ts";
-import { resourceKeyForRef } from "../../lib/resource-io/resource-refs.ts";
 import { realPath, isSensitivePath } from "../utils/path-security.ts";
 import { readAuthPrincipal } from "../http/capability-guard.ts";
 import { jsonRouteError } from "../http/route-errors.ts";
 import { isLocalOwnerPrincipal } from "../http/route-security.ts";
 import { createRequestContext } from "../http/boundary.ts";
+import { createApiResourceOperationContext, requestIdFromHono } from "../http/resource-operation-context.ts";
 import { MountAwareFileError, MountAwareFileService } from "../../core/mount-aware-file-service.ts";
 import { materializeUploadedSkillPackage } from "../utils/uploaded-skill-package.ts";
 
@@ -137,6 +137,20 @@ function normalizeRouteCreatedBy(value) {
     return JSON.parse(JSON.stringify(value));
   }
   return { kind: "user" };
+}
+
+function normalizeRouteEverySchedule(schedule) {
+  if (typeof schedule === "number") {
+    if (!Number.isFinite(schedule) || schedule < 60_000) {
+      throw new Error("every schedule must be at least 60000 milliseconds");
+    }
+    return schedule;
+  }
+  const minutes = parseInt(schedule, 10);
+  if (isNaN(minutes) || minutes <= 0) {
+    throw new Error("every schedule must be a positive number (minutes)");
+  }
+  return minutes * 60_000;
 }
 
 function normalizeRouteExecutor(value) {
@@ -399,6 +413,10 @@ export function createDeskRoute(engine, hub) {
         ? (args) => engine.createUserEditCheckpoint(args)
         : null,
       resourceIO: resourceIOForEngine(engine),
+      operationContext: createApiResourceOperationContext({
+        requestContext,
+        requestId: requestIdFromHono(c),
+      }),
     });
   }
 
@@ -542,29 +560,6 @@ export function createDeskRoute(engine, hub) {
     return err;
   }
 
-  function emitMarkdownCoverResourceChanged(targetInfo) {
-    const filePath = targetInfo?.filePath;
-    if (typeof filePath !== "string" || !filePath) return;
-    const stat = fs.statSync(filePath);
-    engine.emitResourceChanged({
-      changeType: "modified",
-      resourceKey: resourceKeyForRef({ kind: "local-file", path: filePath }),
-      resource: {
-        kind: "local-file",
-        provider: "local_fs",
-        path: filePath,
-        filePath,
-        ...(targetInfo.target ? { target: targetInfo.target } : {}),
-      },
-      version: {
-        mtimeMs: stat.mtimeMs,
-        size: stat.size,
-      },
-      source: "api",
-      reason: "markdown_cover",
-    });
-  }
-
   async function validateBeautifyGenerationAccess(body) {
     const status = await getBeautifyGenerationStatus(body?.executorAgentId || body?.agentId);
     if (!status.executorAgentId) return { error: "agent unavailable", status: 500, reason: "agent-unavailable" };
@@ -613,8 +608,13 @@ export function createDeskRoute(engine, hub) {
       const result = await (applyMarkdownCoverFromGeneratedFile as any)({
         markdownFilePath: targetInfo.filePath,
         generatedFilePath: image.filePath,
+        resourceIO: resourceIOForEngine(engine),
+        operationContext: createApiResourceOperationContext({
+          requestContext: createRequestContext(c, engine),
+          requestId: requestIdFromHono(c),
+          reason: "desk.beautify.cover.apply",
+        }),
       });
-      emitMarkdownCoverResourceChanged(targetInfo);
       return c.json({
         ok: true,
         ...(targetInfo.target ? { target: targetInfo.target } : {}),
@@ -648,8 +648,13 @@ export function createDeskRoute(engine, hub) {
       const result = await (applyMarkdownCoverFromGeneratedFile as any)({
         markdownFilePath: targetInfo.filePath,
         generatedFilePath: imageFilePath,
+        resourceIO: resourceIOForEngine(engine),
+        operationContext: createApiResourceOperationContext({
+          requestContext: createRequestContext(c, engine),
+          requestId: requestIdFromHono(c),
+          reason: "desk.beautify.cover.preset_apply",
+        }),
       });
-      emitMarkdownCoverResourceChanged(targetInfo);
       return c.json({
         ok: true,
         ...(targetInfo.target ? { target: targetInfo.target } : {}),
@@ -901,11 +906,11 @@ export function createDeskRoute(engine, hub) {
           return c.json({ error: `Invalid scheduleType: ${type}. Must be at/every/cron.` }, 400);
         }
         if (type === "every") {
-          const minutes = parseInt(params.schedule, 10);
-          if (isNaN(minutes) || minutes <= 0) {
-            return c.json({ error: "every schedule must be a positive number (minutes)" }, 400);
+          try {
+            params.schedule = normalizeRouteEverySchedule(params.schedule);
+          } catch (err) {
+            return c.json({ error: err.message }, 400);
           }
-          params.schedule = minutes * 60_000;
         }
         const actorAgentId = typeof params.actorAgentId === "string" && params.actorAgentId.trim()
           ? params.actorAgentId.trim()
@@ -987,17 +992,10 @@ export function createDeskRoute(engine, hub) {
         }
         const nextType = fields.type || existingJob.type;
         if (fields.schedule !== undefined && nextType === "every") {
-          if (typeof fields.schedule === "number") {
-            if (!Number.isFinite(fields.schedule) || fields.schedule <= 0) {
-              return c.json({ error: "every schedule must be a positive number" }, 400);
-            }
-            fields.schedule = fields.schedule < 60_000 ? fields.schedule * 60_000 : fields.schedule;
-          } else {
-            const minutes = parseInt(fields.schedule, 10);
-            if (isNaN(minutes) || minutes <= 0) {
-              return c.json({ error: "every schedule must be a positive number (minutes)" }, 400);
-            }
-            fields.schedule = minutes * 60_000;
+          try {
+            fields.schedule = normalizeRouteEverySchedule(fields.schedule);
+          } catch (err) {
+            return c.json({ error: err.message }, 400);
           }
         }
         let job;

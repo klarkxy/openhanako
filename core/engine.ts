@@ -284,7 +284,7 @@ export class HanaEngine {
       getSessionIdForPath: (sessionPath) => this.getSessionIdForPath(sessionPath),
     });
     this._resourceWatchRegistry = new ResourceWatchRegistry({
-      emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
+      eventBus: this._resourceEvents(),
       resolveWatchTarget: (resource) => this.getResourceIO().resolveWatchTarget(resource),
     });
     this._sessionManifestStoreRecovery = null;
@@ -681,6 +681,9 @@ export class HanaEngine {
   emitResourceRenamed(input) {
     return this._resourceEvents().renamed(input);
   }
+  resourceEventsSince(sequence) {
+    return this._resourceEvents().since(sequence);
+  }
   _emitResourceChangedForSessionFileOperation(file, entry: any = {}) {
     const origin = typeof file?.origin === "string" ? file.origin : entry?.origin;
     if (origin !== "agent_write" && origin !== "agent_edit") return;
@@ -814,6 +817,7 @@ export class HanaEngine {
         getSandboxEnabled: () => false,
         getSessionPath: () => this.currentSessionPath || null,
         emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
+        eventBus: this._resourceEvents(),
         sessionFiles: this._sessionFiles,
         resourceService: this.getResourceService(),
         studioId: this._runtimeContext.studioId,
@@ -2054,6 +2058,10 @@ export class HanaEngine {
       registerSessionFile: (entry) => this.registerSessionFile(entry),
       emitResourceChanged: (input) => this.emitResourceChanged(input),
       resourceIO: () => this.getResourceIO(),
+      resourceWatch: {
+        subscribe: (input) => this.subscribeResourceWatch(input),
+        unsubscribe: (subscriptionId) => this.unsubscribeResourceWatch(subscriptionId),
+      },
       slashRegistry: this._slashSystem?.registry ?? null,
       loadTimeoutMs: undefined,
       lifecycleTimeoutMs: undefined,
@@ -2286,6 +2294,7 @@ export class HanaEngine {
       getExternalReadPaths,
       getSessionPath,
       emitEvent: (event, sessionPath) => this._emitEvent(event, sessionPath),
+      eventBus: this._resourceEvents(),
       sessionFiles: this._sessionFiles,
       resourceService: this._resources || null,
       studioId: this._runtimeContext?.studioId || null,

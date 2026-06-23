@@ -9,6 +9,12 @@ type ToolOperationsOptions = {
   cwd: string;
   resourceIO: ResourceIO;
   getSessionPath?: () => string | null;
+  getSessionIdentity?: () => {
+    sessionId?: string | null;
+    sessionPath?: string | null;
+    userId?: string | null;
+    studioId?: string | null;
+  };
   detectImageMimeType?: (filePath: string) => Promise<string | undefined> | string | undefined;
 };
 
@@ -81,8 +87,31 @@ export function createResourceIoToolOperations({
   cwd,
   resourceIO,
   getSessionPath = () => null,
+  getSessionIdentity,
   detectImageMimeType,
 }: ToolOperationsOptions) {
+  const operationContext = (reason: string, extra: Record<string, unknown> = {}) => {
+    const identity = typeof getSessionIdentity === "function"
+      ? getSessionIdentity() || {}
+      : { sessionPath: getSessionPath() };
+    const sessionPath = identity.sessionPath ?? getSessionPath() ?? null;
+    const sessionId = identity.sessionId ?? null;
+    return {
+      ...extra,
+      source: "agent_tool" as const,
+      reason,
+      sessionId,
+      sessionPath,
+      principal: {
+        kind: "agent" as const,
+        sessionId,
+        sessionPath,
+        userId: identity.userId ?? null,
+        studioId: identity.studioId ?? null,
+      },
+    };
+  };
+
   const refForPath = (filePath: string): ResourceRef => {
     const absolute = filePathFromRefPath(filePath, cwd);
     const bindings = targetBindingStorage.getStore() || [];
@@ -119,30 +148,18 @@ export function createResourceIoToolOperations({
   };
 
   const writeFile = async (filePath: string, content: string | Buffer) => {
-    await resourceIO.write(refForPath(filePath), content, {
-      source: "agent_tool",
-      reason: "agent_write",
-      sessionPath: getSessionPath(),
-    });
+    await resourceIO.write(refForPath(filePath), content, operationContext("agent_write"));
   };
 
   const editWriteFile = async (filePath: string, content: string | Buffer) => {
-    await resourceIO.write(refForPath(filePath), content, {
-      source: "agent_tool",
-      reason: "agent_edit",
-      sessionPath: getSessionPath(),
-    });
+    await resourceIO.write(refForPath(filePath), content, operationContext("agent_edit"));
   };
 
   const mkdir = async (dirPath: string) => {
     const absolute = filePathFromRefPath(dirPath, cwd);
     const stat = await resourceIO.stat(refForPath(absolute));
     if (stat.exists) return;
-    await resourceIO.mkdir(refForPath(absolute), {
-      emit: false,
-      source: "agent_tool",
-      sessionPath: getSessionPath(),
-    });
+    await resourceIO.mkdir(refForPath(absolute), operationContext("agent_mkdir", { emit: false }));
   };
 
   return {

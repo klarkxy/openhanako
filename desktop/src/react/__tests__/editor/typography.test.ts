@@ -14,6 +14,20 @@ function readPreviewStyles(): string {
   );
 }
 
+function readGlobalStyles(): string {
+  return fs.readFileSync(
+    path.join(process.cwd(), 'desktop/src/styles.css'),
+    'utf8',
+  );
+}
+
+function readMobileStyles(): string {
+  return fs.readFileSync(
+    path.join(process.cwd(), 'desktop/src/react/mobile/mobile-entry.css'),
+    'utf8',
+  );
+}
+
 function readEditorTheme(): string {
   return fs.readFileSync(
     path.join(process.cwd(), 'desktop/src/react/editor/theme.ts'),
@@ -173,6 +187,19 @@ describe('editor typography settings', () => {
     expect(theme).toMatch(/'\.cm-markdown-cover':\s*\{[\s\S]*paddingBottom:\s*'var\(--space-lg\)'/);
     expect(theme).toMatch(/'\.cm-markdown-cover':\s*\{[\s\S]*boxSizing:\s*'content-box'/);
     expect(theme).toMatch(/'\.cm-markdown-cover-resize':\s*\{[\s\S]*bottom:\s*'var\(--space-lg\)'/);
+  });
+
+  it('constrains markdown tables while allowing horizontal scroll', () => {
+    for (const css of [readGlobalStyles(), readMobileStyles()]) {
+      expect(css).toMatch(/\.md-content \.markdown-table-scroll\s*\{[\s\S]*max-width:\s*100%[\s\S]*overflow-x:\s*auto/);
+      expect(css).toMatch(/\.md-content \.markdown-table-scroll > table\s*\{[\s\S]*width:\s*max-content[\s\S]*margin:\s*0/);
+      expect(css).toMatch(/\.md-content th,\s*\.md-content td\s*\{[\s\S]*white-space:\s*nowrap/);
+    }
+
+    const previewCss = readPreviewStyles();
+    expect(previewCss).toMatch(/:global\(\.cm-table-widget\)\s*\{[\s\S]*max-width:\s*100%[\s\S]*overflow-x:\s*auto/);
+    expect(previewCss).toMatch(/:global\(\.cm-table-widget table\)\s*\{[\s\S]*width:\s*max-content/);
+    expect(previewCss).toMatch(/:global\(\.cm-table-widget th\),\s*:global\(\.cm-table-widget td\)\s*\{[\s\S]*white-space:\s*nowrap/);
   });
 
   it('uses the same typography variables in markdown editor and preview rendering', () => {

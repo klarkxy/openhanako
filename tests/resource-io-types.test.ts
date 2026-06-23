@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeResourceRef, resourceKeyForRef } from "../lib/resource-io/resource-refs.ts";
+import type { ResourceProvider, ResourceProviderCapability, ResourceProviderId } from "../lib/resource-io/types.ts";
 
 describe("ResourceIO ResourceRef normalization", () => {
   it("normalizes path aliases to local-file refs", () => {
@@ -36,5 +37,19 @@ describe("ResourceIO ResourceRef normalization", () => {
   it("creates stable resource keys", () => {
     expect(resourceKeyForRef({ kind: "mount", mountId: "m1", path: "docs/a.md" })).toBe("mount:m1:docs/a.md");
     expect(resourceKeyForRef({ kind: "session-file", fileId: "sf_123" })).toBe("session_file:sf_123");
+  });
+
+  it("exports the public provider contract used by ResourceIO providers", () => {
+    const capability: ResourceProviderCapability = "writeExpectedVersion";
+    const providerId: ResourceProviderId = "session_file";
+    const provider: Partial<ResourceProvider> = {
+      id: providerId,
+      capabilities: () => ({ [capability]: false }),
+    };
+
+    expect(provider.id).toBe("session_file");
+    expect(provider.capabilities?.({ kind: "session-file", fileId: "sf_1" })).toMatchObject({
+      writeExpectedVersion: false,
+    });
   });
 });

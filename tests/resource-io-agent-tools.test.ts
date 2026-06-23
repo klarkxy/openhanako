@@ -80,6 +80,12 @@ describe("ResourceIO agent tools", () => {
       cwd: tmpDir,
       resourceIO: resourceIO as any,
       getSessionPath: () => "/sessions/a.jsonl",
+      getSessionIdentity: () => ({
+        sessionId: "sess_1",
+        sessionPath: "/sessions/a.jsonl",
+        userId: "user_1",
+        studioId: "studio_1",
+      }),
     });
     const filePath = path.join(tmpDir, "notes", "a.md");
 
@@ -92,6 +98,14 @@ describe("ResourceIO agent tools", () => {
         source: "agent_tool",
         reason: "agent_write",
         sessionPath: "/sessions/a.jsonl",
+        sessionId: "sess_1",
+        principal: expect.objectContaining({
+          kind: "agent",
+          sessionId: "sess_1",
+          sessionPath: "/sessions/a.jsonl",
+          userId: "user_1",
+          studioId: "studio_1",
+        }),
       }),
     );
   });
@@ -155,6 +169,34 @@ describe("ResourceIO agent tools", () => {
     );
     expect(writeExecute).not.toHaveBeenCalled();
     expect(writeResult.content[0].text).toContain("cannot be written or edited directly");
+  });
+
+  it("rejects resource-shaped SessionFile write and edit targets before local delegation", async () => {
+    const execute = vi.fn();
+    const [write, edit] = wrapResourceIoFileTools([
+      { name: "write", parameters: { type: "object", required: ["path", "content"], properties: {} }, execute },
+      { name: "edit", parameters: { type: "object", required: ["path", "oldText", "newText"], properties: {} }, execute },
+    ], {
+      cwd: "/workspace",
+      getSessionPath: () => "/sessions/a.jsonl",
+      resourceIO: {
+        materialize: vi.fn(),
+      },
+    });
+
+    const writeResult = await write.execute("write-session-file", {
+      resource: { kind: "session-file", fileId: "sf_doc" },
+      content: "new",
+    });
+    const editResult = await edit.execute("edit-session-file", {
+      resource: { kind: "session-file", fileId: "sf_doc" },
+      oldText: "old",
+      newText: "new",
+    });
+
+    expect(writeResult.content[0].text).toContain("cannot be written or edited directly");
+    expect(editResult.content[0].text).toContain("cannot be written or edited directly");
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("allows URL reads and keeps URL targets read-only", async () => {

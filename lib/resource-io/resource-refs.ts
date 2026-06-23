@@ -1,5 +1,5 @@
 import path from "path";
-import type { ResourceRef } from "./types.ts";
+import type { ResourceProviderId, ResourceRef } from "./types.ts";
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -81,5 +81,20 @@ export function resourceKeyForRef(ref: ResourceRef): string {
       return `resource:${ref.resourceId}`;
     case "url":
       return `url:${ref.url}`;
+  }
+}
+
+export function providerIdForResourceRef(ref: ResourceRef): ResourceProviderId {
+  switch (ref.kind) {
+    case "local-file":
+      return "local_fs";
+    case "mount":
+      return "mount";
+    case "session-file":
+      return "session_file";
+    case "resource":
+      return "resource";
+    case "url":
+      return "url";
   }
 }

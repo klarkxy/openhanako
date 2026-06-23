@@ -1,6 +1,7 @@
 import path from "path";
 import { describe, expect, it, vi } from "vitest";
 import { ResourceWatchRegistry } from "../lib/resource-io/resource-watch-registry.ts";
+import { ResourceEventBus } from "../lib/resource-io/resource-event-bus.ts";
 import { resourceKeyForRef } from "../lib/resource-io/resource-refs.ts";
 
 describe("ResourceWatchRegistry", () => {
@@ -70,17 +71,61 @@ describe("ResourceWatchRegistry", () => {
         resources: [{ kind: "local-file", path: "/workspace/notes/a.md" }],
       });
 
-      expect(subscription.resourceKeys).toEqual(["local_fs:D:/workspace/notes/a.md"]);
-      expect(watchPath).toHaveBeenCalledWith("D:\\workspace\\notes\\a.md", expect.any(Function));
-      expect(registry.diagnostics().watches[0]).toMatchObject({
-        resourceKey: "local_fs:D:/workspace/notes/a.md",
-        filePath: "D:\\workspace\\notes\\a.md",
-      });
-    } finally {
+    expect(subscription.resourceKeys).toEqual(["local_fs:D:/workspace/notes/a.md"]);
+    expect(watchPath).toHaveBeenCalledWith("D:\\workspace\\notes\\a.md", expect.any(Function));
+    expect(registry.diagnostics().watches[0]).toMatchObject({
+      resourceKey: "local_fs:D:/workspace/notes/a.md",
+    });
+  } finally {
       vi.doUnmock("path");
       vi.resetModules();
       cwdSpy.mockRestore();
     }
+  });
+
+  it("canonicalizes relative local-file watch refs before retaining watches", () => {
+    const close = vi.fn();
+    const watchPath = vi.fn(() => ({ close }));
+    const registry = new ResourceWatchRegistry({
+      emitEvent: vi.fn(),
+      watchPath,
+    });
+
+    const subscription = registry.subscribe({
+      purpose: "preview",
+      resources: [{ kind: "local-file", path: "notes/a.md" }],
+    });
+    const resolved = path.resolve("notes/a.md");
+
+    expect(subscription.resourceKeys).toEqual([resourceKeyForRef({ kind: "local-file", path: resolved })]);
+    expect(watchPath).toHaveBeenCalledWith(resolved, expect.any(Function));
+    expect(registry.diagnostics().watches[0]).toMatchObject({
+      resourceKey: resourceKeyForRef({ kind: "local-file", path: resolved }),
+    });
+  });
+
+  it("reports failed watch targets without leaking host paths through diagnostics", () => {
+    const registry = new ResourceWatchRegistry({
+      emitEvent: vi.fn(),
+      resolveWatchTarget: () => {
+        throw Object.assign(new Error("outside /secret/path"), {
+          code: "path_outside_authorized_roots",
+          safeMessage: "Resource is outside authorized roots",
+        });
+      },
+    });
+
+    expect(() => registry.subscribe({
+      purpose: "workspace-tree",
+      resources: [{ kind: "local-file", path: "/secret/path" }],
+    })).toThrow(expect.objectContaining({ code: "path_outside_authorized_roots" }));
+    expect(registry.diagnostics()).toMatchObject({
+      subscriptions: 0,
+      droppedEventCount: 0,
+      lastErrorCode: "path_outside_authorized_roots",
+      lastErrorMessage: "Resource is outside authorized roots",
+    });
+    expect(JSON.stringify(registry.diagnostics())).not.toContain("/secret/path");
   });
 
   it("emits a versioned resource.changed event after a watched local file changes", async () => {
@@ -124,6 +169,43 @@ describe("ResourceWatchRegistry", () => {
 
     release();
     expect(close).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("can share an injected event bus so provider watch events are available for catch-up", async () => {
+    vi.useFakeTimers();
+    const emitEvent = vi.fn();
+    const eventBus = new ResourceEventBus({ emit: emitEvent });
+    const filePath = path.join("/workspace", "notes", "bus.md");
+    let onChange: (() => void) | null = null;
+    const registry = new ResourceWatchRegistry({
+      eventBus,
+      debounceMs: 5,
+      watchPath: vi.fn((_targetPath, handler) => {
+        onChange = handler;
+        return { close: vi.fn() };
+      }),
+      statPath: vi.fn(() => ({
+        exists: true,
+        isDirectory: false,
+        mtimeMs: 777,
+        size: 9,
+      })),
+    });
+
+    registry.retain({ kind: "local-file", path: filePath });
+    onChange?.();
+    await vi.runAllTimersAsync();
+
+    expect(eventBus.since(0)).toMatchObject({
+      stale: false,
+      latestSequence: 1,
+      events: [expect.objectContaining({
+        type: "resource.changed",
+        resourceKey: resourceKeyForRef({ kind: "local-file", path: filePath }),
+      })],
+    });
+    expect(emitEvent).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
@@ -250,7 +332,6 @@ describe("ResourceWatchRegistry", () => {
     expect(subscription.resourceKeys).toEqual(["mount:mount_local:"]);
     expect(registry.diagnostics().watches[0]).toMatchObject({
       resourceKey: "mount:mount_local:",
-      filePath: resolvedMountRoot,
     });
 
     onChange?.(changedPath);

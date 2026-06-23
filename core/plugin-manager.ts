@@ -49,6 +49,9 @@ const KNOWN_UI_HOST_CAPABILITIES = new Set([
   "external.open",
   "clipboard.writeText",
   "sessionFile.open",
+  "resource.open",
+  "resource.pick",
+  "resource.requestAccess",
 ]);
 const DEFAULT_PLUGIN_LOAD_TIMEOUT_MS = 15_000;
 const PLUGIN_SOURCE_PRIORITY = Object.freeze({
@@ -234,6 +237,7 @@ export class PluginManager {
   declare _registerSessionFile: any;
   declare _emitResourceChanged: any;
   declare _resourceIO: any;
+  declare _resourceWatch: any;
   declare _routeApps: any;
   declare _runtimeContext: any;
   declare _scanned: any;
@@ -259,6 +263,7 @@ export class PluginManager {
     registerSessionFile,
     emitResourceChanged,
     resourceIO,
+    resourceWatch,
     slashRegistry,
     loadTimeoutMs,
     lifecycleTimeoutMs,
@@ -274,6 +279,7 @@ export class PluginManager {
     this._registerSessionFile = registerSessionFile || null;
     this._emitResourceChanged = typeof emitResourceChanged === "function" ? emitResourceChanged : null;
     this._resourceIO = resourceIO || null;
+    this._resourceWatch = resourceWatch || null;
     this._logSink = typeof logSink === "function" ? logSink : null;
     this._runtimeContext = runtimeContext || null;
     this._plugins = new Map();
@@ -694,6 +700,7 @@ export class PluginManager {
       registerSessionFile: this._registerSessionFile,
       emitResourceChanged: this._emitResourceChanged,
       resourceIO: this._resourceIO,
+      resourceWatch: this._resourceWatch,
       configSchema: entry.configSchema,
       logSink: this._logSink,
       runtimeContext: this._runtimeContext,
@@ -840,9 +847,12 @@ export class PluginManager {
               || null;
             const sessionCtx = normalizeToolSessionRef(runtimeCtx, fallbackSessionPath);
             const helperCtx = withInvocationSessionHelpers(ctx, sessionCtx);
+            const invocationResources = typeof ctx.__createInvocationResources === "function"
+              ? ctx.__createInvocationResources({ ...runtimeCtx, ...sessionCtx })
+              : ctx.resources;
             const mergedCtx = hasExplicitCtx
-              ? { ...ctx, ...runtimeCtx, ...sessionCtx, ...helperCtx, resources: ctx.resources }
-              : { ...ctx, ...sessionCtx, ...helperCtx, resources: ctx.resources };
+              ? { ...ctx, ...runtimeCtx, ...sessionCtx, ...helperCtx, resources: invocationResources }
+              : { ...ctx, ...sessionCtx, ...helperCtx, resources: invocationResources };
             const raw = await origExecute(params, mergedCtx);
             return normalizePluginToolResult(raw, ctx.pluginId);
           },

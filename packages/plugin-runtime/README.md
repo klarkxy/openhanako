@@ -81,6 +81,27 @@ export default definePlugin({
 Use `ctx.bus.listCapabilities?.()` or `ctx.bus.getCapability?.(type)` to inspect
 the host EventBus capability directory before making optional requests.
 
+## Plugin route request context
+
+Route handlers receive a request-scoped context from the host. Use
+`getPluginRequestContext(c)` instead of reading `c.get('pluginRequestContext')`
+directly when a route calls system capabilities:
+
+```ts
+import { getPluginRequestContext } from '@hana/plugin-runtime';
+
+export default function(app) {
+  app.post('/create-session', async (c) => {
+    const req = getPluginRequestContext(c);
+    const result = await req.bus.request('session:create', { agentId: req.agentId });
+    return c.json(result);
+  });
+}
+```
+
+`req.bus` validates sensitive system capability calls against the plugin
+manifest and the current full-access grant for this HTTP request.
+
 ## External HTTP APIs
 
 Use `ctx.network.fetch()` when runtime plugin code needs public HTTP data such as
@@ -148,9 +169,36 @@ search, including filename search through provider options; `resource.write`
 covers `write`, `writeExpectedVersion`, `edit`, `mkdir`, `delete`, `copy`,
 `rename`, `move`, and `trash`;
 `resource.materialize` is required before asking the host for a concrete local
-path; `resource.watch` resolves watch targets. URL resources are read-only.
-Plugin-generated artifacts can still be written under `ctx.dataDir` and returned
-with `stageFile()`, but user resource edits should go through `ctx.resources`.
+path; `resource.watch` covers backend watch subscriptions through
+`ctx.resources.watch()` / `ctx.resources.subscribe()`. URL resources are read-only.
+Resource mutations run with `principal.kind = "plugin"` and the current plugin id
+so ResourceIO audit logs can identify the source. Plugin-generated artifacts can
+still be written under `ctx.dataDir` and returned with `stageFile()`, but user
+resource edits should go through `ctx.resources`.
+
+Lifecycle plugins should release resource watches through the lifecycle
+disposable helper:
+
+```ts
+export default definePlugin({
+  async onload(ctx, { register }) {
+    const watch = ctx.resources.watch({ kind: 'mount', mountId: 'docs', path: '' });
+    register(watch.unsubscribe);
+    register(ctx.bus.subscribe((event) => {
+      if (event.type === 'resource.changed' && watch.resourceKeys.includes(event.resourceKey)) {
+        ctx.log.info('resource changed', event.resourceKey);
+      }
+    }, { types: ['resource.changed', 'resource.deleted', 'resource.renamed'] }));
+  },
+});
+```
+
+Resource refs are identity objects. A `mount`, `session-file`, `resource`, or
+`url` input should not be converted to a guessed local path by plugin code.
+`stageFile()` is for generated output delivery, while `ctx.resources` is for
+reading, writing, searching, watching, or materializing user resources. When
+`materialize()` is needed for a parser or CLI, treat the returned path as an
+execution boundary and perform any source mutation through ResourceIO.
 
 ## Tool session permissions
 
@@ -336,6 +384,38 @@ export const renderImage = defineTool({
 
 Use `stageFile()` for plugin-generated local files. `createMediaDetails()` normalizes staged files, existing `session_file` media items, and serialized `SessionFile` records into the `details.media.items` shape consumed by desktop, Bridge, Mobile PWA, and future remote clients.
 
+## Plugin-private chat surfaces
+
+Use `createChatSurfaceCard()` when a tool creates or updates a plugin-owned private session and wants to show its transcript in the current chat stream:
+
+```ts
+import { createChatSurfaceCard, createSession, defineTool } from '@hana/plugin-runtime';
+
+export const startRun = defineTool({
+  name: 'start_run',
+  description: 'Start a plugin-private chat run',
+  async execute(_input, ctx) {
+    const child = await createSession(ctx, {
+      kind: 'plugin-run',
+      visibility: 'plugin_private',
+      cwd: ctx.dataDir,
+    });
+
+    return {
+      content: [{ type: 'text', text: 'Created a plugin-private run.' }],
+      details: {
+        card: createChatSurfaceCard(ctx, child.sessionRef ?? child, {
+          title: 'Plugin run',
+          description: 'Plugin-private transcript',
+        }),
+      },
+    };
+  },
+});
+```
+
+The helper requires `sessionId` / `sessionRef`; passing only a legacy `sessionPath` throws. Hana resolves the current path through the session manifest and only renders sessions owned by the same plugin with `plugin_private` or `private` visibility. Main currently provides a thin native transcript surface; richer composer and native card composition are reserved for the Infinity Chalkboard / Card Kernel layer.
+
 ## Provider contributions
 
 Provider plugins live in `providers/*.js` and require `trust: "full-access"`.
@@ -400,7 +480,7 @@ export const { id, displayName, authType, runtime, capabilities } = provider;
 
 Keep chat and media capabilities explicit. Media-only providers should use `chat.projection = "none"`, and CLI providers must use structured argument bindings rather than shell command strings.
 
-Legacy image-generation plugins may still use `media-gen:register-adapter` as a compatibility execution path, but new plugins should not treat the `media-gen:*` namespace as the public provider API. Add a ProviderPlugin with `capabilities.media.*`, then keep adapter registration only for custom protocol execution until the host exposes a stable Adapter Plugin API.
+Legacy image-generation plugins may still use `media-gen:register-adapter` as a compatibility execution path. New plugins and Agent-generated scaffolds must not call `media-gen:*`; declare a ProviderPlugin with `capabilities.media.*` for discovery, then use the stable media helpers or the formal Adapter Plugin API when that execution surface is available.
 
 ## Pi SDK extensions
 

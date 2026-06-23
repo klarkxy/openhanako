@@ -47,6 +47,8 @@ describe("plugin SDK examples and docs", () => {
     expect(guide).toContain("@hana/plugin-runtime");
     expect(guide).toContain("@hana/plugin-components");
     expect(guide).toContain("hana.assets.url");
+    expect(guide).toContain("getPluginRequestContext");
+    expect(guide).toContain("stable discovery");
     expect(guide).toContain("npm run build:packages");
   });
 
@@ -119,6 +121,7 @@ describe("plugin SDK examples and docs", () => {
   });
 
   it("keeps hana-plugin-creator bundled SDK tarballs aligned with current runtime and protocol APIs", () => {
+    const runtimePackage = JSON.parse(readBundledSdkFile("hana-plugin-runtime-0.0.0.tgz", "package.json"));
     const runtimeTypes = readBundledSdkFile("hana-plugin-runtime-0.0.0.tgz", "dist/index.d.ts");
     const runtimeReadme = readBundledSdkFile("hana-plugin-runtime-0.0.0.tgz", "README.md");
     const sdkTypes = readBundledSdkFile("hana-plugin-sdk-0.0.0.tgz", "dist/index.d.ts");
@@ -134,16 +137,62 @@ describe("plugin SDK examples and docs", () => {
     expect(runtimeTypes).toContain("writeExpectedVersion");
     expect(runtimeTypes).toContain("HanaResourceMoveResult");
     expect(runtimeTypes).toContain("HanaResourceTrashResult");
+    expect(runtimeTypes).toContain("HanaResourceWatchSubscription");
+    expect(runtimeTypes).toContain("watch(");
+    expect(runtimeTypes).toContain("subscribe(");
     expect(runtimeTypes).toContain("HanaToolSessionPermission");
     expect(runtimeTypes).toContain("sessionPermission");
+    expect(runtimeTypes).toContain("getPluginRequestContext");
     expect(runtimeTypes).toContain("resources:");
+    expect(runtimePackage.dependencies).toMatchObject({
+      "@hana/plugin-protocol": "0.0.0",
+    });
     expect(runtimeReadme).toContain("modes[].inputLimits.referenceImages");
     expect(runtimeReadme).toContain("sessionPermission");
+    expect(runtimeReadme).toContain("getPluginRequestContext");
+    expect(runtimeReadme).toContain("ctx.resources.watch()");
     expect(sdkTypes).toContain("api:");
     expect(sdkTypes).toContain("fetch(");
+    expect(sdkTypes).toContain("resources:");
+    expect(sdkTypes).toContain("PluginResourceOpenInput");
     expect(sdkReadme).toContain("hana.api.fetch");
+    expect(sdkReadme).toContain("hana.resources.open");
     expect(protocolTypes).toContain("PLUGIN_SURFACE_SESSION_HEADER");
     expect(protocolTypes).toContain("PLUGIN_SURFACE_SESSION_QUERY");
+    expect(protocolTypes).toContain("PLUGIN_RESOURCE_CAPABILITY");
+    expect(protocolTypes).toContain("PluginResourceEventCursor");
+  });
+
+  it("bundles protocol with runtime templates because runtime reuses protocol resource contracts", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-full-bundled-scaffold-"));
+    try {
+      execFileSync("python3", [
+        path.join(root, "skills2set", "hana-plugin-creator", "scripts", "create_hana_plugin.py"),
+        "Runtime Resource Plugin",
+        "--path",
+        tmpDir,
+        "--kind",
+        "full",
+        "--audience",
+        "developer",
+        "--template",
+        "professional-react",
+        "--sdk-mode",
+        "bundled",
+      ], { cwd: root, stdio: "pipe" });
+
+      const pluginDir = path.join(tmpDir, "runtime-resource-plugin");
+      const pkg = JSON.parse(fs.readFileSync(path.join(pluginDir, "package.json"), "utf-8"));
+
+      expect(pkg.dependencies).toMatchObject({
+        "@hana/plugin-runtime": expect.stringContaining("vendor/sdk/hana-plugin-runtime-"),
+        "@hana/plugin-protocol": expect.stringContaining("vendor/sdk/hana-plugin-protocol-"),
+      });
+      expect(fs.existsSync(path.join(pluginDir, "vendor", "sdk", "hana-plugin-protocol-0.0.0.tgz"))).toBe(true);
+      expect(fs.existsSync(path.join(pluginDir, "vendor", "sdk", "hana-plugin-runtime-0.0.0.tgz"))).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("scaffolds provider contribution plugins with explicit media capabilities", () => {
@@ -177,8 +226,11 @@ describe("plugin SDK examples and docs", () => {
       expect(provider).toContain("inputLimits: { referenceImages: { min: 0, max: 0 } }");
       expect(provider).not.toContain("supportsEdit: true");
       expect(provider).toContain("file_glob");
+      expect(provider).not.toContain("media-gen");
       expect(readme).toContain("provider contribution");
+      expect(readme).toContain("capabilities.media.*");
       expect(readme).toContain("structured argument bindings");
+      expect(readme).not.toContain("media-gen");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -235,11 +287,14 @@ describe("plugin SDK examples and docs", () => {
 
       const pluginDir = path.join(tmpDir, "direct-api-panel");
       const panel = fs.readFileSync(path.join(pluginDir, "assets", "panel.js"), "utf-8");
+      const readme = fs.readFileSync(path.join(pluginDir, "README.md"), "utf-8");
 
       expect(panel).toContain("pluginSurfaceSession");
       expect(panel).toContain("X-Hana-Plugin-Surface-Session");
       expect(panel).toContain("api: {");
       expect(panel).toContain("fetch: pluginApiFetch");
+      expect(readme).toContain("ui.hostCapabilities");
+      expect(readme).toContain("resource.open");
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

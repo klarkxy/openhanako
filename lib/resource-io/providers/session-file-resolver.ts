@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
-import { capabilityDenied, ResourceIOError } from "../errors.ts";
+import { ResourceIOError, capabilityDenied } from "../errors.ts";
 import { resourceKeyForRef } from "../resource-refs.ts";
+import { SessionFileResolver } from "../session-file-resolver.ts";
 import type {
   MaterializeResult,
   ResourceDescriptor,
@@ -9,6 +10,7 @@ import type {
   ResourceReadResult,
   ResourceRef,
   ResourceStat,
+  ResourceTrashResult,
   ResourceVersion,
 } from "../types.ts";
 
@@ -19,11 +21,15 @@ type Options = {
 };
 
 export class SessionFileResolverProvider {
+  readonly id = "session_file" as const;
+
   declare sessionFiles: Options["sessionFiles"];
+  declare resolver: SessionFileResolver;
 
   constructor({ sessionFiles }: Options) {
     if (!sessionFiles) throw new Error("sessionFiles is required");
     this.sessionFiles = sessionFiles;
+    this.resolver = new SessionFileResolver({ sessionFiles });
   }
 
   capabilities() {
@@ -31,12 +37,16 @@ export class SessionFileResolverProvider {
       stat: true,
       read: true,
       materialize: true,
+      writeExpectedVersion: false,
       write: false,
       edit: false,
       list: false,
       search: false,
       watch: false,
       copy: false,
+      rename: false,
+      move: false,
+      trash: false,
       delete: false,
       mkdir: false,
     };
@@ -84,45 +94,21 @@ export class SessionFileResolverProvider {
     };
   }
 
-  async write(_ref?: ResourceRef, _content?: string | Buffer): Promise<ResourceMutationResult> { throw capabilityDenied("write", "session_file"); }
-  async edit(_ref?: ResourceRef, _edits?: unknown[]): Promise<ResourceMutationResult> { throw capabilityDenied("edit", "session_file"); }
-  async list(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("list", "session_file"); }
-  async search(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("search", "session_file"); }
-  async delete(_ref?: ResourceRef): Promise<ResourceMutationResult> { throw capabilityDenied("delete", "session_file"); }
-  async mkdir(_ref?: ResourceRef): Promise<ResourceMutationResult> { throw capabilityDenied("mkdir", "session_file"); }
+  async write(_ref?: ResourceRef, _content?: string | Buffer): Promise<ResourceMutationResult> { throw capabilityDenied("write", this.id); }
+  async writeExpectedVersion(_ref?: ResourceRef, _content?: string | Buffer, _expectedVersion?: ResourceVersion): Promise<never> { throw capabilityDenied("writeExpectedVersion", this.id); }
+  async edit(_ref?: ResourceRef, _edits?: unknown[]): Promise<ResourceMutationResult> { throw capabilityDenied("edit", this.id); }
+  async list(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("list", this.id); }
+  async search(_ref?: ResourceRef): Promise<never> { throw capabilityDenied("search", this.id); }
+  async copy(_from?: ResourceRef, _to?: ResourceRef): Promise<never> { throw capabilityDenied("copy", this.id); }
+  async rename(_from?: ResourceRef, _to?: ResourceRef): Promise<never> { throw capabilityDenied("rename", this.id); }
+  async move(_from?: ResourceRef, _to?: ResourceRef): Promise<never> { throw capabilityDenied("move", this.id); }
+  async trash(_ref?: ResourceRef): Promise<ResourceTrashResult> { throw capabilityDenied("trash", this.id); }
+  async delete(_ref?: ResourceRef): Promise<ResourceMutationResult> { throw capabilityDenied("delete", this.id); }
+  async mkdir(_ref?: ResourceRef): Promise<ResourceMutationResult> { throw capabilityDenied("mkdir", this.id); }
 
   resolveEntry(ref: ResourceRef) {
-    if (ref.kind !== "session-file") {
-      throw new ResourceIOError(`session_file provider cannot resolve ${ref.kind}`, {
-        code: "invalid_resource_ref",
-        status: 400,
-      });
-    }
-    const options = {
-      ...(ref.sessionId ? { sessionId: ref.sessionId } : {}),
-      ...(ref.sessionPath ? { sessionPath: ref.sessionPath } : {}),
-    };
-    const entry = this.sessionFiles.get(ref.fileId, options);
-    if (!entry) {
-      throw new ResourceIOError(`session file not found: ${ref.fileId}`, {
-        code: "resource_not_found",
-        status: 404,
-      });
-    }
-    if (entry.status === "expired") {
-      throw new ResourceIOError(`session file expired: ${ref.fileId}`, {
-        code: "resource_expired",
-        status: 410,
-      });
-    }
-    const filePath = entry.realPath || entry.filePath;
-    if (!filePath || !path.isAbsolute(filePath)) {
-      throw new ResourceIOError(`session file path is invalid: ${ref.fileId}`, {
-        code: "invalid_resource_path",
-        status: 500,
-      });
-    }
-    return { normalized: ref, entry, filePath };
+    const resolved = this.resolver.resolve(ref);
+    return { normalized: resolved.ref, entry: resolved.entry, filePath: resolved.filePath };
   }
 }
 

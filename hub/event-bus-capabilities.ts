@@ -253,7 +253,7 @@ export const BUILTIN_EVENT_BUS_CAPABILITIES = Object.freeze([
     outputSchema: OBJECT_SCHEMA,
     permission: "session.write",
     errors: ["NO_HANDLER", "TIMEOUT", "INTERNAL_ERROR"],
-    stability: "experimental",
+    stability: "stable",
     owner: "system",
   },
   {
@@ -318,7 +318,7 @@ export const BUILTIN_EVENT_BUS_CAPABILITIES = Object.freeze([
     outputSchema: OBJECT_SCHEMA,
     permission: "provider.read",
     errors: ["NO_HANDLER", "TIMEOUT", "INTERNAL_ERROR"],
-    stability: "experimental",
+    stability: "stable",
     owner: "system",
   },
   {
@@ -340,7 +340,7 @@ export const BUILTIN_EVENT_BUS_CAPABILITIES = Object.freeze([
     outputSchema: OBJECT_SCHEMA,
     permission: "provider.read",
     errors: ["NO_HANDLER", "TIMEOUT", "INTERNAL_ERROR"],
-    stability: "experimental",
+    stability: "stable",
     owner: "system",
   },
   {

@@ -8,6 +8,7 @@
 
 import { handleServerMessage, applyStreamingStatus } from './ws-message-handler';
 import { requestStreamResume, injectHandlers, injectWebSocketGetter } from './stream-resume';
+import { catchUpResourceEventsAfterReconnect, recordResourceEventCursor } from './resource-events';
 import { useStore } from '../stores';
 import { setStatus } from '../utils/ui-helpers';
 import {
@@ -121,11 +122,16 @@ async function openConnectionWebSocket(connection: ServerConnection): Promise<vo
         ...(s.currentSessionId ? { sessionId: s.currentSessionId } : {}),
       }));
     }
+
+    void catchUpResourceEventsAfterReconnect((event) => handleServerMessage(event)).catch((err) => {
+      console.warn('[ws] resource event catch-up failed:', err);
+    });
   };
 
   _ws.onmessage = (event: MessageEvent) => {
     try {
       const msg = JSON.parse(event.data);
+      recordResourceEventCursor(msg);
       handleServerMessage(msg);
     } catch (err) {
       console.error('[ws] message parse error:', err);
