@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSettingsStore } from '../store';
+import { hanaFetch } from '../api';
 import { t, VALID_THEMES, autoSaveConfig } from '../helpers';
 import { SelectWidget } from '@/ui';
 import { Toggle } from '../widgets/Toggle';
@@ -37,6 +38,11 @@ import {
 import { CUSTOM_FONT_STORAGE_KEY } from '../../../shared/theme';
 import type { SystemFontInfo } from '../../types';
 import { readConfigBoolean } from '../resource-state';
+import {
+  normalizeSidebarUiPrefs,
+  type SidebarSessionListRowMode,
+  type SidebarUiPrefs,
+} from '../../../../../shared/sidebar-ui-state.ts';
 import styles from '../Settings.module.css';
 import registry from '../../../shared/theme-registry';
 
@@ -131,7 +137,9 @@ function formatBodyFontSizeOffset(offset: number): string {
 export function InterfaceTab() {
   const settingsConfig = useSettingsStore(s => s.settingsConfig);
   const platformName = useSettingsStore(s => s.platformName);
+  const showToast = useSettingsStore(s => s.showToast);
   const [appearancePrefs, setAppearancePrefs] = useState<AppearancePrefs>(() => readAppearancePrefs());
+  const [sidebarUiPrefs, setSidebarUiPrefs] = useState<SidebarUiPrefs | null>(null);
   const refreshAppearancePrefs = useCallback(() => {
     setAppearancePrefs(readAppearancePrefs());
   }, []);
@@ -189,6 +197,22 @@ export function InterfaceTab() {
     ? VOICE_RECORD_SHORTCUT_MAC
     : VOICE_RECORD_SHORTCUT_DEFAULT;
 
+  useEffect(() => {
+    let cancelled = false;
+    hanaFetch('/api/preferences/sidebar-ui')
+      .then(res => res.json())
+      .then(data => {
+        if (cancelled) return;
+        setSidebarUiPrefs(normalizeSidebarUiPrefs(data?.sidebarUi));
+      })
+      .catch(err => {
+        if (!cancelled) console.warn('[settings] sidebar UI preferences load failed:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const saveEditorTypography = async (patch: Partial<EditorMarkdownTypography>) => {
     const previousConfig = useSettingsStore.getState().settingsConfig || {};
     const previousEditor = previousConfig.editor;
@@ -243,7 +267,7 @@ export function InterfaceTab() {
     useSettingsStore.setState({ settingsConfig: previousConfig });
   };
 
-  const saveCustomFont = useCallback(async (patch: { serifFamily?: string | null; uiFamily?: string | null }) => {
+const saveCustomFont = useCallback(async (patch: { serifFamily?: string | null; uiFamily?: string | null }) => {
     const previous = readCustomFontFamilies();
     const nextSerif = patch.serifFamily === undefined ? previous.serifFamily : (patch.serifFamily || '');
     const nextUi = patch.uiFamily === undefined ? previous.uiFamily : (patch.uiFamily || '');
@@ -296,6 +320,34 @@ export function InterfaceTab() {
   const handleClearCustomFont = useCallback(() => {
     void saveCustomFont({ serifFamily: '', uiFamily: '' });
   }, [saveCustomFont]);
+
+  const saveSessionListRowMode = useCallback(async (singleLine: boolean) => {
+    const previousPrefs = sidebarUiPrefs;
+    const basePrefs = previousPrefs ?? normalizeSidebarUiPrefs({});
+    const rowMode: SidebarSessionListRowMode = singleLine ? 'single-line' : 'two-line';
+    const optimistic = normalizeSidebarUiPrefs({
+      ...basePrefs,
+      sessionList: { ...basePrefs.sessionList, rowMode },
+    });
+    setSidebarUiPrefs(optimistic);
+    try {
+      const res = await hanaFetch('/api/preferences/sidebar-ui', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionList: { rowMode } }),
+      });
+      const data = await res.json();
+      const saved = normalizeSidebarUiPrefs(data?.sidebarUi);
+      setSidebarUiPrefs(saved);
+      window.dispatchEvent(new CustomEvent('hana-settings', {
+        detail: { type: 'sidebar-ui-changed', sidebarUi: saved },
+      }));
+      window.platform?.settingsChanged?.('sidebar-ui-changed', { sidebarUi: saved });
+    } catch (err: unknown) {
+      setSidebarUiPrefs(previousPrefs);
+      showToast(t('settings.saveFailed') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+    }
+  }, [showToast, sidebarUiPrefs]);
 
   const locale = settingsConfig?.locale || 'zh-CN';
   const localeVal = ['zh-CN', 'zh-TW', 'ja', 'ko', 'en'].includes(locale) ? locale
@@ -561,6 +613,19 @@ export function InterfaceTab() {
             <Toggle
               on={hardwareAccelerationEnabled}
               onChange={saveHardwareAcceleration}
+            />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection title={t('settings.interface.sidebar')}>
+        <SettingsRow
+          label={t('settings.interface.sessionListSingleLine')}
+          hint={t('settings.interface.sessionListSingleLineHint')}
+          control={
+            <Toggle
+              on={sidebarUiPrefs ? sidebarUiPrefs.sessionList.rowMode === 'single-line' : undefined}
+              onChange={saveSessionListRowMode}
             />
           }
         />

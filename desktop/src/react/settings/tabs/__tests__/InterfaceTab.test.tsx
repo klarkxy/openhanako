@@ -22,12 +22,18 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InterfaceTab } from '../InterfaceTab';
 import { useSettingsStore } from '../../store';
 import registry from '../../../../shared/theme-registry';
+
+const hanaFetchMock = vi.fn();
+
+vi.mock('../../api', () => ({
+  hanaFetch: (...args: unknown[]) => hanaFetchMock(...args),
+}));
 
 vi.mock('../../../services/appearance-sync', () => ({
   persistAppearancePreferences: vi.fn().mockResolvedValue(undefined),
@@ -96,6 +102,37 @@ describe('InterfaceTab appearance state', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    hanaFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/api/preferences/sidebar-ui' && init?.method === 'PUT') {
+        return {
+          json: async () => ({
+            sidebarUi: {
+              projectView: {
+                collapsedProjectIds: [],
+                collapsedFolderIds: [],
+                showAllProjectIds: [],
+              },
+              sessionList: { rowMode: 'single-line' },
+            },
+          }),
+        };
+      }
+      if (path === '/api/preferences/sidebar-ui') {
+        return {
+          json: async () => ({
+            sidebarUi: {
+              projectView: {
+                collapsedProjectIds: [],
+                collapsedFolderIds: [],
+                showAllProjectIds: [],
+              },
+              sessionList: { rowMode: 'two-line' },
+            },
+          }),
+        };
+      }
+      return { json: async () => ({}) };
+    });
     localStorage.clear();
     document.body.className = '';
     document.documentElement.setAttribute('data-theme', registry.DEFAULT_THEME);
@@ -287,5 +324,31 @@ describe('InterfaceTab appearance state', () => {
     // 持久化走 persistAppearancePreferences，里面会 PUT /api/preferences/appearance；
     // 现有 mock 已在文件顶部挂好。
     expect(screen.getByText('settings.appearance.customFont')).toBeTruthy();
+  });
+
+  it('saves the single-line session list preference through sidebar UI preferences', async () => {
+    render(React.createElement(InterfaceTab));
+
+    const label = await screen.findByText('settings.interface.sessionListSingleLine');
+    const row = label.parentElement?.parentElement;
+    expect(row).toBeTruthy();
+    const densitySwitch = within(row as HTMLElement).getByRole('switch') as HTMLButtonElement;
+
+    await waitFor(() => {
+      expect(densitySwitch.getAttribute('aria-checked')).toBe('false');
+    });
+    fireEvent.click(densitySwitch);
+
+    await waitFor(() => {
+      expect(hanaFetchMock).toHaveBeenCalledWith('/api/preferences/sidebar-ui', expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ sessionList: { rowMode: 'single-line' } }),
+      }));
+      expect(window.platform.settingsChanged).toHaveBeenCalledWith('sidebar-ui-changed', expect.objectContaining({
+        sidebarUi: expect.objectContaining({
+          sessionList: { rowMode: 'single-line' },
+        }),
+      }));
+    });
   });
 });
